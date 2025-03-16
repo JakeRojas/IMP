@@ -1,0 +1,22 @@
+{
+  "name": "imp",
+  "version": "1.0.0",
+  "description": "Inventory Management Project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node ./server.js",
+    "start:dev": "nodemon ./server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "joi": "^17.13.3",
+    "mysql2": "^3.12.0",
+    "rootpath": "^0.1.2",
+    "sequelize": "^6.37.5"
+  }
+}
