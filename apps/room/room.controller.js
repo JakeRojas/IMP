@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
-const roomService = require('room/room.service');
+const roomService = require('apps/room/room.service');
 const validateRequest = require('_middlewares/validate-request');
 
 router.get('/inventory', monitorRoomInventory);

@@ -103,7 +103,7 @@ const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
 const validateRequest = require('_middlewares/validate-request');
-const apparelService = require('apparel/apparel.service');
+const apparelService = require('apps/apparel/apparel.service');
 
 // Original CRUD routes
 router.get('/', getApparel);

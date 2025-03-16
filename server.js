@@ -14,10 +14,10 @@ app.use(cookieParser());
 app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
 
 // api routes
-app.use('/api/apparel', require('./apparel/apparel.controller'));
-app.use('/api/stockroom', require('./stockroom/stockroom.controller'));
-app.use('/api/room', require('./room/room.controller'));
-pp.use('/api/request', require('./controllers/request.controller'));
+app.use('/api/apparel', require('./apps/apparel/apparel.controller'));
+app.use('/api/stockroom', require('./apps/stockroom/stockroom.controller'));
+app.use('/api/room', require('./apps/room/room.controller'));
+app.use('/api/request', require('./apps/request/request.controller'));
 
 // swagger docs route
 //app.use('/api-docs', require('_helpers/swagger'));

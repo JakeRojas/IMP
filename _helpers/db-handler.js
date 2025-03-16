@@ -15,10 +15,10 @@ async function initialize() {
     const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
 
 // Initialize models and add them to the exported `db` object
-db.Apparel = require('../apparel/apparel.model')(sequelize);
-db.Stockroom = require('../stockroom/stockroom.model')(sequelize);
-db.RoomInventory = require('../room/room.model')(sequelize);
-db.ItemRequest = require('../request/request.model')(sequelize);
+db.Apparel = require('../apps/apparel/apparel.model')(sequelize);
+db.Stockroom = require('../apps/stockroom/stockroom.model')(sequelize);
+db.RoomInventory = require('../apps/room/room.model')(sequelize);
+db.ItemRequest = require('../apps/request/request.model')(sequelize);
 
 dbAssociations();
 
