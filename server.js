@@ -11,7 +11,13 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 
 // allow cors requests from any origin and with credentials
-app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+//app.use(cors({ origin: (origin, callback) => callback(null, true), credentials: true }));
+app.use(
+  cors({
+    origin: 'http://localhost:3000', // Replace with your Next.js front-end URL
+    credentials: true,
+  })
+);
 
 // api routes
 app.use('/api/apparel', require('./apps/apparel/apparel.controller'));
