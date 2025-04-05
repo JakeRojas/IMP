@@ -5,5 +5,15 @@
         "user": "root",
         "password": "root",
         "database": "IMP_db"
+    },
+    "secret": "THIS IS USED TO SIGN AND VERIFY JWT TOKENS, REPLACE IT WITH YOUR OWN SECRET, IT CAN BE ANY STRING", 
+    "emailFrom": "info@node-mysql-signup-verification-api.com",
+    "smtpOptions": {
+        "host": "smtp.ethereal.email", 
+        "port": 587,
+        "auth": {
+            "user":"fern34@ethereal.email",
+            "pass":"K283jn7kdcbq4tMXUn"
+        }
     }
 }

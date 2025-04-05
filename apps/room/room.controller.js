@@ -4,10 +4,24 @@ const Joi = require('joi');
 const roomService = require('apps/room/room.service');
 const validateRequest = require('_middlewares/validate-request');
 
+router.post('/', createRoom);
+router.get('/', getRooms);
 router.get('/inventory', monitorRoomInventory);
 router.post('/borrow', borrowSchema, borrowItems);
 
 module.exports = router;
+
+function createRoom(req, res, next) {
+  roomService.createRoom(req.body)
+      .then(() => res.json({ message: 'Room created' }))
+      .catch(next);
+}
+
+function getRooms(req, res, next) {
+  roomService.getRooms()
+      .then(room => res.json(room))
+      .catch(next);
+}
 
 function monitorRoomInventory(req, res, next) {
   roomService.monitorRoomsInventory()

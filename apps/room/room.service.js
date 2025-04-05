@@ -1,11 +1,37 @@
 const db = require('_helpers/db-handler');
 
 module.exports = {
+  createRoom,
+  getRooms,
   monitorRoomsInventory,
   borrowItemBetweenRooms,
 };
 
 // Retrieve all room inventories with items details
+async function getRooms() {
+  return await db.RoomInventory.findAll();
+}
+
+async function createRoom(params) {
+  let rooms = await db.RoomInventory.findOne({ where: {roomName: params.roomName} });
+
+  if (rooms) {
+    return { 
+      message: 'Room already exists'
+    }
+  } else {
+    rooms = await db.RoomInventory.create({
+      floorNo: params.floorNo,
+      roomName: params.roomName,
+      roomStatus: params.roomStatus
+    });
+    return { 
+      message: 'New room created.', 
+      rooms 
+  };
+  }
+}
+
 async function monitorRoomsInventory() {
   return await db.RoomInventory.findAll();
 }
