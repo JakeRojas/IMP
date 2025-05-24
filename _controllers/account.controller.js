@@ -4,7 +4,7 @@ const Joi = require('joi');
 const validateRequest = require('_middlewares/validate-request'); 
 const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
-const accountService = require('apps/accounts/account.service');
+const accountService = require('_services/account.service');
 
 router.post('/authenticate', authenticateSchema, authenticate);
 router.post('/refresh-token', refreshToken);
@@ -124,7 +124,7 @@ function registerSchema(req, res, next) {
         phoneNumber: Joi.string().length(11).pattern(/^(09|\+639)\d{9}$/).required(),
         password: Joi.string().min(6).required(),
         confirmPassword: Joi.string().valid(Joi.ref('password')).required(), 
-        acceptTerms: Joi.boolean().valid(true).required()
+        //acceptTerms: Joi.boolean().valid(true).required()
     });
     validateRequest(req, next, schema);
 }
@@ -209,7 +209,7 @@ function createSchema (req, res, next) {
         phoneNumber: Joi.string().length(11).pattern(/^(09|\+639)\d{9}$/).required(),  
         password: Joi.string().min(6).required(), 
         confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
-        role: Joi.string().valid(Role. Admin, Role.User, Role.Staff).required()
+        //role: Joi.string().valid(Role. Admin, Role.User, Role.Staff).required()
     });
     validateRequest(req, next, schema);
 }

@@ -103,7 +103,7 @@ const express = require('express');
 const router = express.Router();
 const Joi = require('joi');
 const validateRequest = require('_middlewares/validate-request');
-const apparelService = require('apps/apparel/apparel.service');
+const apparelService = require('_services/apparel.service');
 
 // Original CRUD routes
 router.get('/', getApparel);
@@ -112,6 +112,8 @@ router.post('/', createApparelschema, createApparel);
 router.put('/:id', updateApparelschema, updateApparel);
 router.get('/inventory/monitor', monitorInventory);
 router.post('/reorder', reorderDecisionSchema, reorderDecision);
+router.post('/scan', scanItem);
+router.post('/mark-lost', markLost);
 
 module.exports = router;
 
@@ -120,25 +122,21 @@ function getApparel(req, res, next) {
         .then(apparel => res.json(apparel))
         .catch(next);
 }
-
 function getApparelById(req, res, next) {
     apparelService.getApparelById(req.params.id)
         .then(apparel => res.json(apparel))
         .catch(next);
 }
-
 function createApparel(req, res, next) {
     apparelService.createApparel(req.body)
         .then(() => res.json({ message: 'Apparel created' }))
         .catch(next);
 }
-
 function updateApparel(req, res, next) {
     apparelService.updateApparel(req.params.id, req.body)
         .then(() => res.json({ message: 'Apparel updated' }))
         .catch(next);
 }
-
 function createApparelschema(req, res, next) {
     const schema = Joi.object({
         type: Joi.string().valid('intrams', 'school', 'teachers', 'maintenance'),
@@ -153,7 +151,6 @@ function createApparelschema(req, res, next) {
     });
     validateRequest(req, next, schema);
 }
-
 function updateApparelschema(req, res, next) {
     const schema = Joi.object({
         name: Joi.string().min(5).max(30).empty(''),
@@ -164,8 +161,6 @@ function updateApparelschema(req, res, next) {
     });
     validateRequest(req, next, schema);
 }
-
-// Schema for distributeApparel endpoint
 function distributeApparelSchema(req, res, next) {
     const schema = Joi.object({
         apparelId: Joi.number().integer().required(),
@@ -173,7 +168,6 @@ function distributeApparelSchema(req, res, next) {
     });
     validateRequest(req, next, schema);
 }
-
 // 2. Monitor Inventory
 // This endpoint returns the current inventory levels along with apparel details.
 function monitorInventory(req, res, next) {
@@ -181,7 +175,6 @@ function monitorInventory(req, res, next) {
         .then(report => res.json(report))
         .catch(next);
 }
-
 // 3. Reorder Decision
 // This endpoint checks if the current stock for an apparel item is below a threshold.
 function reorderDecision(req, res, next) {
@@ -190,7 +183,6 @@ function reorderDecision(req, res, next) {
         .then(result => res.json(result))
         .catch(next);
 }
-
 // Schema for reorderDecision endpoint
 function reorderDecisionSchema(req, res, next) {
     const schema = Joi.object({
@@ -199,3 +191,36 @@ function reorderDecisionSchema(req, res, next) {
     });
     validateRequest(req, next, schema);
 }
+
+function scanItem(req, res, next) {
+    const qrCode = req.body.qrCode;
+    if (!qrCode) {
+      return res.status(400).json({ message: 'QR Code is required' });
+    }
+  
+    try {
+      const item = req.body;
+      apparelService.scanItem(qrCode);
+      res.json({ success: true, message: 'Item marked as active', item });
+    } catch (err) {
+      next(err);
+    }
+};
+
+function markLost(req, res, next) {
+    // const roomId = req.body.roomId;
+    // const scannedIds = req.body.scannedIds;
+
+    const { roomId, scannedIds } = req.body;
+
+    if (!roomId || !Array.isArray(scannedIds)) {
+      return res.status(400).json({ message: 'roomId and scannedIds are required' });
+    }
+  
+    try {
+    apparelService.markLostInRoom(roomId, scannedIds);
+    res.json({ success: true, message: 'Unscanned items marked as lost' });
+  } catch (err) {
+    next(err);
+  }
+  };

@@ -11,7 +11,7 @@ function model(sequelize) {
         revoked: { type: DataTypes.DATE },
         revokedByIp: { type: DataTypes.STRING },
         replacedByToken: { type: DataTypes.STRING }, 
-        AccountId: { type: DataTypes.INTEGER, allowNull: false }, // Make this field required
+        AccountId: { type: DataTypes.INTEGER, allowNull: false },
         isExpired: {
             type: DataTypes.VIRTUAL,
             get() { return Date.now() >= this.expires; }
@@ -26,5 +26,5 @@ function model(sequelize) {
         timestamps: false
     };
 
-    return sequelize.define('refreshToken', attributes, options);
+    return sequelize.define('RefreshToken', attributes, options);
 }

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const stockroomService = require('apps/stockroom/stockroom.service');
+const stockroomService = require('_services/stockroom.service');
 
 router.get('/', getStockroomDetails);
 

@@ -10,7 +10,9 @@ module.exports = (sequelize) => {
         color: { type: DataTypes.STRING, allowNull: true },
         quantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
         description: { type: DataTypes.STRING, allowNull: true },
-        apparelStatus: { type: DataTypes.ENUM('unavailable', 'available'), allowNull: false, defaultValue: 'available' }
+        apparelStatus: { type: DataTypes.ENUM('unavailable', 'available'), allowNull: false, defaultValue: 'available' },
+        //qrCode: { type: DataTypes.STRING, unique: true, allowNull: false },
+        status: { type: DataTypes.ENUM('active', 'lost', 'maintenance'), allowNull: false, defaultValue: 'active' }
     };
 
     return sequelize.define('Apparel', attributes);
