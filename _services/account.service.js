@@ -17,21 +17,24 @@ module.exports = {
     forgotPassword,
     validateResetToken,
     resetPassword, 
+
     getAll,
     getById,
     create,
+    update,
+    delete: _delete,
+
     logActivity,
     getAccountActivities,
     getAllActivityLogs,
-    update,
+
     updatePreferences,
-    getPreferences,
-    delete: _delete
+    getPreferences
+    
 };
 
 
 async function create(params) {
-  // Check if the email is already registered
   const existingAccount = await db.Account.findOne({ where: { email: params.email } });
   if (existingAccount) {
       throw `Email "${params.email}" is already registered`;
@@ -45,27 +48,16 @@ async function create(params) {
   account.verified = Date.now();
   account.passwordHash = await hash(params.password);
   
-  // Save the account
   await account.save();
   
-  // Create default preferences for the new user
-  await db.Preferences.create({
-      AccountId: account.id,
-      theme: 'light',
-      notifications: true,
-      language: 'en'
-  });
-  
-  // Return the basic details of the created account
   return basicDetails(account);
 }
 async function update(id, params, ipAddress, browserInfo) {
   const account = await getAccount(id);
-  const oldData = account.toJSON(); // Get current user data as a plain object
-  const updatedFields = []; // Declare updatedFields array
+  const oldData = account.toJSON(); 
+  const updatedFields = []; 
   const nonUserFields = ['ipAddress', 'browserInfo'];
   
-  // Check if any meaningful changes are being made
   const hasChanges = Object.keys(params).some(key => 
     !nonUserFields.includes(key) && 
     params[key] !== undefined && 
@@ -98,7 +90,6 @@ async function update(id, params, ipAddress, browserInfo) {
   try {
       await account.save();
   
-      // Log activity with updated fields
       const updateDetails = updatedFields.length > 0 
           ? `Updated fields: ${updatedFields.join(', ')}` 
           : 'No fields changed';
@@ -122,8 +113,6 @@ async function getById(id) {
   const account = await getAccount(id); 
   return basicDetails (account);
 }
-
-
 async function register(params, origin) {
   if (await db.Account.findOne({ where: { email: params.email } })) {
       return await sendAlreadyRegisteredEmail (params.email, origin);
@@ -138,26 +127,17 @@ async function register(params, origin) {
   account.passwordHash = await hash (params.password);
   
   await account.save();
-    
-  const preferencesData = {
-    AccountId: account.id, // Reference to the newly created user's ID
-    theme: 'light',  // Default theme (you can modify these defaults as needed)
-    notifications: true,  // Default notifications preference
-    language: 'en'   // Default language
-  };
   
-  // Save the preferences for the user
   await db.Preferences.create(preferencesData);
 
-  
   await sendVerificationEmail (account, origin);
 }
 async function authenticate({ email, password, ipAddress, browserInfo }) {
     const account = await db.Account.scope('withHash').findOne({ where: { email } });
   
-    // if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
-    //   throw 'Email or password is incorrect';
-    // }
+    if (!(await bcrypt.compare(password, account.passwordHash))) {
+      throw 'Email or password is incorrect';
+    }
   
     const jwtToken = generateJwtToken(account);
     const refreshToken = generateRefreshToken(account, ipAddress);
@@ -178,7 +158,6 @@ async function authenticate({ email, password, ipAddress, browserInfo }) {
 }
 async function logActivity(AccountId, actionType, ipAddress, browserInfo, updateDetails = '') {
     try {
-      // Create a new log entry in the 'activity_log' table
       await db.ActivityLog.create({
         AccountId,
         actionType,
@@ -186,11 +165,9 @@ async function logActivity(AccountId, actionType, ipAddress, browserInfo, update
         timestamp: new Date()
       });
   
-      // Count the number of logs for the user
       const logCount = await db.ActivityLog.count({ where: { AccountId } });
   
       if (logCount > 10) {
-        // Find and delete the oldest logs
         const logsToDelete = await db.ActivityLog.findAll({
           where: { AccountId },
           order: [['timestamp', 'ASC']],
@@ -219,7 +196,6 @@ async function getAllActivityLogs(filters = {}) {
   try {
       let whereClause = {};
       
-      // Apply filters
       if (filters.actionType) {
           whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
       }
@@ -234,7 +210,6 @@ async function getAllActivityLogs(filters = {}) {
           whereClause.timestamp = { [Op.between]: [startDate, endDate] };
       }
 
-      // Get all activity logs with user details
       const logs = await db.ActivityLog.findAll({
           where: whereClause,
           include: [{
@@ -245,7 +220,6 @@ async function getAllActivityLogs(filters = {}) {
           order: [['timestamp', 'DESC']]
       });
 
-      // Format the response
       return logs.map(log => {
           const formattedDate = new Intl.DateTimeFormat('en-US', {
               year: 'numeric',
@@ -278,7 +252,6 @@ async function getAccountActivities(AccountId, filters = {}) {
 
   let whereClause = { AccountId };
 
-  // Apply optional filters such as action type and timestamp range
   if (filters.actionType) {
     whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
   }
@@ -305,7 +278,7 @@ async function getAccountActivities(AccountId, filters = {}) {
           AccountId: activity.AccountId,
           actionType: activity.actionType,
           actionDetails: activity.actionDetails,
-          timestamp: formattedDate // Replace raw timestamp with formatted date
+          timestamp: formattedDate 
       };
   });
   } catch (error) {
@@ -313,7 +286,6 @@ async function getAccountActivities(AccountId, filters = {}) {
     throw new Error('Error retrieving activities');
   }
 }
-
 async function forgotPassword({ email }, origin) {
   const account = await db.Account.findOne({ where: { email } });
 
@@ -328,7 +300,6 @@ async function forgotPassword({ email }, origin) {
 async function resetPassword({ token, password }, ipAddress, browserInfo) {
   const account = await validateResetToken({ token });
 
-   // Add password validation if needed
    if (password.length < 6) {
     throw 'Password must be at least 6 characters';
 }
@@ -346,8 +317,6 @@ async function resetPassword({ token, password }, ipAddress, browserInfo) {
 
   return;
 }
-
-
 async function refreshToken({ token, ipAddress }) { 
     const refreshToken = await getRefreshToken(token); 
     const account = await refreshToken.getAccount();

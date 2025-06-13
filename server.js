@@ -32,7 +32,10 @@ app.use(cookieParser());
 // ─── FRONTEND PORT ───────────────────────────────────────────────────
 app.use(
   cors({
-    origin: 'http://localhost:3000',
+    origin: [
+      'http://localhost:3000',
+      'http://192.168.1.14:3000'
+    ],
     credentials: true,
   })
 );
@@ -41,12 +44,8 @@ app.use(
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // ─── API ROUTES ────────────────────────────────────────────────
-app.use('/apparel', require('./_controllers/apparel.controller'));
-app.use('/stockroom', require('./_controllers/stockroom.controller'));
 app.use('/room', require('./_controllers/room.controller'));
-app.use('/request', require('./_controllers/request.controller'));
 app.use('/accounts', require('./_controllers/account.controller'));
-app.use('/users', require('./_controllers/user.controller'));
 app.use('/items', require('./_controllers/item.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
@@ -58,3 +57,5 @@ app.use(errorHandler);
 // ─── START SERVER ────────────────────────────────────────────────
 const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80): 5000;
 app.listen(port, () => console.log('Server listening on port' + port));
+// const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 5000;
+// app.listen(port, '0.0.0.0', () => console.log(`Server listening on 0.0.0.0:${port}`));

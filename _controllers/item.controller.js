@@ -3,29 +3,58 @@ const router = express.Router();
 const Joi = require('joi');
 const itemService = require('_services/item.service');
 const validateRequest = require('_middlewares/validate-request');
-const multer = require('multer');
-//const upload = multer({ dest: 'uploads/' });
 const { Router } = require('express');
-const upload = require('multer')(/*...storage config...*/).single('itemQrCode');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({ storage }).single('itemQrCode');
 
 router.post('/create-item', upload, createItemSchema, createItem);
 router.get('/', getItems);
 router.get('/:id', getItemById);
 router.post('/assign-item', createAssignment);
+router.post('/scan-item', scanItemHandler);
+router.put('/:id/activation', itemActivation);
 
 module.exports = router;
 
 async function createItem(req, res, next) {
   try {
-    const { itemName, itemCategory, roomId } = req.body;
-    if (!itemName) 
-      return res.status(400).json({ message: 'itemName is required' });
-    
-    const newItem = await itemService.createItem(req.body, req.file);
-    res.status(201).json(newItem);
-  } catch (err) {
-    next(err);
+    if (!req.file) {
+      return res.status(400).json({ message: 'QR code file is required.' });
     }
+
+    const { itemName, itemCategory } = req.body;
+    const qrFilename = req.file.filename;
+    const qrPath = `/uploads/${qrFilename}`;
+
+    const newItem = await itemService.createItem({
+      itemName,
+      itemCategory,
+      itemQrCode: qrPath
+    });
+
+    return res.status(201).json(newItem);
+  } catch (error) {
+    next(error);
+  }
 }
 function createItemSchema(req, res, next) {
   const schema = Joi.object({
@@ -53,4 +82,38 @@ async function createAssignment(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+async function scanItemHandler(req, res, next) {
+  try {
+    const { qrCode, roomId } = req.body;
+
+    const inv = await db.RoomInventory.findOne({
+      where: { roomId },
+      include: {
+        model: db.Item,
+        as: 'Item',
+        where: { itemQrCode: qrCode }
+      }
+    });
+
+    if (!inv) {
+      return res.status(400).json({ message: 'This item is not belong here' });
+    }
+
+    await itemService.activateItem(inv.itemId);
+
+    res.json({ message: 'Item activated', item: inv.Item });
+  } catch (err) {
+    next(err);
+  }
+}
+function itemActivation(req, res, next) {
+  const { id } = req.params;
+
+  itemService
+    .itemActivation(id)
+    .then((newStatus) =>
+      res.json({ message: `Product ${newStatus} successfully` })
+    )
+    .catch(next);
 }

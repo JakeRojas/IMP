@@ -10,6 +10,9 @@ router.get('/:id', getRoomById);
 router.post('/:roomId/register-item', registerItemSchema, registerItemHandler );
 router.get('/in-charge-options', getInChargeOptions);
 router.get('/:roomId/items', getRoomItems);
+router.get('/:roomId/scannable-items', getScannableItems);
+router.post('/:roomId/scan', scanItem);
+router.put('/:roomId/scan/items/:itemQrCode/status', updateItemStatus);
 
 module.exports = router;
 
@@ -63,6 +66,38 @@ async function getRoomItems(req, res, next) {
   try {
     const items = await roomService.getRoomItems(req.params.roomId);
     res.json(items);
+  } catch (err) {
+    next(err);
+  }
+}
+async function getScannableItems(req, res, next) {
+  try {
+    const items = await roomService.getScannableItems(req.params.roomId);
+    res.json(items);
+  } catch (err) {
+    next(err);
+  }
+}
+async function scanItem(req, res, next) {
+  try {
+    const { roomId } = req.params;
+    const { itemQrCode } = req.body;
+    const item = await roomService.scanItem(roomId, itemQrCode);
+    return res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+async function updateItemStatus(req, res, next) {
+  try {
+    const { roomId } = req.params;
+    const { itemQrCode, newStatus } = req.body;
+    const updatedInventory = await roomService.updateInventoryStatus(
+      roomId,
+      itemQrCode,
+      newStatus
+    );
+    return res.json({ inventory: updatedInventory });
   } catch (err) {
     next(err);
   }

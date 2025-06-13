@@ -6,7 +6,9 @@ module.exports = {
   getRoomById,
   getUsersForDropdown,
   registerItem,
-  getRoomItems
+  getRoomItems,
+  scanItem,
+  updateInventoryStatus
 };
 
 async function getRooms() {
@@ -55,10 +57,48 @@ async function registerItem(roomId, itemId) {
   if (!room || !item) throw 'Invalid room or item';
   return db.RoomInventory.create({ roomId, itemId });
 }
-async function getRoomItems(roomId) {
+async function getRoomItems(roomId, params) {
   const inventories = await db.RoomInventory.findAll({
     where: { roomId },
-    include: [{ model: db.Item, attributes: ['id', 'itemName', 'itemQrCode'] }]
+    include: [{ model: db.Item, as: 'Item', attributes: ['id', 'itemName', 'itemQrCode']}]
   });
   return inventories.map(inv => inv.Item);
+}
+async function scanItem(roomId, itemQrCode) {
+  const inventory = await db.RoomInventory.findOne({
+    where: { roomId },
+    include: [{
+      model: db.Item,
+      as: 'Item',
+      where: { itemQrCode: itemQrCode },
+      attributes: ['id', 'itemName', 'itemQrCode', 'itemStatus']
+    }]
+  });
+
+  if (!inventory) {
+    throw new Error(`QR code "${itemQrCode}" not found in room ${roomId}`);
+  }
+
+  return inventory.Item;
+}
+async function updateInventoryStatus(roomId, itemQrCode, newStatus) {
+  const entry = await db.RoomInventory.findOne({
+    where: { roomId },
+    include: [{
+      model: db.Item,
+      as: 'Item',
+      where: { itemQrCode: itemQrCode },
+      attributes: ['id']
+    }]
+  });
+  if (!entry) {
+    throw new Error(`Item with QR "${qrCode}" not found in room ${roomId}`);
+  }
+
+  entry.status = newStatus;
+  await entry.save();
+
+  return db.RoomInventory.findByPk(entry.id, {
+    include: [{ model: db.Item, as: 'Item' }]
+  });
 }

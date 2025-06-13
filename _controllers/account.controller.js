@@ -18,11 +18,12 @@ router.post('/reset-password', resetPasswordSchema, resetPassword);
 router.get('/:id/preferences',authorize(), getPreferences);
 router.put('/:id/preferences',authorize(), updatePreferences);
 
-router.get('/', authorize (Role. Admin), getAll);
 router.post('/:id/activity', authorize(), getActivities);
-router.get('/activity-logs', authorize(Role.Admin), getAllActivityLogs);
+router.get('/activity-logs', /* authorize(Role.Admin), */ getAllActivityLogs);
+
+router.get('/', /* authorize (Role. Admin), */ getAll);
 router.get('/:id', authorize(), getById);
-router.post('/', authorize (Role. Admin), createSchema, create);
+router.post('/create-user', /* authorize (Role. Admin), */ createSchema, create);
 router.put('/:id', authorize(), updateSchema, update);
 router.delete('/:id', authorize(), _delete);
 
