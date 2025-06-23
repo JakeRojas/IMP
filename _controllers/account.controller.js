@@ -9,7 +9,7 @@ const accountService = require('_services/account.service');
 router.post('/authenticate', authenticateSchema, authenticate);
 router.post('/refresh-token', refreshToken);
 router.post('/revoke-token', authorize(), revokeTokenSchema, revokeToken); 
-router.post('/register', registerSchema, register);
+router.post('/register', authorize(Role.SuperAdmin), registerSchema, register);
 router.post('/verify-email', verifyEmailSchema, verifyEmail);
 router.post('/forgot-password', forgotPasswordSchema, forgotPassword);
 router.post('/validate-reset-token', validateResetTokenSchema, validateResetToken);
@@ -19,13 +19,13 @@ router.get('/:id/preferences',authorize(), getPreferences);
 router.put('/:id/preferences',authorize(), updatePreferences);
 
 router.post('/:id/activity', authorize(), getActivities);
-router.get('/activity-logs', /* authorize(Role.Admin), */ getAllActivityLogs);
+router.get('/activity-logs', authorize(Role.SuperAdmin), getAllActivityLogs);
 
-router.get('/', /* authorize (Role. Admin), */ getAll);
+router.get('/', authorize (Role.SuperAdmin), getAll);
 router.get('/:id', authorize(), getById);
-router.post('/create-user', /* authorize (Role. Admin), */ createSchema, create);
+router.post('/create-user', authorize (Role.SuperAdmin), createSchema, create);
 router.put('/:id', authorize(), updateSchema, update);
-router.delete('/:id', authorize(), _delete);
+router.delete('/:id', authorize(Role.SuperAdmin), _delete);
 
 module.exports = router;
 
@@ -41,6 +41,16 @@ function authenticate(req, res, next) {
     const { email, password } = req.body;
     const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+
+    const jwtToken = accountService.authenticate({ email, password });
+    res
+    .cookie('token', jwtToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 1000, // 1h
+    })
+    .json({ success: true });
   
     accountService.authenticate({ email, password, ipAddress, browserInfo })
       .then(({ refreshToken, ...account }) => {
@@ -108,7 +118,7 @@ function revokeToken (req, res, next) {
 
     if (!token) return res.status(400).json({ message: 'Token is required' });
     
-    if (!req.user.ownsToken (token) && req.user.role !== Role. Admin) {
+    if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
         return res.status(401).json({ message: 'Unauthorized' });
     }
 
@@ -192,7 +202,7 @@ function getAll(req, res, next) {
         .catch(next);
 }
 function getById(req, res, next) {
-    //Check if the user is trying to access their own account or is an admin
+    //Check if the user is trying to access their own account or is anSuperadmin
     if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
         return res.status(403).json({ message: 'Access to other user\'s data is forbidden' });
     }
@@ -210,7 +220,7 @@ function createSchema (req, res, next) {
         phoneNumber: Joi.string().length(11).pattern(/^(09|\+639)\d{9}$/).required(),  
         password: Joi.string().min(6).required(), 
         confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
-        //role: Joi.string().valid(Role. Admin, Role.User, Role.Staff).required()
+        role: Joi.string().valid(Role. SuperAdmin, Role.Admin, Role.User).required()
     });
     validateRequest(req, next, schema);
 }
@@ -229,8 +239,8 @@ function updateSchema(req, res, next) { const schemaRules = {
     confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
 }
 
-if (req.user.role === Role. Admin) {
-    schemaRules.role = Joi.string().valid (Role. Admin, Role.User, Role.Staff).empty('');
+if (req.user.role === Role.SuperAdmin) {
+    schemaRules.role = Joi.string().valid (Role.SuperAdmin, Role.User, Role.Staff).empty('');
 }
 
     const schema = Joi.object(schemaRules).with('password', 'confirmPassword'); 
@@ -241,7 +251,7 @@ function update(req, res, next) {
     if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
       return res.status(401).json({
         success: false,
-        message: 'Unauthorized - You can only update your own account unless you are an admin'
+        message: 'Unauthorized - You can only update your own account unless you are anSuperadmin'
       });
     }
   

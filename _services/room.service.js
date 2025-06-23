@@ -87,15 +87,15 @@ async function updateInventoryStatus(roomId, itemQrCode, newStatus) {
     include: [{
       model: db.Item,
       as: 'Item',
-      where: { itemQrCode: itemQrCode },
-      attributes: ['id']
+      where: { itemQrCode }
     }]
   });
+
   if (!entry) {
-    throw new Error(`Item with QR "${qrCode}" not found in room ${roomId}`);
+    throw new Error(`Item with QR "${itemQrCode}" not found in room ${roomId}`);
   }
 
-  entry.status = newStatus;
+  entry.newStatus = newStatus;
   await entry.save();
 
   return db.RoomInventory.findByPk(entry.id, {

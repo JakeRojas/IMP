@@ -3,14 +3,16 @@ const router = express.Router();
 const Joi = require('joi');
 const roomService = require('_services/room.service');
 const validateRequest = require('_middlewares/validate-request');
+const authorize = require('_middlewares/authorize');
+const Role = require('_helpers/role');
 
-router.post('/create-room', createRoomschema, createRoom);
+router.post('/create-room', authorize(Role.SuperAdmin), createRoomschema, createRoom);
 router.get('/', getRooms);
 router.get('/:id', getRoomById);
-router.post('/:roomId/register-item', registerItemSchema, registerItemHandler );
+router.post('/:roomId/register-item', authorize(Role.SuperAdmin), registerItemSchema, registerItemHandler );
 router.get('/in-charge-options', getInChargeOptions);
 router.get('/:roomId/items', getRoomItems);
-router.get('/:roomId/scannable-items', getScannableItems);
+//router.get('/:roomId/scannable-items', getScannableItems);
 router.post('/:roomId/scan', scanItem);
 router.put('/:roomId/scan/items/:itemQrCode/status', updateItemStatus);
 
@@ -70,14 +72,14 @@ async function getRoomItems(req, res, next) {
     next(err);
   }
 }
-async function getScannableItems(req, res, next) {
-  try {
-    const items = await roomService.getScannableItems(req.params.roomId);
-    res.json(items);
-  } catch (err) {
-    next(err);
-  }
-}
+// async function getScannableItems(req, res, next) {
+//   try {
+//     const items = await roomService.getScannableItems(req.params.roomId);
+//     res.json(items);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
 async function scanItem(req, res, next) {
   try {
     const { roomId } = req.params;
@@ -90,8 +92,8 @@ async function scanItem(req, res, next) {
 }
 async function updateItemStatus(req, res, next) {
   try {
-    const { roomId } = req.params;
-    const { itemQrCode, newStatus } = req.body;
+    const { roomId, itemQrCode } = req.params;
+    const { newStatus } = req.body;
     const updatedInventory = await roomService.updateInventoryStatus(
       roomId,
       itemQrCode,

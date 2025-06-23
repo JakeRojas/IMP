@@ -7,6 +7,8 @@ const { Router } = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
+const authorize = require('_middlewares/authorize');
+const Role = require('_helpers/role');
 
 const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -26,12 +28,12 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage }).single('itemQrCode');
 
-router.post('/create-item', upload, createItemSchema, createItem);
+router.post('/create-item', authorize(Role.SuperAdmin, Role.Admin), upload, createItemSchema, createItem);
 router.get('/', getItems);
 router.get('/:id', getItemById);
-router.post('/assign-item', createAssignment);
-router.post('/scan-item', scanItemHandler);
-router.put('/:id/activation', itemActivation);
+router.post('/assign-item', authorize(Role.SuperAdmin), createAssignment);
+//router.post('/scan-item', authorize(Role.SuperAdmin, Role.Admin), scanItemHandler);
+router.put('/:id/activation', authorize(Role.SuperAdmin), itemActivation);
 
 module.exports = router;
 
@@ -83,30 +85,30 @@ async function createAssignment(req, res, next) {
     next(err);
   }
 }
-async function scanItemHandler(req, res, next) {
-  try {
-    const { qrCode, roomId } = req.body;
+// async function scanItemHandler(req, res, next) {
+//   try {
+//     const { qrCode, roomId } = req.body;
 
-    const inv = await db.RoomInventory.findOne({
-      where: { roomId },
-      include: {
-        model: db.Item,
-        as: 'Item',
-        where: { itemQrCode: qrCode }
-      }
-    });
+//     const inv = await db.RoomInventory.findOne({
+//       where: { roomId },
+//       include: {
+//         model: db.Item,
+//         as: 'Item',
+//         where: { itemQrCode: qrCode }
+//       }
+//     });
 
-    if (!inv) {
-      return res.status(400).json({ message: 'This item is not belong here' });
-    }
+//     if (!inv) {
+//       return res.status(400).json({ message: 'This item is not belong here' });
+//     }
 
-    await itemService.activateItem(inv.itemId);
+//     await itemService.activateItem(inv.itemId);
 
-    res.json({ message: 'Item activated', item: inv.Item });
-  } catch (err) {
-    next(err);
-  }
-}
+//     res.json({ message: 'Item activated', item: inv.Item });
+//   } catch (err) {
+//     next(err);
+//   }
+// }
 function itemActivation(req, res, next) {
   const { id } = req.params;
 
