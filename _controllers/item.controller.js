@@ -28,12 +28,17 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage }).single('itemQrCode');
 
-router.post('/create-item', authorize(Role.SuperAdmin, Role.Admin), upload, createItemSchema, createItem);
+router.post('/create-item', /* authorize(Role.SuperAdmin, Role.Admin), */ upload, createItemSchema, createItem);
 router.get('/', getItems);
 router.get('/:id', getItemById);
-router.post('/assign-item', authorize(Role.SuperAdmin), createAssignment);
+router.post('/assign-item', /* authorize(Role.SuperAdmin), */ createAssignment);
 //router.post('/scan-item', authorize(Role.SuperAdmin, Role.Admin), scanItemHandler);
-router.put('/:id/activation', authorize(Role.SuperAdmin), itemActivation);
+router.put('/:id/activation', /* authorize(Role.SuperAdmin), */ itemActivation);
+
+router.post('/scan', /* authorize(Role.Admin, Role.SuperAdmin), */ scanItemHandler);
+router.put('/:id/status', /* authorize(Role.Admin, Role.SuperAdmin), */ updateItemStatusHandler);
+router.put('/:id/transaction', /* authorize(Role.Admin, Role.SuperAdmin), */ updateTransactionHandler);
+
 
 module.exports = router;
 
@@ -60,8 +65,8 @@ async function createItem(req, res, next) {
 }
 function createItemSchema(req, res, next) {
   const schema = Joi.object({
-      itemName: Joi.string().required().min(1).max(10),
-      itemCategory: Joi.string().valid('it', 'apparel', 'academic', 'unknown').required(),
+      itemName: Joi.string().required().min(1).max(20),
+      itemCategory: Joi.string().lowercase().valid('it', 'apparel', 'academic', 'unknown').required(),
       roomId: Joi.number().optional()
   });
   validateRequest(req, next, schema);
@@ -85,30 +90,6 @@ async function createAssignment(req, res, next) {
     next(err);
   }
 }
-// async function scanItemHandler(req, res, next) {
-//   try {
-//     const { qrCode, roomId } = req.body;
-
-//     const inv = await db.RoomInventory.findOne({
-//       where: { roomId },
-//       include: {
-//         model: db.Item,
-//         as: 'Item',
-//         where: { itemQrCode: qrCode }
-//       }
-//     });
-
-//     if (!inv) {
-//       return res.status(400).json({ message: 'This item is not belong here' });
-//     }
-
-//     await itemService.activateItem(inv.itemId);
-
-//     res.json({ message: 'Item activated', item: inv.Item });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
 function itemActivation(req, res, next) {
   const { id } = req.params;
 
@@ -118,4 +99,34 @@ function itemActivation(req, res, next) {
       res.json({ message: `Product ${newStatus} successfully` })
     )
     .catch(next);
+}
+async function scanItemHandler(req, res, next) {
+  try {
+    const { itemQrCode } = req.body;
+    const item = await itemService.scanItem(itemQrCode);
+    return res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+async function updateItemStatusHandler(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { itemStatus } = req.body;
+    await itemService.updateItemStatus(id, itemStatus);
+    res.json({ message: 'Status updated' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateTransactionHandler(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { transactionType } = req.body;
+    await itemService.updateTransaction(id, transactionType);
+    res.json({ message: 'Transaction updated' });
+  } catch (err) {
+    next(err);
+  }
 }

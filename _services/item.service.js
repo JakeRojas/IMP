@@ -6,12 +6,16 @@ module.exports = {
   getItemById,
   assignItem,
   itemActivation,
+
+  scanItem,
+  updateItemStatus,
+  updateTransaction
 };
 
 async function getItems() {
   return await db.Item.findAll({
     where: { 
-        itemStatus: 'reactivated' 
+        activateStatus: 'reactivated' 
     }
 });
 }
@@ -64,4 +68,33 @@ async function itemActivation(id) {
 
   await item.save();
   return item.itemStatus;
+}
+
+async function scanItem(itemQrCode) {
+  const record = await db.Item.findOne({
+    where: { itemQrCode },
+    attributes: ['id','itemName','itemQrCode','itemStatus']
+  });
+
+  if (!record) {
+    throw new Error(`QR code "${itemQrCode}" not found.`);
+  }
+
+  return record;
+}
+async function updateItemStatus(id, newStatus) {
+  const [updated] = await db.Item.update(
+    { itemStatus: newStatus },
+    { where: { id } }
+  );
+  if (!updated) throw new Error('Status update failed');
+}
+
+// Update the transactionStatus field
+async function updateTransaction(id, transactionType) {
+  const [updated] = await db.Item.update(
+    { transactionStatus: transactionType },
+    { where: { id } }
+  );
+  if (!updated) throw new Error('Transaction update failed');
 }

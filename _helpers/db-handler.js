@@ -34,13 +34,14 @@ function dbAssociations() {
 
     // Room-Item many-to-many via RoomInventory
     db.Room.belongsTo(db.Item, { through: db.RoomInventory, foreignKey: 'roomId', otherKey: 'itemId' });
-    
     db.Item.belongsTo(db.Room, { through: db.RoomInventory, foreignKey: 'itemId', otherKey: 'roomId' });
 
     // Direct join-model relations
     db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
     db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId', as: 'Item' });
-
     db.Item.hasMany(db.RoomInventory, { foreignKey: 'itemId' });
+
+    db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId' });
+    db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
     
 }

@@ -7,7 +7,6 @@ module.exports = {
   getUsersForDropdown,
   registerItem,
   getRoomItems,
-  scanItem,
   updateInventoryStatus
 };
 
@@ -63,23 +62,6 @@ async function getRoomItems(roomId, params) {
     include: [{ model: db.Item, as: 'Item', attributes: ['id', 'itemName', 'itemQrCode']}]
   });
   return inventories.map(inv => inv.Item);
-}
-async function scanItem(roomId, itemQrCode) {
-  const inventory = await db.RoomInventory.findOne({
-    where: { roomId },
-    include: [{
-      model: db.Item,
-      as: 'Item',
-      where: { itemQrCode: itemQrCode },
-      attributes: ['id', 'itemName', 'itemQrCode', 'itemStatus']
-    }]
-  });
-
-  if (!inventory) {
-    throw new Error(`QR code "${itemQrCode}" not found in room ${roomId}`);
-  }
-
-  return inventory.Item;
 }
 async function updateInventoryStatus(roomId, itemQrCode, newStatus) {
   const entry = await db.RoomInventory.findOne({

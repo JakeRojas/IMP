@@ -37,27 +37,28 @@ function authenticateSchema(req, res, next) {
 
     validateRequest(req, next, schema);
 }
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
+    try {
     const { email, password } = req.body;
     const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
 
-    const jwtToken = accountService.authenticate({ email, password });
+    const { jwtToken, refreshToken, user } = await accountService.authenticate({ email, password, ipAddress, browserInfo });
     res
     .cookie('token', jwtToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: 60 * 60 * 1000, // 1h
-    })
-    .json({ success: true });
-  
-    accountService.authenticate({ email, password, ipAddress, browserInfo })
-      .then(({ refreshToken, ...account }) => {
-        setTokenCookie(res, refreshToken);
-        res.json(account);
-      })
-      .catch(next);
+    });
+    //.json({ success: true });
+
+    setTokenCookie(res, refreshToken);
+
+    return res.json({ success: true, user });
+  } catch (err) {
+    next(err);
+  }
   }
 //===================Logging Function=======================================
 function getActivities(req, res, next) {
