@@ -1,17 +1,21 @@
-const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
-const roomService = require('_services/room.service');
-const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
+const express           = require('express');
+const router            = express.Router();
+const Joi               = require('joi');
+const roomService       = require('_services/room.service');
+const validateRequest   = require('_middlewares/validate-request');
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
 
 router.post('/create-room', /* authorize(Role.SuperAdmin), */ createRoomschema, createRoom);
-router.get('/', getRooms);
-router.get('/:id', getRoomById);
 router.post('/:roomId/register-item', /* authorize(Role.SuperAdmin), */ registerItemSchema, registerItemHandler );
+router.post( '/:roomId/receive', receiveSchema, receiveItem);
+
+router.get('/filtered-by', getFilteredRooms);
+router.get('/', getRooms);
 router.get('/in-charge-options', getInChargeOptions);
+router.get('/:id', getRoomById);
 router.get('/:roomId/items', getRoomItems);
+
 router.put('/:roomId/scan/items/:itemQrCode/status', updateItemStatus);
 
 module.exports = router;
@@ -23,8 +27,10 @@ function createRoom(req, res, next) {
 }
 function createRoomschema(req, res, next) {
   const schema = Joi.object({
-      roomName: Joi.string().required().min(1).max(10),
+      roomName: Joi.string().required().min(1).max(30),
       roomFloor: Joi.string().required().min(1).max(5),
+      roomType: Joi.string().lowercase().valid('stockroom','office','classroom', 'comfortroom', 'openarea').required(),
+      stockroomType:     Joi.string().required().valid('apparel','supply','it', 'maintenance').optional(),
       roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
@@ -39,6 +45,7 @@ function getRoomById(req, res, next) {
       .then(rooms => res.json(rooms))
       .catch(next);
 }
+
 async function getInChargeOptions(req, res, next) {
   try {
     const users = await roomService.getUsersForDropdown();
@@ -83,4 +90,38 @@ async function updateItemStatus(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+async function getFilteredRooms(req, res, next) {
+  try {
+    // read your dropdown filters off query-string
+    const {
+      type: roomType
+    } = req.query;
+
+    const rooms = await roomService.getFilteredRooms({
+      roomType,
+    });
+
+    res.json(rooms);
+  } catch (err) {
+    next(err);
+  }
+}
+
+
+async function receiveItem(req, res, next) {
+  try {
+    const { roomId } = req.params;
+    const result     = await roomService.receiveInStockroom(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+function receiveSchema(req, _res, next) {
+  const schema = Joi.object({
+    receivedFrom: Joi.string().required(),
+    receivedBy:   Joi.string().required(),
+  }).unknown(true);
+  validateRequest(req, next, schema);
 }

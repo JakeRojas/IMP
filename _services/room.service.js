@@ -1,15 +1,27 @@
 const db = require('_helpers/db-handler');
 
 module.exports = {
+  receiveInStockroom,
   createRoom,
   getRooms,
   getRoomById,
   getUsersForDropdown,
   registerItem,
   getRoomItems,
-  updateInventoryStatus
+  updateInventoryStatus,
+  getFilteredRooms
 };
 
+async function receiveInStockroom(roomId, params) {
+  const room = await getRoomById(roomId);
+  // assume room.type holds the key you passed to register(), e.g. "apparel"
+  const handler = getHandler(room.stockroomType);
+  if (!handler) {
+    throw new Error(`No receive-handler for stockroom type "${room.stockroomType}"`);
+  }
+  // delegate to the proper service
+  return handler(params);
+}
 async function getRooms() {
   return await db.Room.findAll({
     include: [{
@@ -30,6 +42,7 @@ async function createRoom(params) {
     rooms = await db.Room.create({
       roomName: params.roomName,
       roomFloor: params.roomFloor,
+      roomType: params.roomType,
       roomInCharge: params.roomInCharge
     });
     return { 
@@ -45,6 +58,7 @@ async function getRoomById(id) {
   }
   return rooms;
 }
+
 async function getUsersForDropdown() {
   return db.Account.findAll({
     attributes: ['id', 'firstName', 'lastName']
@@ -83,4 +97,10 @@ async function updateInventoryStatus(roomId, itemQrCode, newStatus) {
   return db.RoomInventory.findByPk(entry.id, {
     include: [{ model: db.Item, as: 'Item' }]
   });
+}
+async function getFilteredRooms({ params }) {
+  const where = {};
+  if (params.roomType) where.roomType = params.roomType;
+
+  return await db.Room.findAll({ where });
 }

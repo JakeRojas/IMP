@@ -1,4 +1,7 @@
 const db = require('_helpers/db-handler');
+const fs     = require('fs');
+const path   = require('path');
+const QRCode = require('qrcode');
 
 module.exports = {
   createItem,
@@ -9,7 +12,9 @@ module.exports = {
 
   scanItem,
   updateItemStatus,
-  updateTransaction
+  updateTransaction,
+  generateAndStoreQRCode,
+  getFilteredItems
 };
 
 async function getItems() {
@@ -19,27 +24,31 @@ async function getItems() {
     }
 });
 }
-async function createItem(body, file) {
-const filename = file?.filename;
-const payload = {
-  itemName:     body.itemName,
-  itemCategory: body.itemCategory,
-  itemQrCode:   file
-    ? `/uploads/${filename}`
-    : body.itemQrCode,
-};
-
-const item = await db.Item.create(payload);
-if (body.roomId) {
-  await db.RoomInventory.create({
-    roomId: parseInt(body.roomId, 10),
-    itemId: item.id
-  });
-}
-return item;
-}
+async function createItem(body/* , file */) {
+  // const filename = file?.filename;
+  // const payload = {
+  //   itemName:     body.itemName,
+  //   itemCategory: body.itemCategory,
+  //   itemQrCode:   file
+  //     ? `/uploads/${filename}`
+  //     : body.itemQrCode,
+  // };
+  const payload = {
+    itemName:     body.itemName,
+    itemCategory: body.itemCategory,
+  };
+  
+  const item = await db.Item.create(payload);
+  if (body.roomId) {
+    await db.RoomInventory.create({
+      roomId: parseInt(body.roomId, 10),
+      itemId: item.id
+    });
+  }
+  return item;
+  }
 async function getItemById(id) {
-  const items = await db.Item.findByPk(id);
+  const items = await db.Apparel.findByPk(id);
   if (!items) {
       throw new Error('Invalid item ID');
   }
@@ -69,7 +78,6 @@ async function itemActivation(id) {
   await item.save();
   return item.itemStatus;
 }
-
 async function scanItem(itemQrCode) {
   const record = await db.Item.findOne({
     where: { itemQrCode },
@@ -89,12 +97,78 @@ async function updateItemStatus(id, newStatus) {
   );
   if (!updated) throw new Error('Status update failed');
 }
-
-// Update the transactionStatus field
 async function updateTransaction(id, transactionType) {
   const [updated] = await db.Item.update(
     { transactionStatus: transactionType },
     { where: { id } }
   );
   if (!updated) throw new Error('Transaction update failed');
+}
+async function generateAndStoreQRCode(params) {
+  const item = await db.Apparel.findByPk(params.id, {
+    include: {
+      model: db.Receive_Apparel,
+      as: 'batch',
+      attributes: [
+        'id', 'apparelName', 
+        'apparelSize', 'apparelLevel', 
+        'apparelFor'
+      ]
+    }
+  });
+
+  if (!item || !item.batch) {
+    throw new Error('Could not load associated Receive_Apparel');
+  }
+  const qrText = [
+    item.id,
+    item.receiveApparelId,
+    item.batch.apparelName,
+    item.batch.apparelSize,
+    item.batch.apparelLevel,
+    item.batch.apparelFor
+  ].join('|');
+
+  const pngBuffer = await QRCode.toBuffer(qrText, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    scale: 4
+  });
+
+  const safe = str => str.toString().replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const filename = [
+    'qr',
+    `item${item.id}`,
+    `batch${item.receiveApparelId}`,
+    safe(item.batch.apparelName),
+    safe(item.batch.apparelSize),
+    safe(item.batch.apparelLevel),
+    safe(item.batch.apparelFor)
+  ].join('-') + '.png';
+
+  const uploadsDir = path.resolve(__dirname, '../uploads/qrcodes');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  const filePath = path.join(uploadsDir, filename);
+
+  await fs.promises.writeFile(filePath, pngBuffer);
+
+  await item.update({ qrCodePath: filename });
+
+  return { pngBuffer, filename };
+} 
+async function getFilteredItems({ itemCategory, itemStatus, activateStatus, transactionStatus }) {
+  // build where-clause dynamically
+  const where = {};
+  if (itemCategory) where.itemCategory = itemCategory;
+  if (itemStatus) where.itemStatus = itemStatus;
+  if (typeof activateStatus !== 'undefined') {
+    // query params are strings, so we convert 'true'/'false' → boolean
+    where.activateStatus = activateStatus === 'true';
+  }
+  if (transactionStatus) where.transactionStatus = transactionStatus;
+
+  // fetch from DB
+  return await db.Item.findAll({ where });
 }

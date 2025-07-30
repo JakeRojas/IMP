@@ -15,12 +15,21 @@ async function initialize() {
     const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
 
 // Initialize models and add them to the exported `db` object
-db.Room = require('../_models/room.model')(sequelize);
-db.RoomInventory = require('../_models/roomInventory.model')(sequelize);
-db.Account = require('../_models/account.model')(sequelize);
-db.ActivityLog = require('../_models/activitylog.model')(sequelize);
-db.RefreshToken = require('../_models/refresh-token.model')(sequelize);
-db.Item = require('../_models/item.model')(sequelize);
+db.Room             = require('../_models/room.model')(sequelize);
+db.RoomInventory    = require('../_models/roomInventory.model')(sequelize);
+db.Account          = require('../_models/account.model')(sequelize);
+db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
+db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
+db.Item             = require('../_models/item.model')(sequelize);
+
+// Apparel models
+db.Apparel          = require('../_models/apparel/apparel.model')(sequelize);
+db.Receive_Apparel  = require('../_models/apparel/receiveApparel.model')(sequelize);
+db.Release_Apparel  = require('../_models/apparel/releaseApparel.model')(sequelize);
+
+// Admin Supply models
+db.Admin_Supply             = require('../_models/adminSupply/adminSupply.model')(sequelize);
+db.Receive_Admin_Supply     = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 
 dbAssociations();
 
@@ -43,5 +52,17 @@ function dbAssociations() {
 
     db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId' });
     db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+    // Receive and release apparel relation
+    db.Receive_Apparel.hasMany(db.Release_Apparel, { foreignKey: 'id' });
+    db.Release_Apparel.belongsTo(db.Receive_Apparel, { foreignKey: 'id' });
+
+    // Turn apparel's quantity in to single row in database
+    db.Receive_Apparel.hasMany(db.Apparel, { foreignKey: 'receiveApparelId', as: 'apparel' });
+    db.Apparel.belongsTo(db.Receive_Apparel, { foreignKey: 'receiveApparelId', as: 'batch'});
+
+    // Turn admin supply's quantity in to single row in database
+    db.Receive_Admin_Supply.hasMany(db.Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'supplies' });
+    db.Admin_Supply.belongsTo(db.Receive_Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'batch'});
     
 }

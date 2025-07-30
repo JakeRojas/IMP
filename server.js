@@ -1,17 +1,24 @@
 require('rootpath')();
-const express = require('express');
-const app = express();
-const bodyParser = require('body-parser');
-const cookieParser = require('cookie-parser');
-const cors = require('cors');
-const errorHandler = require('_middlewares/error-handler');
-const fileUpload = require('multer')();
-const path = require('path');
-const multer  = require('multer');
+const express         = require('express');
+const app             = express();
+const bodyParser      = require('body-parser');
+const cookieParser    = require('cookie-parser');
+const cors            = require('cors');
+const errorHandler    = require('_middlewares/error-handler');
+const fileUpload      = require('multer')();
+const fs              = require('fs');  
+const path            = require('path');
+const multer          = require('multer');
 
 // ─── JSON / URL-ENCODED PARSING ───────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// ─── AUTO LOAD SERVICE MODULE TO POPULATE REGISTRY ─────────────────────────────────────────────────────
+const servicesDir = path.join(__dirname, '_services');
+fs.readdirSync(servicesDir)
+  .filter(f => f.endsWith('.service.js'))
+  .forEach(f => require(path.join(servicesDir, f)));
 
 // ─── MULTER DISK STORAGE ─────────────────────────────────────────────────────
 const storage = multer.diskStorage({
@@ -42,11 +49,12 @@ app.use(
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-
 // ─── API ROUTES ────────────────────────────────────────────────
-app.use('/room', require('./_controllers/room.controller'));
+app.use('/rooms', require('./_controllers/room.controller'));
 app.use('/accounts', require('./_controllers/account.controller'));
 app.use('/items', require('./_controllers/item.controller'));
+app.use('/apparels', require('./_controllers/apparel.controller'));
+app.use('/supplies', require('./_controllers/adminSupply.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
 app.use('/api-docs', require('./_helpers/swagger'));
