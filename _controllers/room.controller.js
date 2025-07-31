@@ -6,25 +6,21 @@ const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
-router.post('/create-room', /* authorize(Role.SuperAdmin), */ createRoomschema, createRoom);
-router.post('/:roomId/register-item', /* authorize(Role.SuperAdmin), */ registerItemSchema, registerItemHandler );
-router.post( '/:roomId/receive', receiveSchema, receiveItem);
+router.post('/create-room',                             createRoomschema, createRoom);
+router.post('/:roomId/register-item',                   registerItemSchema, registerItem);
+router.post( '/:roomId/receive',                        receiveSchema, receiveItem);
 
-router.get('/filtered-by', getFilteredRooms);
-router.get('/', getRooms);
-router.get('/in-charge-options', getInChargeOptions);
-router.get('/:id', getRoomById);
-router.get('/:roomId/items', getRoomItems);
+router.get('/filtered-by',                              getFilteredRooms);
+router.get('/',                                         getRooms);
+router.get('/in-charge-options',                        getInChargeOptions);
+router.get('/:id',                                      getRoomById);
+router.get('/:roomId/items',                            getRoomItems);
 
-router.put('/:roomId/scan/items/:itemQrCode/status', updateItemStatus);
+router.put('/:roomId/scan/items/:itemQrCode/status',    updateItemStatus);
 
 module.exports = router;
 
-function createRoom(req, res, next) {
-  roomService.createRoom(req.body)
-      .then(() => res.json({ message: 'Room created' }))
-      .catch(next);
-}
+// Shema's part
 function createRoomschema(req, res, next) {
   const schema = Joi.object({
       roomName: Joi.string().required().min(1).max(30),
@@ -34,6 +30,26 @@ function createRoomschema(req, res, next) {
       roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
+}
+function registerItemSchema(req, res, next) {
+  const schema = Joi.object({
+    itemId:   Joi.number().integer().required(),
+  });
+  validateRequest(req, next, schema);
+}
+function receiveSchema(req, _res, next) {
+  const schema = Joi.object({
+    receivedFrom: Joi.string().required(),
+    receivedBy:   Joi.string().required(),
+  }).unknown(true);
+  validateRequest(req, next, schema);
+}
+
+// Management part
+function createRoom(req, res, next) {
+  roomService.createRoom(req.body)
+      .then(() => res.json({ message: 'Room created' }))
+      .catch(next);
 }
 function getRooms(req, res, next) {
   roomService.getRooms()
@@ -46,6 +62,18 @@ function getRoomById(req, res, next) {
       .catch(next);
 }
 
+// Receive part
+async function receiveItem(req, res, next) {
+  try {
+    const { roomId } = req.params;
+    const result     = await roomService.receiveInStockroom(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Other features
 async function getInChargeOptions(req, res, next) {
   try {
     const users = await roomService.getUsersForDropdown();
@@ -54,13 +82,7 @@ async function getInChargeOptions(req, res, next) {
     next(err);
   }
 }
-function registerItemSchema(req, res, next) {
-  const schema = Joi.object({
-    itemId:   Joi.number().integer().required(),
-  });
-  validateRequest(req, next, schema);
-}
-async function registerItemHandler(req, res, next) {
+async function registerItem(req, res, next) {
   try {
     const { itemId } = req.body;
     const inventory = await roomService.registerItem(req.params.roomId, itemId);
@@ -106,22 +128,4 @@ async function getFilteredRooms(req, res, next) {
   } catch (err) {
     next(err);
   }
-}
-
-
-async function receiveItem(req, res, next) {
-  try {
-    const { roomId } = req.params;
-    const result     = await roomService.receiveInStockroom(roomId, req.body);
-    res.status(201).json(result);
-  } catch (err) {
-    next(err);
-  }
-}
-function receiveSchema(req, _res, next) {
-  const schema = Joi.object({
-    receivedFrom: Joi.string().required(),
-    receivedBy:   Joi.string().required(),
-  }).unknown(true);
-  validateRequest(req, next, schema);
 }

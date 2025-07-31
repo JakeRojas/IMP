@@ -1,7 +1,7 @@
-const db = require('_helpers/db-handler');
-const fs     = require('fs');
-const path   = require('path');
-const QRCode = require('qrcode');
+const db        = require('_helpers/db-handler');
+const fs        = require('fs');
+const path      = require('path');
+const QRCode    = require('qrcode');
 
 module.exports = {
   createItem,
@@ -17,22 +17,8 @@ module.exports = {
   getFilteredItems
 };
 
-async function getItems() {
-  return await db.Item.findAll({
-    where: { 
-        activateStatus: 'reactivated' 
-    }
-});
-}
+// Management Handler
 async function createItem(body/* , file */) {
-  // const filename = file?.filename;
-  // const payload = {
-  //   itemName:     body.itemName,
-  //   itemCategory: body.itemCategory,
-  //   itemQrCode:   file
-  //     ? `/uploads/${filename}`
-  //     : body.itemQrCode,
-  // };
   const payload = {
     itemName:     body.itemName,
     itemCategory: body.itemCategory,
@@ -46,7 +32,14 @@ async function createItem(body/* , file */) {
     });
   }
   return item;
-  }
+}
+async function getItems() {
+  return await db.Item.findAll({
+    where: { 
+        activateStatus: 'reactivated' 
+    }
+});
+}
 async function getItemById(id) {
   const items = await db.Apparel.findByPk(id);
   if (!items) {
@@ -54,13 +47,8 @@ async function getItemById(id) {
   }
   return items;
 }
-async function assignItem({ params, itemId, roomId }) {
-  const entry = await db.RoomInventory.create({
-    addedAt: params.addedAt,
-    roomStatus: params.roomStatus
-  });
-  return entry;
-}
+
+// Status Handler
 async function itemActivation(id) {
   const item = await getItemById(id);
   if (!item) throw new Error('Item not found');
@@ -78,18 +66,6 @@ async function itemActivation(id) {
   await item.save();
   return item.itemStatus;
 }
-async function scanItem(itemQrCode) {
-  const record = await db.Item.findOne({
-    where: { itemQrCode },
-    attributes: ['id','itemName','itemQrCode','itemStatus']
-  });
-
-  if (!record) {
-    throw new Error(`QR code "${itemQrCode}" not found.`);
-  }
-
-  return record;
-}
 async function updateItemStatus(id, newStatus) {
   const [updated] = await db.Item.update(
     { itemStatus: newStatus },
@@ -103,6 +79,20 @@ async function updateTransaction(id, transactionType) {
     { where: { id } }
   );
   if (!updated) throw new Error('Transaction update failed');
+}
+
+// Scan and Generate QR Handler
+async function scanItem(itemQrCode) {
+  const record = await db.Item.findOne({
+    where: { itemQrCode },
+    attributes: ['id','itemName','itemQrCode','itemStatus']
+  });
+
+  if (!record) {
+    throw new Error(`QR code "${itemQrCode}" not found.`);
+  }
+
+  return record;
 }
 async function generateAndStoreQRCode(params) {
   const item = await db.Apparel.findByPk(params.id, {
@@ -158,6 +148,8 @@ async function generateAndStoreQRCode(params) {
 
   return { pngBuffer, filename };
 } 
+
+// Other Handler
 async function getFilteredItems({ itemCategory, itemStatus, activateStatus, transactionStatus }) {
   // build where-clause dynamically
   const where = {};
@@ -171,4 +163,11 @@ async function getFilteredItems({ itemCategory, itemStatus, activateStatus, tran
 
   // fetch from DB
   return await db.Item.findAll({ where });
+}
+async function assignItem({ params, itemId, roomId }) {
+  const entry = await db.RoomInventory.create({
+    addedAt: params.addedAt,
+    roomStatus: params.roomStatus
+  });
+  return entry;
 }

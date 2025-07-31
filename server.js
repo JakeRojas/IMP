@@ -20,6 +20,12 @@ fs.readdirSync(servicesDir)
   .filter(f => f.endsWith('.service.js'))
   .forEach(f => require(path.join(servicesDir, f)));
 
+// ─── AUTO LOAD PLUGIN MODULES ───────────────────────────────────────────────
+const pluginsDir = path.join(__dirname, '_plugins');
+fs.readdirSync(pluginsDir)
+  .filter(f => f.endsWith('.plugin.js'))
+  .forEach(f => require(path.join(pluginsDir, f)));
+
 // ─── MULTER DISK STORAGE ─────────────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -50,14 +56,14 @@ app.use(
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ─── API ROUTES ────────────────────────────────────────────────
-app.use('/rooms', require('./_controllers/room.controller'));
-app.use('/accounts', require('./_controllers/account.controller'));
-app.use('/items', require('./_controllers/item.controller'));
-app.use('/apparels', require('./_controllers/apparel.controller'));
-app.use('/supplies', require('./_controllers/adminSupply.controller'));
+app.use('/rooms',       require('./_controllers/room.controller'));
+app.use('/accounts',    require('./_controllers/account.controller'));
+app.use('/items',       require('./_controllers/item.controller'));
+app.use('/apparels',    require('./_controllers/apparel.controller'));
+app.use('/supplies',    require('./_controllers/adminSupply.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
-app.use('/api-docs', require('./_helpers/swagger'));
+app.use('/api-docs',    require('./_helpers/swagger'));
 
 // ─── GLOBAL ERROR HANDLER ────────────────────────────────────────────────
 app.use(errorHandler);

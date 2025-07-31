@@ -1,11 +1,11 @@
-const config = require('config.json'); 
-const jwt = require('jsonwebtoken'); 
-const bcrypt = require('bcryptjs'); 
-const crypto= require("crypto"); 
-const { Op} = require('sequelize');
-const sendEmail = require('_helpers/send-email'); 
-const db = require('_helpers/db-handler');
-const Role = require('_helpers/role');
+const config        = require('config.json'); 
+const jwt           = require('jsonwebtoken'); 
+const bcrypt        = require('bcryptjs'); 
+const crypto        = require("crypto"); 
+const { Op}         = require('sequelize');
+const sendEmail     = require('_helpers/send-email'); 
+const db            = require('_helpers/db-handler');
+const Role          = require('_helpers/role');
 
 module.exports = { 
     authenticate,
@@ -192,58 +192,75 @@ async function logActivity(AccountId, actionType, ipAddress, browserInfo, update
       throw error;
     }
 }
-async function getAllActivityLogs(filters = {}) {
+// async function getAllActivityLogs(filters = {}) {
+//   try {
+//       let whereClause = {};
+      
+//       if (filters.actionType) {
+//           whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
+//       }
+      
+//       if (filters.userId) {
+//           whereClause.AccountId = filters.userId;
+//       }
+      
+//       if (filters.startDate || filters.endDate) {
+//           const startDate = filters.startDate ? new Date(filters.startDate) : new Date(0);
+//           const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
+//           whereClause.timestamp = { [Op.between]: [startDate, endDate] };
+//       }
+
+//       const logs = await db.ActivityLog.findAll({
+//           where: whereClause,
+//           include: [{
+//               model: db.Account,
+//               attributes: ['email', 'firstName', 'lastName', 'role'],
+//               required: true
+//           }],
+//           order: [['timestamp', 'DESC']]
+//       });
+
+//       return logs.map(log => {
+//           const formattedDate = new Intl.DateTimeFormat('en-US', {
+//               year: 'numeric',
+//               month: '2-digit',
+//               day: '2-digit',
+//               hour: '2-digit',
+//               minute: '2-digit',
+//               hour12: true
+//           }).format(new Date(log.timestamp));
+
+//           return {
+//               id: log.id,
+//               userId: log.AccountId,
+//               userEmail: log.Account.email,
+//               userRole: log.Account.role,
+//               userName: `${log.Account.firstName} ${log.Account.lastName}`,
+//               actionType: log.actionType,
+//               actionDetails: log.actionDetails,
+//               timestamp: formattedDate
+//           };
+//       });
+//   } catch (error) {
+//       console.error('Error retrieving all activity logs:', error);
+//       throw new Error('Error retrieving activity logs');
+//   }
+// }
+async function getAllActivityLogs({ actionType, startDate, endDate, userId }) {
   try {
-      let whereClause = {};
-      
-      if (filters.actionType) {
-          whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
-      }
-      
-      if (filters.userId) {
-          whereClause.AccountId = filters.userId;
-      }
-      
-      if (filters.startDate || filters.endDate) {
-          const startDate = filters.startDate ? new Date(filters.startDate) : new Date(0);
-          const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
-          whereClause.timestamp = { [Op.between]: [startDate, endDate] };
-      }
+    const where = {};
+    if (actionType) where.actionType = actionType;
+    if (startDate)   where.timestamp = { [Op.gte]: new Date(startDate) };
+    if (endDate)     where.timestamp = { ...(where.timestamp || {}), [Op.lte]: new Date(endDate) };
+    if (userId)      where.userId = userId;
 
-      const logs = await db.ActivityLog.findAll({
-          where: whereClause,
-          include: [{
-              model: db.Account,
-              attributes: ['email', 'firstName', 'lastName', 'role'],
-              required: true
-          }],
-          order: [['timestamp', 'DESC']]
-      });
-
-      return logs.map(log => {
-          const formattedDate = new Intl.DateTimeFormat('en-US', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-          }).format(new Date(log.timestamp));
-
-          return {
-              id: log.id,
-              userId: log.AccountId,
-              userEmail: log.Account.email,
-              userRole: log.Account.role,
-              userName: `${log.Account.firstName} ${log.Account.lastName}`,
-              actionType: log.actionType,
-              actionDetails: log.actionDetails,
-              timestamp: formattedDate
-          };
-      });
-  } catch (error) {
-      console.error('Error retrieving all activity logs:', error);
-      throw new Error('Error retrieving activity logs');
+    console.log('🏷️  Querying ActivityLog with WHERE:', where);
+    const logs = await db.ActivityLog.findAll({ where });
+    console.log(`📥 Retrieved ${logs.length} log(s)`);
+    return logs;
+  } catch (err) {
+    console.error('❌ Service error in getAllActivityLogs:', err.stack || err);
+    throw err;   // re‑throw the original error
   }
 }
 async function getAccountActivities(AccountId, filters = {}) {

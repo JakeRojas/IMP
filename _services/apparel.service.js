@@ -1,5 +1,5 @@
-const db = require('_helpers/db-handler');
-const { register } = require('_helpers/registry');
+const db                = require('_helpers/db-handler');
+const { register }      = require('_helpers/registry');
 
 module.exports = {
   receiveApparelHandler,
@@ -12,7 +12,7 @@ module.exports = {
   updateReceivedApparelHandler
 };
 
-// Receive Apparel part
+// Receive Apparel Handler
 async function receiveApparelHandler(params) {
     const batch = await db.Receive_Apparel.create(params);
 
@@ -52,7 +52,7 @@ async function updateReceivedApparelHandler(id, params) {
   return await apparel.save();
 }
 
-// Release Apparel part
+// Release Apparel Handler
 async function releaseApparelHandler(params) {
   const apparel = await new db.Release_Apparel(params);
 

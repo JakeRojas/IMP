@@ -1,5 +1,5 @@
-const db = require('_helpers/db-handler');
-const { register } = require('_helpers/registry');
+const db                = require('_helpers/db-handler');
+const { register }      = require('_helpers/registry');
 
 module.exports = {
     receiveAdminSupplyHandler,
@@ -12,7 +12,7 @@ module.exports = {
     updateReceivedSupplyHandler
 };
 
-// Receive Admin Supply part
+// Receive Admin Supply Handler
 async function receiveAdminSupplyHandler(params) {
     const batch = await db.Receive_Admin_Supply.create(params);
 
@@ -52,7 +52,7 @@ async function updateReceivedSupplyHandler(id, params) {
   return await supplies.save();
 }
 
-// Release Admin Supply part
+// Release Admin Supply Handler
 async function releaseSupplyHandler(params) {
   const supplies = await new db.Receive_Admin_Supply(params);
 

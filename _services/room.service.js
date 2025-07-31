@@ -12,16 +12,17 @@ module.exports = {
   getFilteredRooms
 };
 
+// Receive Item Handler
 async function receiveInStockroom(roomId, params) {
   const room = await getRoomById(roomId);
-  // assume room.type holds the key you passed to register(), e.g. "apparel"
   const handler = getHandler(room.stockroomType);
   if (!handler) {
     throw new Error(`No receive-handler for stockroom type "${room.stockroomType}"`);
   }
-  // delegate to the proper service
   return handler(params);
 }
+
+// Management Handler
 async function getRooms() {
   return await db.Room.findAll({
     include: [{
@@ -59,6 +60,7 @@ async function getRoomById(id) {
   return rooms;
 }
 
+// Other Handler
 async function getUsersForDropdown() {
   return db.Account.findAll({
     attributes: ['id', 'firstName', 'lastName']
