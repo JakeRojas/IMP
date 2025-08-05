@@ -5,6 +5,9 @@ const roomService       = require('_services/room.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
+const { get }           = require('_helpers/registry');
+const { capitalize }    = require('lodash');
+const { DataTypes }= require('sequelize');
 
 router.post('/create-room',                             createRoomschema, createRoom);
 router.post('/:roomId/register-item',                   registerItemSchema, registerItem);
@@ -14,7 +17,8 @@ router.get('/filtered-by',                              getFilteredRooms);
 router.get('/',                                         getRooms);
 router.get('/in-charge-options',                        getInChargeOptions);
 router.get('/:id',                                      getRoomById);
-router.get('/:roomId/items',                            getRoomItems);
+router.get('/:roomId/items',                            getRoomItems);  
+router.get('/:roomId/enum-options',                     getRoomEnumOptions);
 
 router.put('/:roomId/scan/items/:itemQrCode/status',    updateItemStatus);
 
@@ -26,7 +30,7 @@ function createRoomschema(req, res, next) {
       roomName: Joi.string().required().min(1).max(30),
       roomFloor: Joi.string().required().min(1).max(5),
       roomType: Joi.string().lowercase().valid('stockroom','office','classroom', 'comfortroom', 'openarea').required(),
-      stockroomType:     Joi.string().required().valid('apparel','supply','it', 'maintenance').optional(),
+      stockroomType: Joi.string().valid('apparel', 'supply', 'it', 'maintenance').optional(),
       roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
@@ -81,6 +85,10 @@ async function getInChargeOptions(req, res, next) {
   } catch (err) {
     next(err);
   }
+  // try {
+  //   const accounts = await get('getAll')();
+  //   res.json(accounts);
+  // } catch (err) { next(err); }
 }
 async function registerItem(req, res, next) {
   try {
@@ -125,6 +133,34 @@ async function getFilteredRooms(req, res, next) {
     });
 
     res.json(rooms);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getRoomEnumOptions(req, res, next) {
+  try {
+    const room = await db.Room.findByPk(req.params.roomId);
+    if (!room) return res.status(404).json({ options: {} });
+
+    const modelName = `Receive_${capitalize(room.stockroomType)}`;
+    const ReceiveModel = db[modelName];
+
+    if (!ReceiveModel) {
+      console.warn(`No model found for name: ${modelName}`);
+      return res.json({ options: {} });
+    }
+
+    const options = {};
+    
+    for (const [field, attr] of Object.entries(ReceiveModel.rawAttributes)) {
+      if (attr.type instanceof DataTypes.ENUM) {
+        options[field] = attr.values;
+        console.log(`  • ${field}: [${attr.values.join(', ')}]`);
+      }
+    }
+
+    return res.json({ options });
   } catch (err) {
     next(err);
   }

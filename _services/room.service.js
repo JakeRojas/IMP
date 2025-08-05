@@ -1,4 +1,6 @@
 const db = require('_helpers/db-handler');
+const { receiveApparelHandler } = require('_services/apparel.service');
+const { receiveAdminSupplyHandler, } = require('_services/adminSupply.service');
 
 module.exports = {
   receiveInStockroom,
@@ -12,15 +14,93 @@ module.exports = {
   getFilteredRooms
 };
 
+
+/**
+ * Map each room.stockroomType to its handler function
+ */
+const handlerMap = {
+  apparel:     receiveApparelHandler,
+  supply:      receiveAdminSupplyHandler,
+};
+
 // Receive Item Handler
+// async function receiveInStockroom(roomId, params) {
+//   const room = await getRoomById(roomId);
+//   const handler = getHandler(room.stockroomType);
+//   if (!handler) {
+//     throw new Error(`No receive-handler for stockroom type "${room.stockroomType}"`);
+//   }
+//   return handler(params);
+// }
 async function receiveInStockroom(roomId, params) {
+  // 1) Load the room so we know its stockroomType
   const room = await getRoomById(roomId);
-  const handler = getHandler(room.stockroomType);
+  if (!room) throw new Error(`Room ${roomId} not found`);
+
+  // 2) Pick the handler from our map
+  const handler = handlerMap[room.stockroomType];
   if (!handler) {
-    throw new Error(`No receive-handler for stockroom type "${room.stockroomType}"`);
+    throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
   }
-  return handler(params);
+
+  // 3) Run the handler to create your batchResult
+  const batchResult = await handler(params);
+  console.log('🔍 batchResult:', batchResult);
+
+  // 4) Figure out which property holds the created units
+  const keyMap = {
+    apparel:     'apparel',
+    supply:      'supplies',
+    it:          'its',
+    maintenance: 'maintenances',
+  };
+  const prop  = keyMap[room.stockroomType] || '';
+  const units = Array.isArray(batchResult[prop]) ? batchResult[prop] : [];
+  console.log(`🔍 units for "${room.stockroomType}":`, units);
+
+  // 5) Register each unit into RoomInventory
+  await Promise.all(
+    units.map(u =>
+      db.RoomInventory.create({ roomId, itemId: u.id })
+    )
+  );
+
+  return batchResult;
 }
+
+// async function receiveInStockroom(roomId, params) {
+//   const room    = await getRoomById(roomId);
+//   const handler = getHandler(room.stockroomType);
+//   if (!handler) throw new Error(`No receive-handler for "${room.stockroomType}"`);
+
+//   // create the batch + units
+//   const batchResult = await handler(params);
+//   console.log('🔍 batchResult from handler:', batchResult);
+
+//   // for each created unit, register it into RoomInventory
+//   // const units =
+//   //   room.stockroomType === 'apparel' ? batchResult.apparel :
+//   //   room.stockroomType === 'supply'  ? batchResult.supplies :
+//   //   [];
+//   const keyMap = {
+//     apparel:   'apparel',   // e.g. batchResult.apparel
+//     supply:    'supplies',  // e.g. batchResult.supplies
+//     it:        'its',       // adjust if your handler returns batchResult.its
+//     maintenance:'maintenances'
+//     };
+//     const prop = keyMap[room.stockroomType] || '';
+//     const units = Array.isArray(batchResult[prop]) ? batchResult[prop] : [];
+
+//     console.log(`🔍 units for roomType=${room.stockroomType}:`, units);
+
+//   await Promise.all(
+//     units.map(u =>
+//       db.RoomInventory.create({ roomId, itemId: u.id })
+//     )
+//   );
+
+//   return batchResult;
+// }
 
 // Management Handler
 async function getRooms() {
@@ -44,6 +124,7 @@ async function createRoom(params) {
       roomName: params.roomName,
       roomFloor: params.roomFloor,
       roomType: params.roomType,
+      stockroomType: params.stockroomType,
       roomInCharge: params.roomInCharge
     });
     return { 

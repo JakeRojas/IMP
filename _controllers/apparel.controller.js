@@ -9,7 +9,7 @@ const Role              = require('_helpers/role');
 router.post('/receive',     receiveApparelSchema, receiveApparel);
 router.post('/release',     releaseApparelSchema, releaseApparel);
 
-router.get('/received',     getReceivedApparel);
+router.get('/',     getReceivedApparel);
 router.get('/released',     getReleasedApparel);
 router.get('/:id',          getReceivedApparelById);
 

@@ -23,11 +23,14 @@ async function receiveApparelHandler(params) {
     }))
 
     await db.Apparel.bulkCreate(units);
+    await db.Item.bulkCreate(units);
 
     return db.Receive_Apparel.findByPk(batch.id, {
       include: { 
         model: db.Apparel, 
-        as: 'apparel'
+        as: 'apparel',
+        model: db.Item, 
+        as: 'generalItem',
       }
     });
 } register('apparel', receiveApparelHandler);

@@ -64,5 +64,25 @@ function dbAssociations() {
     // Turn admin supply's quantity in to single row in database
     db.Receive_Admin_Supply.hasMany(db.Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'supplies' });
     db.Admin_Supply.belongsTo(db.Receive_Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'batch'});
+
+    db.Receive_Apparel.hasMany(db.Apparel, {
+        foreignKey: 'receiveBatchId',
+        as: 'apparelItems'
+    });
+
+    db.Apparel.belongsTo(db.Receive_Apparel, {
+        foreignKey: 'receiveBatchId',
+        as: 'batches'
+    });
+    db.Apparel.belongsTo(db.Item, {
+        foreignKey: 'itemId',
+        as: 'generalItem'
+    });
+    //db.Apparel.hasMany(db.Item, { foreignKey: 'apparelId', as: 'all' });
+
+    db.Item.hasOne(db.Apparel, {   foreignKey: 'itemId',   as: 'apparelDetail' });
+    db.Item.hasOne(db.Admin_Supply, { foreignKey: 'itemId', as: 'supplyDetail' });
+    // etc for IT, Maintenance…
+    db.Item.hasMany(db.RoomInventory, { foreignKey: 'itemId', as: 'roomLocations' });
     
 }
