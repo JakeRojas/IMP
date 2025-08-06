@@ -2,6 +2,7 @@ const express           = require('express');
 const router            = express.Router();
 const Joi               = require('joi');
 const roomService       = require('_services/room.service');
+const apparelService       = require('_services/apparel.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
@@ -15,9 +16,11 @@ router.post( '/:roomId/receive',                        receiveSchema, receiveIt
 
 router.get('/filtered-by',                              getFilteredRooms);
 router.get('/',                                         getRooms);
+router.get('/:roomId/received-items',                   getReceivedItems);
 router.get('/in-charge-options',                        getInChargeOptions);
 router.get('/:id',                                      getRoomById);
-router.get('/:roomId/items',                            getRoomItems);  
+router.get('/:roomId/items',                            getRoomItems); 
+router.get('/:roomId/apparels',                         getReceivedApparel);  
 router.get('/:roomId/enum-options',                     getRoomEnumOptions);
 
 router.put('/:roomId/scan/items/:itemQrCode/status',    updateItemStatus);
@@ -75,6 +78,23 @@ async function receiveItem(req, res, next) {
   } catch (err) {
     next(err);
   }
+}
+async function getReceivedItems(req, res, next) {
+  const { roomId } = req.params;
+  if (!/^\d+$/.test(roomId)) {
+    return res.status(400).json({ message: 'Invalid roomId' });
+  }
+  try {
+    const items = await roomService.getReceivedItemsByRoom(roomId);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+function getReceivedApparel(req, res, next) {
+  apparelService.getReceivedApparelHandler()
+      .then(apparel => res.json(apparel))
+      .catch(next);
 }
 
 // Other features

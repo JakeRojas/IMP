@@ -42,16 +42,8 @@ function dbAssociations() {
     db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge', as: 'ownerss' });
 
     // Room-Item many-to-many via RoomInventory
-    db.Room.belongsTo(db.Item, { through: db.RoomInventory, foreignKey: 'roomId', otherKey: 'itemId' });
-    db.Item.belongsTo(db.Room, { through: db.RoomInventory, foreignKey: 'itemId', otherKey: 'roomId' });
-
-    // Direct join-model relations
-    db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
-    db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId', as: 'Item' });
-    db.Item.hasMany(db.RoomInventory, { foreignKey: 'itemId' });
-
-    db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId' });
-    db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+    db.Room.belongsTo(db.Item, { foreignKey: 'roomId', otherKey: 'itemId' });
+    db.Item.belongsTo(db.Room, { foreignKey: 'itemId', otherKey: 'roomId' });
 
     // Receive and release apparel relation
     db.Receive_Apparel.hasMany(db.Release_Apparel, { foreignKey: 'id' });
@@ -64,25 +56,14 @@ function dbAssociations() {
     // Turn admin supply's quantity in to single row in database
     db.Receive_Admin_Supply.hasMany(db.Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'supplies' });
     db.Admin_Supply.belongsTo(db.Receive_Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'batch'});
-
-    db.Receive_Apparel.hasMany(db.Apparel, {
-        foreignKey: 'receiveBatchId',
-        as: 'apparelItems'
-    });
-
-    db.Apparel.belongsTo(db.Receive_Apparel, {
-        foreignKey: 'receiveBatchId',
-        as: 'batches'
-    });
     db.Apparel.belongsTo(db.Item, {
         foreignKey: 'itemId',
         as: 'generalItem'
     });
-    //db.Apparel.hasMany(db.Item, { foreignKey: 'apparelId', as: 'all' });
+    db.Room.hasMany(db.Apparel, { as: 'apparel', foreignKey: 'receiveRoomId' });
+    db.Apparel.belongsTo(db.Room, { foreignKey: 'receiveRoomId' });
 
-    db.Item.hasOne(db.Apparel, {   foreignKey: 'itemId',   as: 'apparelDetail' });
+    db.Item.hasOne(db.Apparel, {   foreignKey: 'itemId',   as: 'apparelUnit' });
     db.Item.hasOne(db.Admin_Supply, { foreignKey: 'itemId', as: 'supplyDetail' });
-    // etc for IT, Maintenance…
-    db.Item.hasMany(db.RoomInventory, { foreignKey: 'itemId', as: 'roomLocations' });
     
 }

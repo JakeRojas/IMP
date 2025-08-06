@@ -14,25 +14,30 @@ module.exports = {
 
 // Receive Apparel Handler
 async function receiveApparelHandler(params) {
-    const batch = await db.Receive_Apparel.create(params);
+  // 1) Create the batch record
+  const batch = await db.Receive_Apparel.create(params);
 
-    const units = Array(params.apparelQuantity)
-    .fill(null)
-    .map(() => ({
-      receiveApparelId: batch.id
-    }))
+  // 2) For each quantity, create an Item row
+  const itemRows = Array.from({ length: params.apparelQuantity }, () => ({
+    receiveApparelId: batch.id
+  }));
+  const items = await db.Item.bulkCreate(itemRows, { returning: true });
 
-    await db.Apparel.bulkCreate(units);
-    await db.Item.bulkCreate(units);
+  // 3) For each Item, create an Apparel row pointing back to that Item
+  const apparelRows = items.map(item => ({
+    receiveApparelId: batch.id,
+    itemId: item.id
+  }));
+  await db.Apparel.bulkCreate(apparelRows);
 
-    return db.Receive_Apparel.findByPk(batch.id, {
-      include: { 
-        model: db.Apparel, 
-        as: 'apparel',
-        model: db.Item, 
-        as: 'generalItem',
-      }
-    });
+  // 4) Return the batch, now including the per‐unit apparel details
+  return db.Receive_Apparel.findByPk(batch.id, {
+    include: { 
+      model: db.Apparel, 
+      as: 'apparel',
+      include: { model: db.Item, as: 'generalItem' }
+    }
+  });
 } register('apparel', receiveApparelHandler);
 async function getReceivedApparelHandler() {
   return apparel = await db.Receive_Apparel.findAll();

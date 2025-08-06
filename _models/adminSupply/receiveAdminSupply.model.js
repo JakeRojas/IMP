@@ -6,6 +6,14 @@ module.exports = (sequelize) => {
         receivedBy: { type: DataTypes.STRING, allowNull: false },
         supplyName: { type: DataTypes.STRING, allowNull: false },
         supplyQuantity: { type: DataTypes.INTEGER, allowNull: false },
+        // supplySize: {
+        //     type: DataTypes.ENUM(
+        //         'short', 'long', [INTEGER], 'pack', 'ream', 
+        //         'meter', 'roll', 'gallon', 'unit', 'educ', 
+        //         'teachers'
+        //         ), 
+        //     allowNull: false 
+        // },
         supplyMeasure: { 
             type: DataTypes.ENUM(
                 'pc', 'box', 'bottle', 'pack', 'ream', 
