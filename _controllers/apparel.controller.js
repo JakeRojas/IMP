@@ -26,7 +26,7 @@ function receiveApparelSchema (req, res, next) {
         apparelLevel: Joi.string().valid('pre', 'elem', '7', '8', '9', '10', 'sh', 'it', 'hs', 'educ', 'teachers').required(),
         apparelType: Joi.string().valid('uniform', 'pe').required(),
         apparelFor: Joi.string().valid('girls', 'boys').required(),
-        apparelSize: Joi.string().max(3).required(),
+        apparelSize: Joi.string().valid('2', '4', '6', '8', '10', '12', '14', '16', '18', '20', 'xs', 's', 'm', 'l', 'xl', '2xl', '3xl').required(),
         apparelQuantity: Joi.number().integer().min(1).required()
   });
   validateRequest(req, next, schema);

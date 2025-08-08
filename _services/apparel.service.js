@@ -30,6 +30,24 @@ async function receiveApparelHandler(params) {
   }));
   await db.Apparel.bulkCreate(apparelRows);
 
+  // 2) Update aggregate inventory
+  const [inv] = await db.ApparelInventory.findOrCreate({
+    where: {
+      roomId:      params.roomId,
+      apparelName: params.apparelName,
+      apparelLevel: params.apparelLevel,
+      apparelType:  params.apparelType,
+      apparelFor:   params.apparelFor,
+      apparelSize:  params.apparelSize
+    },
+    defaults: {
+      totalQuantity: 0
+    }
+  });
+  // increment
+  inv.totalQuantity += params.apparelQuantity;
+  await inv.save();
+
   // 4) Return the batch, now including the per‐unit apparel details
   return db.Receive_Apparel.findByPk(batch.id, {
     include: { 

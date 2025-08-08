@@ -26,7 +26,14 @@ module.exports = (sequelize) => {
                 ), 
             allowNull: false 
         },
-        apparelSize: { type: DataTypes.STRING, allowNull: false },
+        apparelSize: { type: DataTypes.ENUM(
+            '2', '4', '6', '8', '10', 
+            '12', '14', '16', '18', '20', 
+            'xs', 's', 'm', 'l', 'xl', 
+            '2xl', '3xl'
+            ), 
+            allowNull: false  
+        },
         apparelQuantity: { type: DataTypes.INTEGER, allowNull: false },
         receivedAt:  { type:DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
         updated: { type: DataTypes.DATE },

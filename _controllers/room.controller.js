@@ -22,6 +22,7 @@ router.get('/:id',                                      getRoomById);
 router.get('/:roomId/items',                            getRoomItems); 
 router.get('/:roomId/apparels',                         getReceivedApparel);  
 router.get('/:roomId/enum-options',                     getRoomEnumOptions);
+router.get('/:roomId/inventory',                        getInventory);
 
 router.put('/:roomId/scan/items/:itemQrCode/status',    updateItemStatus);
 
@@ -71,9 +72,15 @@ function getRoomById(req, res, next) {
 
 // Receive part
 async function receiveItem(req, res, next) {
+  // try {
+  //   const { roomId } = req.params;
+  //   const result     = await roomService.receiveInStockroom(roomId, req.body);
+  //   res.status(201).json(result);
+  // } catch (err) {
+  //   next(err);
+  // }
   try {
-    const { roomId } = req.params;
-    const result     = await roomService.receiveInStockroom(roomId, req.body);
+    const result = await roomService.receiveInStockroom(req.params.roomId, req.body);
     res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -181,6 +188,15 @@ async function getRoomEnumOptions(req, res, next) {
     }
 
     return res.json({ options });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getInventory(req, res, next) {
+  try {
+    const inventory = await roomService.getInventoryByRoom(req.params.roomId);
+    res.json(inventory);
   } catch (err) {
     next(err);
   }

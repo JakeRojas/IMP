@@ -26,6 +26,7 @@ db.Item             = require('../_models/item.model')(sequelize);
 db.Apparel          = require('../_models/apparel/apparel.model')(sequelize);
 db.Receive_Apparel  = require('../_models/apparel/receiveApparel.model')(sequelize);
 db.Release_Apparel  = require('../_models/apparel/releaseApparel.model')(sequelize);
+db.ApparelInventory = require('../_models/apparel/apparelInventory.model')(sequelize);
 
 // Admin Supply models
 db.Admin_Supply             = require('../_models/adminSupply/adminSupply.model')(sequelize);
@@ -66,4 +67,19 @@ function dbAssociations() {
     db.Item.hasOne(db.Apparel, {   foreignKey: 'itemId',   as: 'apparelUnit' });
     db.Item.hasOne(db.Admin_Supply, { foreignKey: 'itemId', as: 'supplyDetail' });
     
+    db.Receive_Apparel.belongsTo(db.Room, {
+        foreignKey: 'roomId',
+        as: 'room'
+      });
+
+    // RoomInventory ↔ Room, Item
+    db.Room.hasMany(db.RoomInventory,   { foreignKey: 'roomId', as: 'inventories' });
+    db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+    db.Item.hasMany(db.RoomInventory,   { foreignKey: 'itemId', as: 'roomInventories' });
+    db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId', as: 'item' });
+
+    // Inventory ↔ Room
+    db.Room.hasMany(db.ApparelInventory, { foreignKey: 'roomId', as: 'apparelInventory' });
+    db.ApparelInventory.belongsTo(db.Room,    { foreignKey: 'roomId' });
 }

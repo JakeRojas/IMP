@@ -1,18 +1,23 @@
 const db = require('_helpers/db-handler');
+const { Sequelize, Op, fn, col } = require('sequelize'); 
 const { receiveApparelHandler } = require('_services/apparel.service');
 const { receiveAdminSupplyHandler, } = require('_services/adminSupply.service');
 
 module.exports = {
   receiveInStockroom,
   createRoom,
+  registerItem,
+
   getRooms,
   getRoomById,
   getUsersForDropdown,
-  registerItem,
   getRoomItems,
-  updateInventoryStatus,
   getFilteredRooms,
-  getReceivedItemsByRoom
+  getReceivedItemsByRoom,
+  getInventory,
+
+  updateInventoryStatus,
+  getInventoryByRoom
 };
 
 
@@ -23,33 +28,214 @@ const handlerMap = {
   supply:      receiveAdminSupplyHandler,
 };
 
-async function receiveInStockroom(roomId, params) {
-  // 1) Load the room so we know its stockroomType
-  const room = await getRoomById(roomId);
-  if (!room) throw new Error(`Room ${roomId} not found`);
+// async function receiveInStockroom(roomId, params) {
+//   // 1) Load the room so we know its stockroomType
+//   const room = await getRoomById(roomId);
+//   if (!room) throw new Error(`Room ${roomId} not found`);
 
-  // 2) Pick the handler from our map
-  const handler = handlerMap[room.stockroomType];
-  if (!handler) {
-    throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
+//   // 2) Pick the handler from our map
+//   const handler = handlerMap[room.stockroomType];
+//   if (!handler) {
+//     throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
+//   }
+
+//   // 3) Run the handler to create your batchResult
+//   const batchResult = await handler(params);
+//   console.log('🔍 batchResult:', batchResult);
+
+//   // 4) Figure out which property holds the created units
+//   const keyMap = {
+//     apparel:     'apparel',
+//     supply:      'supplies',
+//     it:          'its',
+//     maintenance: 'maintenances',
+//   };
+//   const prop  = keyMap[room.stockroomType] || '';
+//   const units = Array.isArray(batchResult[prop]) ? batchResult[prop] : [];
+//   console.log(`🔍 units for "${room.stockroomType}":`, units);
+
+//   return batchResult;
+// }
+async function receiveInStockroom(roomId, payload) {
+  // Always merge roomId so downstream handlers can consume it
+  payload.roomId = roomId;
+  if (payload.apparelQuantity != null) {
+    payload.apparelQuantity = parseInt(payload.apparelQuantity, 10);
+  }
+  if (payload.adminQuantity != null) {
+    payload.adminQuantity = parseInt(payload.adminQuantity, 10);
   }
 
-  // 3) Run the handler to create your batchResult
-  const batchResult = await handler(params);
-  console.log('🔍 batchResult:', batchResult);
+  // Now detect by existence only
+  const isApparel = payload.apparelName  && payload.apparelQuantity  > 0;
+  const isSupply = payload.supplyName   && payload.adminQuantity    > 0;
 
-  // 4) Figure out which property holds the created units
-  const keyMap = {
-    apparel:     'apparel',
-    supply:      'supplies',
-    it:          'its',
-    maintenance: 'maintenances',
-  };
-  const prop  = keyMap[room.stockroomType] || '';
-  const units = Array.isArray(batchResult[prop]) ? batchResult[prop] : [];
-  console.log(`🔍 units for "${room.stockroomType}":`, units);
+  if (!isApparel && !isSupply) {
+    const err = new Error(
+      'Bad payload: must include EITHER { apparelName (string), apparelQuantity (>0), … } ' +
+      'OR { supplyName (string), adminQuantity (>0), … }'
+    );
+    err.status = 400;
+    throw err;
+  }
 
-  return batchResult;
+  // 1) Branch based on what you're receiving
+  // if (payload.stockroomType === 'apparel') {
+    if (payload.apparelName && Number.isInteger(payload.apparelQuantity)) {
+    // 1a) Create the receive-apparel batch (audit log)
+    const batch = await db.Receive_Apparel.create({
+      receivedFrom:        payload.receivedFrom,
+      receivedBy:  payload.receivedBy,
+      apparelName:   payload.apparelName,
+      apparelLevel:  payload.apparelLevel,
+      apparelType:   payload.apparelType,
+      apparelFor:    payload.apparelFor,
+      apparelSize:   payload.apparelSize,
+      apparelQuantity: payload.apparelQuantity,
+      // …any other fields you have…
+    });
+
+    // 1b) (Optional) If you have per-unit Item rows, create them here
+    // const items = await db.Item.bulkCreate(
+    //   Array(payload.apparelQuantity).fill({ /* ... */ }),
+    //   { returning: true }
+    // );
+    // await db.Apparel.bulkCreate( items.map(i => ({ receiveApparelId: batch.id, itemId: i.id })) );
+
+    // 2) Update (or create) the running total in ApparelInventory
+    const [inv] = await db.ApparelInventory.findOrCreate({
+      where: {
+        roomId:       payload.roomId,
+        apparelName:  payload.apparelName,
+        apparelLevel: payload.apparelLevel,
+        apparelType:  payload.apparelType,
+        apparelFor:   payload.apparelFor,
+        apparelSize:  payload.apparelSize,
+      },
+      defaults: { totalQuantity: 0 }
+    });
+    inv.totalQuantity += payload.apparelQuantity;
+    await inv.save();
+
+    // 3) Return whatever the controller expects (the new batch + details)
+    return db.Receive_Apparel.findByPk(batch.id, {
+      include: { model: db.Apparel, as: 'apparel', include: { model: db.Item, as: 'generalItem' } }
+    });
+  }
+
+
+  // if (payload.stockroomType === 'adminSupply') {
+    if (payload.supplyName && Number.isInteger(payload.adminQuantity)) {
+    // 1a) Create the receive-admin-supply batch
+    const batch = await db.Receive_Admin_Supply.create({
+      roomId:       payload.roomId,
+      supplyName:   payload.supplyName,
+      supplyMeasure:payload.supplyMeasure,
+      adminQuantity:payload.adminQuantity,
+      // …any other fields…
+    });
+
+    // 2) Update the running total in AdminInventory
+    const [inv] = await db.AdminInventory.findOrCreate({
+      where: {
+        roomId:       payload.roomId,
+        supplyName:   payload.supplyName,
+        supplyMeasure:payload.supplyMeasure,
+      },
+      defaults: { totalQuantity: 0 }
+    });
+    inv.totalQuantity += payload.adminQuantity;
+    await inv.save();
+
+    // 3) Return the created batch (or with includes, if you need)
+    return batch;
+  }
+
+  // 4) If neither, it’s an error
+  // throw new Error(`Unknown category "${payload.stockroomType}" in receiveInStockroom`);
+  throw new Error(
+    `receiveInStockroom: payload must include either:
+     • apparelName & apparelQuantity
+     • supplyName & adminQuantity`
+  );
+}
+// async function receiveInStockroom(roomId, params) {
+//   const room = await getRoomById(roomId);
+//   if (!room) throw new Error(`Room ${roomId} not found`);
+
+//   const handler = handlerMap[room.stockroomType];
+//   if (!handler) throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
+
+//   // pass roomId into handler so it's recorded with incoming batch
+//   const batchResult = await handler({ ...params, roomId });
+
+//   // find the array of unit‐records in batchResult
+//   const keyMap = { apparel: 'apparel', supply: 'supplies', /* … */ };
+//   const units = batchResult[keyMap[room.stockroomType]] || [];
+
+//   // Tally up by itemId
+//   const counts = units.reduce((acc, u) => {
+//     acc[u.itemId] = (acc[u.itemId] || 0) + 1;
+//     return acc;
+//   }, {});
+
+//   // Update RoomInventory
+//   for (const [itemId, qty] of Object.entries(counts)) {
+//     const [inv, created] = await db.RoomInventory.findOrCreate({
+//       where: { roomId, itemId },
+//       defaults: { quantity: qty }
+//     });
+//     if (!created) {
+//       inv.quantity += qty;
+//       await inv.save();
+//     }
+//   }
+
+//   return batchResult;
+// }
+
+// --- NEW ---
+async function getInventory(roomId) {
+  const apparelField = db.Receive_Apparel.rawAttributes.id.field; 
+  // ensure room exists
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw new Error(`Room ${roomId} not found`);
+
+  let rows;
+  switch (room.stockroomType) {
+    case 'apparel':
+      rows = await db.Receive_Apparel.findAll({
+        where: { roomId },
+        attributes: [
+          apparelField,
+          [fn('COUNT', col(apparelField)), 'apparelQuantity']
+        ],
+        group: [apparelField]
+      });
+      return rows.map(r => ({
+        itemId:   r.apparelField,
+        quantity: parseInt(r.get('apparelField'), 10)
+      }));
+
+    case 'admin_supply':
+      rows = await db.Receive_Admin_Supply.findAll({
+        where: { roomId },
+        attributes: [
+          'supplyId',
+          [fn('COUNT', col('supplyId')), 'quantity']
+        ],
+        group: ['supplyId']
+      });
+      return rows.map(r => ({
+        itemId:   r.supplyId,
+        quantity: parseInt(r.get('quantity'), 10)
+      }));
+
+    // add other stockroomType cases here…
+
+    default:
+      throw new Error(`Inventory not supported for stockroomType="${room.stockroomType}"`);
+  }
 }
 async function getReceivedItemsByRoom(roomId) {
   const apparels = await db.Apparel.findAll({
@@ -161,4 +347,12 @@ async function getFilteredRooms({ params }) {
   if (params.roomType) where.roomType = params.roomType;
 
   return await db.Room.findAll({ where });
+}
+
+async function getInventoryByRoom(roomId) {
+  // fetch the aggregated totals for this room
+  return db.ApparelInventory.findAll({
+    where: { roomId },
+    order: [['apparelName','ASC'], ['apparelSize','ASC']]
+  });
 }
