@@ -7,10 +7,8 @@ const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 router.post('/receive',     receiveApparelSchema, receiveApparel);
-router.post('/release',     releaseApparelSchema, releaseApparel);
 
 router.get('/',             getReceivedApparel);
-router.get('/released',     getReleasedApparel);
 router.get('/:id',          getReceivedApparelById);
 
 router.put('/:id',          updateReceivedApparelSchema, updateReceivedApparel);
@@ -27,7 +25,7 @@ function receiveApparelSchema (req, res, next) {
         apparelType: Joi.string().valid('uniform', 'pe').required(),
         apparelFor: Joi.string().valid('girls', 'boys').required(),
         apparelSize: Joi.string().valid('2', '4', '6', '8', '10', '12', '14', '16', '18', '20', 'xs', 's', 'm', 'l', 'xl', '2xl', '3xl').required(),
-        apparelQuantity: Joi.number().integer().min(1).required()
+        apparelQuantity: Joi.number().integer().min(1).required(),
   });
   validateRequest(req, next, schema);
 }
@@ -39,14 +37,6 @@ function updateReceivedApparelSchema(req, res, next) {
       apparelFor: Joi.string().valid('girls', 'boys').empty(),
       apparelSize: Joi.string().max(3).empty(),
       apparelQuantity: Joi.number().integer().min(1).empty()
-  });
-  validateRequest(req, next, schema);
-}
-function releaseApparelSchema (req, res, next) {
-  const schema = Joi.object({
-        releasedBy: Joi.string().max(50).required(), 
-        claimedBy: Joi.string().required(),
-        apparelQuantity: Joi.number().integer().min(1).required()
   });
   validateRequest(req, next, schema);
 }
@@ -74,13 +64,3 @@ function updateReceivedApparel(req, res, next) {
 }
 
 // Release Apparel part
-function releaseApparel(req, res, next) {
-  apparelService.releaseApparelHandler(req.body) 
-  .then (apparel => res.json (apparel)) 
-  .catch(next);
-}
-function getReleasedApparel(req, res, next) {
-  apparelService.getReleasedApparelHandler()
-      .then(release => res.json(release))
-      .catch(next);
-}

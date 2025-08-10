@@ -3,10 +3,8 @@ const { register }      = require('_helpers/registry');
 
 module.exports = {
   receiveApparelHandler,
-  releaseApparelHandler,
 
   getReceivedApparelHandler,
-  getReleasedApparelHandler,
   getReceivedApparelByIdHandler,
 
   updateReceivedApparelHandler
@@ -15,7 +13,7 @@ module.exports = {
 // Receive Apparel Handler
 async function receiveApparelHandler(params) {
   // 1) Create the batch record
-  const batch = await db.Receive_Apparel.create(params);
+  const batch = await db.ReceiveApparel.create(params);
 
   // 2) For each quantity, create an Item row
   const itemRows = Array.from({ length: params.apparelQuantity }, () => ({
@@ -49,7 +47,7 @@ async function receiveApparelHandler(params) {
   await inv.save();
 
   // 4) Return the batch, now including the per‐unit apparel details
-  return db.Receive_Apparel.findByPk(batch.id, {
+  return db.ReceiveApparel.findByPk(batch.id, {
     include: { 
       model: db.Apparel, 
       as: 'apparel',
@@ -57,11 +55,12 @@ async function receiveApparelHandler(params) {
     }
   });
 } register('apparel', receiveApparelHandler);
+
 async function getReceivedApparelHandler() {
-  return apparel = await db.Receive_Apparel.findAll();
+  return apparel = await db.ReceiveApparel.findAll();
 }
 async function getReceivedApparelByIdHandler(id) {
-  const apparel = await db.Receive_Apparel.findByPk(id)
+  const apparel = await db.ReceiveApparel.findByPk(id)
 
   if (!apparel) {
     throw new Error('Invalid apparel ID');
@@ -79,20 +78,3 @@ async function updateReceivedApparelHandler(id, params) {
 }
 
 // Release Apparel Handler
-async function releaseApparelHandler(params) {
-  const apparel = await new db.Release_Apparel(params);
-
-  await apparel.save();
-  
-  return apparel;
-}
-async function getReleasedApparelHandler() {
-  const release = await db.Release_Apparel.findAll({
-    include: {
-      model: db.Recieve_Apparel,
-      attributes: ['apparelType']
-    }
-  });
-
-  return release;
-}

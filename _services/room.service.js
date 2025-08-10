@@ -1,6 +1,6 @@
 const db = require('_helpers/db-handler');
-const { Sequelize, Op, fn, col } = require('sequelize'); 
-const { receiveApparelHandler } = require('_services/apparel.service');
+const { Sequelize, Transaction, Op, fn, col } = require('sequelize'); 
+const { receiveApparelHandler, releaseApparelHandler } = require('_services/apparel.service');
 const { receiveAdminSupplyHandler, } = require('_services/adminSupply.service');
 
 module.exports = {
@@ -17,7 +17,6 @@ module.exports = {
   getInventory,
 
   updateInventoryStatus,
-  getInventoryByRoom
 };
 
 
@@ -28,34 +27,6 @@ const handlerMap = {
   supply:      receiveAdminSupplyHandler,
 };
 
-// async function receiveInStockroom(roomId, params) {
-//   // 1) Load the room so we know its stockroomType
-//   const room = await getRoomById(roomId);
-//   if (!room) throw new Error(`Room ${roomId} not found`);
-
-//   // 2) Pick the handler from our map
-//   const handler = handlerMap[room.stockroomType];
-//   if (!handler) {
-//     throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
-//   }
-
-//   // 3) Run the handler to create your batchResult
-//   const batchResult = await handler(params);
-//   console.log('🔍 batchResult:', batchResult);
-
-//   // 4) Figure out which property holds the created units
-//   const keyMap = {
-//     apparel:     'apparel',
-//     supply:      'supplies',
-//     it:          'its',
-//     maintenance: 'maintenances',
-//   };
-//   const prop  = keyMap[room.stockroomType] || '';
-//   const units = Array.isArray(batchResult[prop]) ? batchResult[prop] : [];
-//   console.log(`🔍 units for "${room.stockroomType}":`, units);
-
-//   return batchResult;
-// }
 async function receiveInStockroom(roomId, payload) {
   // Always merge roomId so downstream handlers can consume it
   payload.roomId = roomId;
@@ -84,8 +55,8 @@ async function receiveInStockroom(roomId, payload) {
     if (payload.apparelName && Number.isInteger(payload.apparelQuantity)) {
     // 1a) Create the receive-apparel batch (audit log)
     const batch = await db.Receive_Apparel.create({
-      receivedFrom:        payload.receivedFrom,
-      receivedBy:  payload.receivedBy,
+      receivedFrom:  payload.receivedFrom,
+      receivedBy:    payload.receivedBy,
       apparelName:   payload.apparelName,
       apparelLevel:  payload.apparelLevel,
       apparelType:   payload.apparelType,
@@ -159,40 +130,6 @@ async function receiveInStockroom(roomId, payload) {
      • supplyName & adminQuantity`
   );
 }
-// async function receiveInStockroom(roomId, params) {
-//   const room = await getRoomById(roomId);
-//   if (!room) throw new Error(`Room ${roomId} not found`);
-
-//   const handler = handlerMap[room.stockroomType];
-//   if (!handler) throw new Error(`No receive-handler for stockroomType="${room.stockroomType}"`);
-
-//   // pass roomId into handler so it's recorded with incoming batch
-//   const batchResult = await handler({ ...params, roomId });
-
-//   // find the array of unit‐records in batchResult
-//   const keyMap = { apparel: 'apparel', supply: 'supplies', /* … */ };
-//   const units = batchResult[keyMap[room.stockroomType]] || [];
-
-//   // Tally up by itemId
-//   const counts = units.reduce((acc, u) => {
-//     acc[u.itemId] = (acc[u.itemId] || 0) + 1;
-//     return acc;
-//   }, {});
-
-//   // Update RoomInventory
-//   for (const [itemId, qty] of Object.entries(counts)) {
-//     const [inv, created] = await db.RoomInventory.findOrCreate({
-//       where: { roomId, itemId },
-//       defaults: { quantity: qty }
-//     });
-//     if (!created) {
-//       inv.quantity += qty;
-//       await inv.save();
-//     }
-//   }
-
-//   return batchResult;
-// }
 
 // --- NEW ---
 async function getInventory(roomId) {
@@ -347,12 +284,4 @@ async function getFilteredRooms({ params }) {
   if (params.roomType) where.roomType = params.roomType;
 
   return await db.Room.findAll({ where });
-}
-
-async function getInventoryByRoom(roomId) {
-  // fetch the aggregated totals for this room
-  return db.ApparelInventory.findAll({
-    where: { roomId },
-    order: [['apparelName','ASC'], ['apparelSize','ASC']]
-  });
 }

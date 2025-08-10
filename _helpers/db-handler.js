@@ -24,13 +24,13 @@ db.Item             = require('../_models/item.model')(sequelize);
 
 // Apparel models
 db.Apparel          = require('../_models/apparel/apparel.model')(sequelize);
-db.Receive_Apparel  = require('../_models/apparel/receiveApparel.model')(sequelize);
-db.Release_Apparel  = require('../_models/apparel/releaseApparel.model')(sequelize);
+db.ReceiveApparel  = require('../_models/apparel/receiveApparel.model')(sequelize);
+db.ReleaseApparel  = require('../_models/apparel/releaseApparel.model')(sequelize);
 db.ApparelInventory = require('../_models/apparel/apparelInventory.model')(sequelize);
 
 // Admin Supply models
-db.Admin_Supply             = require('../_models/adminSupply/adminSupply.model')(sequelize);
-db.Receive_Admin_Supply     = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
+db.AdminSupply             = require('../_models/adminSupply/adminSupply.model')(sequelize);
+db.ReceiveAdminSupply     = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 
 dbAssociations();
 
@@ -38,48 +38,65 @@ dbAssociations();
 }  
 
 function dbAssociations() {
-    // Account-Room owner relation
-    db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge', as: 'managedRooms' });
-    db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge', as: 'ownerss' });
+    // Account - Room (owner)
+  db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge', as: 'managedRooms' });
+  db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge', as: 'ownerss' });
 
-    // Room-Item many-to-many via RoomInventory
-    db.Room.belongsTo(db.Item, { foreignKey: 'roomId', otherKey: 'itemId' });
-    db.Item.belongsTo(db.Room, { foreignKey: 'itemId', otherKey: 'roomId' });
+  // Room <-> Item (many-to-many) via RoomInventory (join table)
+  db.Room.belongsToMany(db.Item, {
+    through: db.RoomInventory,
+    foreignKey: 'roomId',
+    otherKey: 'itemId',
+    as: 'items'
+  });
+  db.Item.belongsToMany(db.Room, {
+    through: db.RoomInventory,
+    foreignKey: 'itemId',
+    otherKey: 'roomId',
+    as: 'rooms'
+  });
 
-    // Receive and release apparel relation
-    db.Receive_Apparel.hasMany(db.Release_Apparel, { foreignKey: 'id' });
-    db.Release_Apparel.belongsTo(db.Receive_Apparel, { foreignKey: 'id' });
+  // Also keep direct RoomInventory ↔ Room, Item for convenience
+  db.Room.hasMany(db.RoomInventory,   { foreignKey: 'roomId', as: 'inventories' });
+  db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
 
-    // Turn apparel's quantity in to single row in database
-    db.Receive_Apparel.hasMany(db.Apparel, { foreignKey: 'receiveApparelId', as: 'apparel' });
-    db.Apparel.belongsTo(db.Receive_Apparel, { foreignKey: 'receiveApparelId', as: 'batch'});
+  db.Item.hasMany(db.RoomInventory,   { foreignKey: 'itemId', as: 'roomInventories' });
+  db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId', as: 'item' });
 
-    // Turn admin supply's quantity in to single row in database
-    db.Receive_Admin_Supply.hasMany(db.Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'supplies' });
-    db.Admin_Supply.belongsTo(db.Receive_Admin_Supply, { foreignKey: 'receiveAdminSupplyId', as: 'batch'});
-    db.Apparel.belongsTo(db.Item, {
-        foreignKey: 'itemId',
-        as: 'generalItem'
-    });
-    db.Room.hasMany(db.Apparel, { as: 'apparel', foreignKey: 'receiveRoomId' });
-    db.Apparel.belongsTo(db.Room, { foreignKey: 'receiveRoomId' });
+  // ReceiveApparel -> Apparel (per-unit) and Apparel -> ReceiveApparel (batch)
+  db.ReceiveApparel.hasMany(db.Apparel, { foreignKey: 'receiveApparelId', as: 'apparel' });
+  db.Apparel.belongsTo(db.ReceiveApparel, { foreignKey: 'receiveApparelId', as: 'batch' });
 
-    db.Item.hasOne(db.Apparel, {   foreignKey: 'itemId',   as: 'apparelUnit' });
-    db.Item.hasOne(db.Admin_Supply, { foreignKey: 'itemId', as: 'supplyDetail' });
-    
-    db.Receive_Apparel.belongsTo(db.Room, {
-        foreignKey: 'roomId',
-        as: 'room'
-      });
+  // ReceiveAdminSupply -> AdminSupply (per-unit) and back
+  db.ReceiveAdminSupply.hasMany(db.AdminSupply, { foreignKey: 'receiveAdminSupplyId', as: 'supplies' });
+  db.AdminSupply.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId', as: 'batch' });
 
-    // RoomInventory ↔ Room, Item
-    db.Room.hasMany(db.RoomInventory,   { foreignKey: 'roomId', as: 'inventories' });
-    db.RoomInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+  // Apparel unit -> Item (each apparel unit references an Item row)
+  db.Apparel.belongsTo(db.Item, { foreignKey: 'itemId', as: 'generalItem' });
+  db.Item.hasOne(db.Apparel, { foreignKey: 'itemId', as: 'apparelUnit' });
 
-    db.Item.hasMany(db.RoomInventory,   { foreignKey: 'itemId', as: 'roomInventories' });
-    db.RoomInventory.belongsTo(db.Item, { foreignKey: 'itemId', as: 'item' });
+  // Optional: AdminSupply -> Item if you also create Item rows for supplies
+  // db.AdminSupply.belongsTo(db.Item, { foreignKey: 'itemId', as: 'generalItem' });
+  // db.Item.hasOne(db.AdminSupply, { foreignKey: 'itemId', as: 'supplyDetail' });
 
-    // Inventory ↔ Room
-    db.Room.hasMany(db.ApparelInventory, { foreignKey: 'roomId', as: 'apparelInventory' });
-    db.ApparelInventory.belongsTo(db.Room,    { foreignKey: 'roomId' });
+  // ReceiveApparel -> Room (batch belongs to room) and Room -> ReceiveApparel
+  db.ReceiveApparel.belongsTo(db.Room, { foreignKey: 'roomId', as: 'room' });
+  db.Room.hasMany(db.ReceiveApparel, { foreignKey: 'roomId', as: 'receivedBatches' });
+
+  // ApparelInventory (aggregate) belongs to Room and Room has many ApparelInventory rows
+  db.Room.hasMany(db.ApparelInventory, { foreignKey: 'roomId', as: 'apparelInventory' });
+  db.ApparelInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+  // ReleaseApparel should be linked to the ApparelInventory aggregate row (apparelInventoryId)
+  db.ApparelInventory.hasMany(db.ReleaseApparel, { foreignKey: 'apparelInventoryId', as: 'releases' });
+  db.ReleaseApparel.belongsTo(db.ApparelInventory, { foreignKey: 'apparelInventoryId', as: 'inventory' });
+
+  // Item <--> Receive models: Item rows should belong to their receive/batch (useful for includes)
+  // (Item model defines receiveApparelId and receiveAdminSupplyId fields)
+  db.ReceiveApparel.hasMany(db.Item, { foreignKey: 'receiveApparelId', as: 'items' });
+  db.Item.belongsTo(db.ReceiveApparel, { foreignKey: 'receiveApparelId', as: 'receiveApparel' });
+
+  db.ReceiveAdminSupply.hasMany(db.Item, { foreignKey: 'receiveAdminSupplyId', as: 'items' });
+  db.Item.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId', as: 'receiveAdminSupply' });
+
 }

@@ -1,3 +1,10 @@
+/* 
+    - this model will be the innventory of apparel.
+    - it will store all the received bathes of apprel items but if the received item is the same to the existing item, only the total quantity will be change
+    - ex.: if db.ReceiveApprel received 5 quantities of one specific item and received again that kind of item but only 3 quantities, 
+        the total quantity of that item will change by adding the new quantity into the existing.
+    - this model will not store duplicate items but the total quantity will update. 
+*/
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {

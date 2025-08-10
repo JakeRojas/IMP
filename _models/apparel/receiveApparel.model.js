@@ -1,9 +1,15 @@
+/* 
+    - this model will store all the received bathes of apprel one row per batch.
+    - ex.: if db.ReceiveApprel received 5 quantitys of one specific item and will store as one row, 
+    - this model will store the 5 quantities into 1 row. 
+*/
 const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
         receivedFrom: { type: DataTypes.STRING, allowNull: false },
         receivedBy: { type: DataTypes.STRING, allowNull: false },
+        releasedBy: { type: DataTypes.STRING, allowNull: false },
         apparelName: { type: DataTypes.STRING, allowNull: false },
         apparelLevel: { 
             type: DataTypes.ENUM(
@@ -43,5 +49,5 @@ module.exports = (sequelize) => {
         timestamps: false
     };
 
-    return sequelize.define('Receive_Apparel', attributes);
+    return sequelize.define('ReceiveApparel', attributes);
 };

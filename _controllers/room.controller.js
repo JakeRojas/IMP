@@ -24,11 +24,12 @@ router.get('/:roomId/apparels',                         getReceivedApparel);
 router.get('/:roomId/enum-options',                     getRoomEnumOptions);
 router.get('/:roomId/inventory',                        getInventory);
 
+
 router.put('/:roomId/scan/items/:itemQrCode/status',    updateItemStatus);
 
 module.exports = router;
 
-// Shema's part
+// Schema's part
 function createRoomschema(req, res, next) {
   const schema = Joi.object({
       roomName: Joi.string().required().min(1).max(30),
@@ -103,6 +104,8 @@ function getReceivedApparel(req, res, next) {
       .then(apparel => res.json(apparel))
       .catch(next);
 }
+
+// Release part
 
 // Other features
 async function getInChargeOptions(req, res, next) {
