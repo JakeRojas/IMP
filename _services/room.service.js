@@ -1,12 +1,13 @@
 const db = require('_helpers/db-handler');
 const { Sequelize, Transaction, Op, fn, col } = require('sequelize'); 
-const { receiveApparelHandler, releaseApparelHandler } = require('_services/apparel.service');
-const { receiveAdminSupplyHandler, } = require('_services/adminSupply.service');
+const apparelService = require('_services/apparel.service');
+const supplyService = require('_services/adminSupply.service');
 
 module.exports = {
   receiveInStockroom,
   createRoom,
   registerItem,
+  releaseApparelFromRoomHandler,
 
   getRooms,
   getRoomById,
@@ -23,10 +24,50 @@ module.exports = {
 
 //Map each room.stockroomType to its handler function
 const handlerMap = {
-  apparel:     receiveApparelHandler,
-  supply:      receiveAdminSupplyHandler,
+  apparel:     apparelService.receiveApparelHandler,
+  supply:      supplyService.receiveAdminSupplyHandler,
 };
 
+// Room's CRUD Handler
+async function getRooms() {
+  return await db.Room.findAll({
+    include: [{
+      model: db.Account,
+      as: 'ownerss',
+      attributes: ['firstName', 'lastName']
+    }]
+  });
+}
+async function createRoom(params) {
+  let rooms = await db.Room.findOne({ where: {roomName: params.roomName} });
+
+  if (rooms) {
+    return { 
+      message: 'Room already exists'
+    }
+  } else {
+    rooms = await db.Room.create({
+      roomName: params.roomName,
+      roomFloor: params.roomFloor,
+      roomType: params.roomType,
+      stockroomType: params.stockroomType,
+      roomInCharge: params.roomInCharge
+    });
+    return { 
+      message: 'New room created.', 
+      rooms 
+  };
+  }
+}
+async function getRoomById(id) {
+  const rooms = await db.Room.findByPk(id);
+  if (!rooms) {
+      throw new Error('Invalid room ID');
+  }
+  return rooms;
+}
+
+// Release & Receive Handler
 async function receiveInStockroom(roomId, payload) {
   // Always merge roomId so downstream handlers can consume it
   payload.roomId = roomId;
@@ -130,8 +171,65 @@ async function receiveInStockroom(roomId, payload) {
      • supplyName & adminQuantity`
   );
 }
+async function releaseApparelFromRoomHandler(roomId, payload) {
+  // validate basic inputs
+  if (!Number.isInteger(roomId)) throw new Error('Invalid room id');
+  const { apparelInventoryId, releasedBy, claimedBy, releaseQuantity } = payload || {};
 
-// --- NEW ---
+  if (!Number.isInteger(apparelInventoryId) || !releasedBy || !claimedBy || !Number.isInteger(releaseQuantity) || releaseQuantity <= 0) {
+    throw new Error('Invalid parameters. Required: apparelInventoryId (int), releasedBy (string), claimedBy (string), releaseQuantity (int > 0)');
+  }
+
+  // 1) find the inventory record
+  const inv = await db.ApparelInventory.findByPk(apparelInventoryId);
+  if (!inv) throw new Error(`ApparelInventory id=${apparelInventoryId} not found`);
+
+  // 2) ensure the inventory belongs to the requested room
+  if (inv.roomId !== roomId) {
+    throw new Error(`ApparelInventory id=${apparelInventoryId} does not belong to room id=${roomId}`);
+  }
+
+  // 3) delegate the release logic to apparel service (keeps single place for release business logic)
+  //    Note: apparelService.releaseApparelHandler should perform stock checks, create ReleaseApparel row,
+  //    decrement ApparelInventory.totalQuantity, and best-effort update per-unit rows.
+  const releaseRecord = await apparelService.releaseApparelHandler({
+    apparelInventoryId,
+    releasedBy,
+    claimedBy,
+    releaseQuantity
+  });
+
+  // 4) return the created release record back to controller
+  return releaseRecord;
+}
+async function getReceivedItemsByRoom(roomId) {
+  const apparels = await db.Apparel.findAll({
+    include: [
+      {
+        model: db.Receive_Apparel,
+        as: 'batch',
+        where: { roomId },
+        attributes: []
+      },
+      {
+        model: db.Item,
+        as: 'generalItem',
+        attributes: ['id', 'receiveApparelId']
+      }
+    ],
+    order: [['createdAt', 'ASC']]
+  });
+
+  // Map into the shape your front-end expects
+  return apparels.map(a => ({
+    id:         a.generalItem.id,
+    name:       a.generalItem.receiveApparelId,
+    quantity:   1,
+    receivedAt: a.createdAt
+  }));
+}
+
+// Inventory Handler
 async function getInventory(roomId) {
   const apparelField = db.Receive_Apparel.rawAttributes.id.field; 
   // ensure room exists
@@ -173,70 +271,6 @@ async function getInventory(roomId) {
     default:
       throw new Error(`Inventory not supported for stockroomType="${room.stockroomType}"`);
   }
-}
-async function getReceivedItemsByRoom(roomId) {
-  const apparels = await db.Apparel.findAll({
-    include: [
-      {
-        model: db.Receive_Apparel,
-        as: 'batch',
-        where: { roomId },
-        attributes: []
-      },
-      {
-        model: db.Item,
-        as: 'generalItem',
-        attributes: ['id', 'receiveApparelId']
-      }
-    ],
-    order: [['createdAt', 'ASC']]
-  });
-
-  // Map into the shape your front-end expects
-  return apparels.map(a => ({
-    id:         a.generalItem.id,
-    name:       a.generalItem.receiveApparelId,
-    quantity:   1,
-    receivedAt: a.createdAt
-  }));
-}
-
-async function getRooms() {
-  return await db.Room.findAll({
-    include: [{
-      model: db.Account,
-      as: 'ownerss',
-      attributes: ['firstName', 'lastName']
-    }]
-  });
-}
-async function createRoom(params) {
-  let rooms = await db.Room.findOne({ where: {roomName: params.roomName} });
-
-  if (rooms) {
-    return { 
-      message: 'Room already exists'
-    }
-  } else {
-    rooms = await db.Room.create({
-      roomName: params.roomName,
-      roomFloor: params.roomFloor,
-      roomType: params.roomType,
-      stockroomType: params.stockroomType,
-      roomInCharge: params.roomInCharge
-    });
-    return { 
-      message: 'New room created.', 
-      rooms 
-  };
-  }
-}
-async function getRoomById(id) {
-  const rooms = await db.Room.findByPk(id);
-  if (!rooms) {
-      throw new Error('Invalid room ID');
-  }
-  return rooms;
 }
 
 // Other Handler
@@ -285,3 +319,4 @@ async function getFilteredRooms({ params }) {
 
   return await db.Room.findAll({ where });
 }
+

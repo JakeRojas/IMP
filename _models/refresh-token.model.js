@@ -4,6 +4,7 @@ module.exports = model;
 
 function model(sequelize) {
     const attributes = {
+        refreshTokenId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         token: { type: DataTypes.STRING },
         expires: { type: DataTypes.DATE },
         created: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }, 
@@ -11,7 +12,7 @@ function model(sequelize) {
         revoked: { type: DataTypes.DATE },
         revokedByIp: { type: DataTypes.STRING },
         replacedByToken: { type: DataTypes.STRING }, 
-        AccountId: { type: DataTypes.INTEGER, allowNull: false },
+        accountId: { type: DataTypes.INTEGER, allowNull: false },
         isExpired: {
             type: DataTypes.VIRTUAL,
             get() { return Date.now() >= this.expires; }

@@ -3,7 +3,7 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
 
     const attributes = {
-        id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        adminSupplyId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         receiveAdminSupplyId: { type: DataTypes.INTEGER,  allowNull: false },
         status: { type: DataTypes.STRING,  allowNull: false, defaultValue: 'in_stock' }
     };
@@ -12,5 +12,5 @@ module.exports = (sequelize) => {
         timestamps: false
     };
 
-    return sequelize.define('Admin_Supply', attributes);
+    return sequelize.define('AdminSupply', attributes);
 };

@@ -30,7 +30,7 @@ async function receiveAdminSupplyHandler(params) {
         as: 'supplies'
       }
     });
-} register('supply', receiveAdminSupplyHandler);
+} /* register('supply', receiveAdminSupplyHandler); */
 async function getReceivedSupplyHandler() {
   return supplies = await db.Receive_Admin_Supply.findAll();
 }

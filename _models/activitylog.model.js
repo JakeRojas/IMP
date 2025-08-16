@@ -4,7 +4,8 @@ module.exports = model;
 
 function model(sequelize) {
     const attributes = {
-        AccountId: { type: DataTypes.INTEGER, allowNull: false },
+        activityLogId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        accountId: { type: DataTypes.INTEGER, allowNull: false },
         // entity: { type: DataTypes.STRING, allowNull: true },
         // entityId: { type: DataTypes.INTEGER, allowNull: true },
         actionType: { type: DataTypes.STRING, allowNull: false },

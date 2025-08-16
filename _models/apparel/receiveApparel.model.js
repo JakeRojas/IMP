@@ -7,8 +7,9 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
+        receiveApparelId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         receivedFrom: { type: DataTypes.STRING, allowNull: false },
-        receivedBy: { type: DataTypes.STRING, allowNull: false },
+        receivedBy: { type: DataTypes.INTEGER, allowNull: false },
         releasedBy: { type: DataTypes.STRING, allowNull: false },
         apparelName: { type: DataTypes.STRING, allowNull: false },
         apparelLevel: { 

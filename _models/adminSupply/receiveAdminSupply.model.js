@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
+        receiveAdminSupplyId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         receivedFrom: { type: DataTypes.STRING, allowNull: false },
         receivedBy: { type: DataTypes.STRING, allowNull: false },
         supplyName: { type: DataTypes.STRING, allowNull: false },
@@ -30,5 +31,5 @@ module.exports = (sequelize) => {
         timestamps: false
     };
 
-    return sequelize.define('Receive_Admin_Supply', attributes);
+    return sequelize.define('ReceiveAdminSupply', attributes);
 };

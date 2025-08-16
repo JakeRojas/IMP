@@ -38,6 +38,11 @@ dbAssociations();
 }  
 
 function dbAssociations() {
+  // db.Account.hasMany(db.RefreshToken, { foreignKey: 'AccountId' });
+  // db.RefreshToken.belongsTo(db.Account, { foreignKey: 'AccountId' });
+  db.Account.hasMany(db.RefreshToken, { onDelete: 'CASCADE' });
+  db.RefreshToken.belongsTo(db.Account);
+
     // Account - Room (owner)
   db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge', as: 'managedRooms' });
   db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge', as: 'ownerss' });

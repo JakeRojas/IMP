@@ -7,7 +7,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
-        id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        releaseApparelId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         apparelInventoryId: { type: DataTypes.INTEGER, allowNull: false }, // FK to the receive batch
         releasedBy: { type: DataTypes.STRING, allowNull: false },
         claimedBy: { type: DataTypes.STRING, allowNull: false },

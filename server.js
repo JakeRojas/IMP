@@ -43,15 +43,34 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 
 // ─── FRONTEND PORT ───────────────────────────────────────────────────
-app.use(
-  cors({
-    origin: [
-      'http://localhost:3000',
-      'http://192.168.1.14:3000'
-    ],
-    credentials: true,
-  })
-);
+const allowedOrigins = [
+  'http://localhost:4200',      // duplicated project
+  'http://localhost:4000',      // angularBoilerplate
+  'http://localhost:3000',      // optional if you serve it on 3000 sometimes
+  'http://192.168.1.14:3000'    // your other device (keep or remove as needed)
+];
+
+app.use(cors({
+  origin: function(origin, callback){
+    // allow requests with no origin (like mobile apps or curl)
+    if(!origin) return callback(null, true);
+    if(allowedOrigins.indexOf(origin) !== -1){
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy does not allow access from this origin'));
+    }
+  },
+  credentials: true
+}));
+// app.use(
+//   cors({
+//     origin: [
+//       'http://localhost:3000',
+//       'http://192.168.1.14:3000'
+//     ],
+//     credentials: true,
+//   })
+// );
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

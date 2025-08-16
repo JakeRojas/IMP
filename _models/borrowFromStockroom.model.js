@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
+        borrowFromStockroomId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
         borrower: { type: DataTypes.STRING, allowNull: false},
         itemName: { type: DataTypes.STRING, allowNull: false },
         itemCondition: {
@@ -16,5 +17,5 @@ module.exports = (sequelize) => {
         timestamps: false
     };
 
-    return sequelize.define('Receive_Apparel', attributes);
+    return sequelize.define('BorrowFromStockroom', attributes);
 };

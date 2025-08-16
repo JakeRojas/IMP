@@ -7,6 +7,7 @@ const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 router.post('/receive',     receiveApparelSchema, receiveApparel);
+router.post('/release',     releaseApparelSchema, releaseApparel);
 
 router.get('/',             getReceivedApparel);
 router.get('/:id',          getReceivedApparelById);
@@ -26,6 +27,15 @@ function receiveApparelSchema (req, res, next) {
         apparelFor: Joi.string().valid('girls', 'boys').required(),
         apparelSize: Joi.string().valid('2', '4', '6', '8', '10', '12', '14', '16', '18', '20', 'xs', 's', 'm', 'l', 'xl', '2xl', '3xl').required(),
         apparelQuantity: Joi.number().integer().min(1).required(),
+  });
+  validateRequest(req, next, schema);
+}
+function releaseApparelSchema(req, res, next) {
+  const schema = Joi.object({
+    apparelInventoryId: Joi.number().integer().required(),
+    releasedBy: Joi.string().max(50).required(),
+    claimedBy: Joi.string().required(),
+    releaseQuantity: Joi.number().integer().min(1).required()
   });
   validateRequest(req, next, schema);
 }
@@ -64,3 +74,8 @@ function updateReceivedApparel(req, res, next) {
 }
 
 // Release Apparel part
+function releaseApparel(req, res, next) {
+  apparelService.releaseApparelHandler(req.body)
+    .then(release => res.json(release))
+    .catch(next);
+}

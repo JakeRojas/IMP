@@ -10,9 +10,10 @@ const { get }           = require('_helpers/registry');
 const { capitalize }    = require('lodash');
 const { DataTypes }= require('sequelize');
 
-router.post('/create-room',                             createRoomschema, createRoom);
-router.post('/:roomId/register-item',                   registerItemSchema, registerItem);
-router.post( '/:roomId/receive',                        receiveSchema, receiveItem);
+router.post('/create-room',                             createRoomschema,           createRoom);
+router.post('/:roomId/register-item',                   registerItemSchema,         registerItem);
+router.post( '/:roomId/receive',                        receiveSchema,              receiveItem);
+router.post( '/:id/release-apparel',                    roomReleaseApparelSchema,   releaseApparelFromRoom );
 
 router.get('/filtered-by',                              getFilteredRooms);
 router.get('/',                                         getRooms);
@@ -34,8 +35,8 @@ function createRoomschema(req, res, next) {
   const schema = Joi.object({
       roomName: Joi.string().required().min(1).max(30),
       roomFloor: Joi.string().required().min(1).max(5),
-      roomType: Joi.string().lowercase().valid('stockroom','office','classroom', 'comfortroom', 'openarea').required(),
-      stockroomType: Joi.string().valid('apparel', 'supply', 'it', 'maintenance').optional(),
+      roomType: Joi.string().lowercase().valid('stockroom','office','classroom', 'comfortroom', 'openarea', 'unknownroom').required(),
+      stockroomType: Joi.string().valid('apparel', 'supply', 'it', 'maintenance', 'unknownType').optional(),
       roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
@@ -51,6 +52,15 @@ function receiveSchema(req, _res, next) {
     receivedFrom: Joi.string().required(),
     receivedBy:   Joi.string().required(),
   }).unknown(true);
+  validateRequest(req, next, schema);
+}
+function roomReleaseApparelSchema(req, res, next) {
+  const schema = Joi.object({
+    apparelInventoryId: Joi.number().integer().required(), // inventory row id to release from
+    releasedBy: Joi.string().max(100).required(),          // who performed the release
+    claimedBy: Joi.string().max(150).required(),           // who will receive the items
+    releaseQuantity: Joi.number().integer().min(1).required()
+  });
   validateRequest(req, next, schema);
 }
 
@@ -71,7 +81,7 @@ function getRoomById(req, res, next) {
       .catch(next);
 }
 
-// Receive part
+// Receive Apparel part
 async function receiveItem(req, res, next) {
   // try {
   //   const { roomId } = req.params;
@@ -105,7 +115,29 @@ function getReceivedApparel(req, res, next) {
       .catch(next);
 }
 
-// Release part
+// Release Apparel part
+async function releaseApparelFromRoom(req, res, next) {
+  const roomId = parseInt(req.params.id, 10);
+  if (!Number.isInteger(roomId)) return next(new Error('Invalid room id'));
+
+  try {
+    // delegate all business logic to room service
+    const result = await roomService.releaseApparelFromRoomHandler(roomId, req.body);
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+}
+
+// Inventory part
+async function getInventory(req, res, next) {
+  try {
+    const inventory = await roomService.getInventoryByRoom(req.params.roomId);
+    res.json(inventory);
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Other features
 async function getInChargeOptions(req, res, next) {
@@ -167,7 +199,6 @@ async function getFilteredRooms(req, res, next) {
     next(err);
   }
 }
-
 async function getRoomEnumOptions(req, res, next) {
   try {
     const room = await db.Room.findByPk(req.params.roomId);
@@ -196,11 +227,3 @@ async function getRoomEnumOptions(req, res, next) {
   }
 }
 
-async function getInventory(req, res, next) {
-  try {
-    const inventory = await roomService.getInventoryByRoom(req.params.roomId);
-    res.json(inventory);
-  } catch (err) {
-    next(err);
-  }
-}

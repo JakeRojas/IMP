@@ -3,6 +3,7 @@ const { register }      = require('_helpers/registry');
 
 module.exports = {
   receiveApparelHandler,
+  releaseApparelHandler,
 
   getReceivedApparelHandler,
   getReceivedApparelByIdHandler,
@@ -54,8 +55,7 @@ async function receiveApparelHandler(params) {
       include: { model: db.Item, as: 'generalItem' }
     }
   });
-} register('apparel', receiveApparelHandler);
-
+} /* register('apparel', receiveApparelHandler); */
 async function getReceivedApparelHandler() {
   return apparel = await db.ReceiveApparel.findAll();
 }
@@ -78,3 +78,84 @@ async function updateReceivedApparelHandler(id, params) {
 }
 
 // Release Apparel Handler
+async function releaseApparelHandler(params) {
+  // defensive input check
+  const {
+    apparelInventoryId,
+    releasedBy,
+    claimedBy,
+    releaseQuantity
+  } = params || {};
+
+  if (!Number.isInteger(apparelInventoryId) || !releasedBy || !claimedBy || !Number.isInteger(releaseQuantity) || releaseQuantity <= 0) {
+    throw new Error('Invalid parameters. Required: apparelInventoryId (int), releasedBy (string), claimedBy (string), releaseQuantity (int > 0)');
+  }
+
+  // 1) find the aggregate inventory row
+  const inv = await db.ApparelInventory.findByPk(apparelInventoryId);
+  if (!inv) throw new Error(`ApparelInventory id=${apparelInventoryId} not found`);
+
+  // 2) check stock levels
+  if (inv.totalQuantity < releaseQuantity) {
+    throw new Error(`Insufficient quantity. Current totalQuantity=${inv.totalQuantity}`);
+  }
+
+  // 3) create release audit record
+  const release = await db.ReleaseApparel.create({
+    apparelInventoryId,
+    releasedBy,
+    claimedBy,
+    releaseQuantity
+  });
+
+  // 4) decrement aggregate inventory
+  inv.totalQuantity = inv.totalQuantity - releaseQuantity;
+  await inv.save();
+
+  // 5) Best-effort: update per-unit Apparel rows to reflect release
+  // Approach:
+  //  - find ReceiveApparel batches that belong to the same room and match the apparel attributes from inventory
+  //  - find Apparel units belonging to those batches with status 'in_stock'
+  //  - update up to `releaseQuantity` units to status 'released'
+  try {
+    // find matching receive batches (same room + identifying apparel fields)
+    const batches = await db.ReceiveApparel.findAll({
+      where: {
+        roomId: inv.roomId,
+        apparelName: inv.apparelName,
+        apparelLevel: inv.apparelLevel,
+        apparelType: inv.apparelType,
+        apparelFor: inv.apparelFor,
+        apparelSize: inv.apparelSize
+      },
+      attributes: ['id']
+    });
+
+    const batchIds = batches.map(b => b.id);
+    if (batchIds.length > 0) {
+      // pick per-unit apparel rows to mark as released
+      const apparelUnits = await db.Apparel.findAll({
+        where: {
+          receiveApparelId: batchIds,
+          status: 'in_stock'   // only release ones that are currently in stock
+        },
+        limit: releaseQuantity
+      });
+
+      // update their status
+      await Promise.all(apparelUnits.map(u => {
+        u.status = 'released';
+        return u.save();
+      }));
+    }
+  } catch (err) {
+    // don't block the release record if the per-unit update fails,
+    // but surface a console warning so you can investigate
+    console.warn('Warning: per-unit apparel update during release failed:', err);
+  }
+
+  // 6) return the created release (include inventory info)
+  return db.ReleaseApparel.findByPk(release.id, {
+    include: [{ model: db.ApparelInventory, as: 'inventory' }]
+  });
+}
