@@ -80,4 +80,10 @@ function dbAssociations() {
   db.Account.hasMany(db.ReceiveApparel, { foreignKey: 'accountId'});
   db.ReceiveApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
 
+  db.Account.hasMany(db.ReleaseApparel, { foreignKey: 'accountId'});
+  db.ReleaseApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.ReleaseApparel.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReleaseApparel, { foreignKey: 'roomId' });
+
 }

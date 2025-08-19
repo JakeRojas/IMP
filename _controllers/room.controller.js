@@ -13,6 +13,8 @@ const { DataTypes }     = require('sequelize');
 router.post('/create-room',                             createRoomschema,           createRoom);
 router.post('/:roomId/receive/apparel',                 receiveApparelSchema,       receiveApparel);
 router.post('/:roomId/receive/supply',                  receiveAdminSupplySchema,   receiveAdminSupply);
+
+router.post('/:roomId/release/apparel',                 releaseApparel);
 //router.post('/:roomId/register-item',                   registerItemSchema,         registerItem);
 //router.post( '/:roomId/receive',                        receiveSchema,              receiveItem);
 //router.post( '/:id/release-apparel',                    roomReleaseApparelSchema,   releaseApparelFromRoom );
@@ -22,6 +24,8 @@ router.get('/:roomId',                                  getRoomById);
 router.get('/:roomId/receive-apparels',                 getReceiveApparels);
 router.get('/:roomId/apparels',                         getApparelUnits);
 router.get('/:roomId/apparel-inventory',                getApparelInventory);
+
+router.get('/:roomId/release-apparels',                 getReleaseApparels);
 // router.get('/:roomId/received-items',                   getReceivedItems);
 // router.get('/in-charge-options',                        getInChargeOptions);
 // router.get('/filtered-by',                              getFilteredRooms);
@@ -144,7 +148,16 @@ async function receiveAdminSupply(req, res, next) {
   } catch (err) { next(err); }
 }
 
-// Get Apparels part
+// Receive part
+async function releaseApparel(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+
+// Get Received Apparels part
 function getReceiveApparels(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   roomService.getReceiveApparelsByRoomHandler(roomId)
@@ -161,6 +174,14 @@ function getApparelInventory(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   roomService.getApparelInventoryByRoomHandler(roomId)
     .then(inventory => res.json(inventory))
+    .catch(next);
+}
+
+// Get Relesed Apparels part
+function getReleaseApparels(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReleaseApparelsByRoomHandler(roomId)
+    .then(batches => res.json(batches))
     .catch(next);
 }
 

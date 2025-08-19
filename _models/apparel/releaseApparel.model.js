@@ -7,12 +7,13 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
-        releaseApparelId:       { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-        apparelInventoryId:     { type: DataTypes.INTEGER,  allowNull:  false },
-        releasedBy:             { type: DataTypes.STRING,   allowNull:  false },
-        claimedBy:              { type: DataTypes.STRING,   allowNull:  false },
-        releaseQuantity:        { type: DataTypes.INTEGER,  allowNull:  false },
-        releasedAt:             { type: DataTypes.DATE,     allowNull:  false, defaultValue: DataTypes.NOW },
+        releaseApparelId:           { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                     { type: DataTypes.INTEGER,  allowNull: false },
+        apparelInventoryId:         { type: DataTypes.INTEGER,  allowNull:  false },
+        releasedBy:                 { type: DataTypes.STRING,   allowNull:  false },
+        claimedBy:                  { type: DataTypes.STRING,   allowNull:  false },
+        releaseApparelQuantity:     { type: DataTypes.INTEGER,  allowNull:  false },
+        releasedAt:                 { type: DataTypes.DATE,     allowNull:  false, defaultValue: DataTypes.NOW },
     };
 
     const options = {
