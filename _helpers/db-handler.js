@@ -20,7 +20,6 @@ db.Room             = require('../_models/room.model')(sequelize);
 db.Account          = require('../_models/account.model')(sequelize);
 db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
 db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
-//db.Item             = require('../_models/item.model')(sequelize);
 
 // Apparel models
 db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
@@ -32,6 +31,9 @@ db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(seq
 db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
 db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
+
+// Qr code models
+db.Qr = require('../_models/qr.model')(sequelize);
 
 dbAssociations();
 

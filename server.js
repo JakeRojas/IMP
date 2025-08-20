@@ -15,27 +15,27 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── AUTO LOAD SERVICE MODULE TO POPULATE REGISTRY ─────────────────────────────────────────────────────
-const servicesDir = path.join(__dirname, '_services');
-fs.readdirSync(servicesDir)
-  .filter(f => f.endsWith('.service.js'))
-  .forEach(f => require(path.join(servicesDir, f)));
+// const servicesDir = path.join(__dirname, '_services');
+// fs.readdirSync(servicesDir)
+//   .filter(f => f.endsWith('.service.js'))
+//   .forEach(f => require(path.join(servicesDir, f)));
 
 // ─── AUTO LOAD PLUGIN MODULES ───────────────────────────────────────────────
-const pluginsDir = path.join(__dirname, '_plugins');
-fs.readdirSync(pluginsDir)
-  .filter(f => f.endsWith('.plugin.js'))
-  .forEach(f => require(path.join(pluginsDir, f)));
+// const pluginsDir = path.join(__dirname, '_plugins');
+// fs.readdirSync(pluginsDir)
+//   .filter(f => f.endsWith('.plugin.js'))
+//   .forEach(f => require(path.join(pluginsDir, f)));
 
 // ─── MULTER DISK STORAGE ─────────────────────────────────────────────────────
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, path.join(__dirname, '..', 'uploads'));
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  }
-});
-const upload = multer({ storage });
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => {
+//     cb(null, path.join(__dirname, '..', 'uploads'));
+//   },
+//   filename: (req, file, cb) => {
+//     cb(null, `${Date.now()}-${file.originalname}`);
+//   }
+// });
+// const upload = multer({ storage });
 
 // ─── BODY-PARSER & COOKIE ───────────────────────────────────────────────────
 app.use(bodyParser.urlencoded({extended: false }));
@@ -46,7 +46,7 @@ app.use(cookieParser());
 const allowedOrigins = [
   'http://localhost:4200',      // duplicated project
   'http://localhost:4000',      // angularBoilerplate
-  'http://localhost:3000',      // optional if you serve it on 3000 sometimes
+  'http://localhost:3000',      // nextjs frontend
   'http://192.168.1.14:3000'    // your other device (keep or remove as needed)
 ];
 
@@ -80,6 +80,7 @@ app.use('/accounts',    require('./_controllers/account.controller'));
 app.use('/items',       require('./_controllers/item.controller'));
 app.use('/apparels',    require('./_controllers/apparel.controller'));
 app.use('/supplies',    require('./_controllers/adminSupply.controller'));
+app.use('/qr',          require('./_controllers/qr.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
 app.use('/api-docs',    require('./_helpers/swagger'));

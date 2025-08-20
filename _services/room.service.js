@@ -150,7 +150,22 @@ async function receiveApparelInRoomHandler(roomId, payload) {
       status: 'in_stock'
       // optionally add itemId if you create Item rows
     }));
-    await db.Apparel.bulkCreate(apparelUnits);
+    //await db.Apparel.bulkCreate(apparelUnits);
+    const createdUnits = await db.Apparel.bulkCreate(apparelUnits);
+
+  // === NEW: generate QRs ===
+  const qrService = require('_services/qr.service');
+
+  // 1) generate a batch QR (single QR that represents the whole batch)
+  // encode a friendly URL so scanning opens item details in your app
+  await qrService.generateForBatch('apparel', batch.receiveApparelId, { baseUrl: process.env.BASE_URL || 'http://localhost:5000' });
+
+  // 2) (optional) generate per-unit QR for each apparel unit (if you want unit-level tracking)
+  // NOTE: this can be heavy if apparelQuantity is large; consider doing async job or limit to small quantities.
+  for (const unit of createdUnits) {
+    // generate per-unit qr (pass baseUrl to encode a direct URL)
+    await qrService.generateForUnit('apparel', unit.apparelId, { baseUrl: process.env.BASE_URL || 'http://localhost:5000' });
+  }
   }
 
   // update/create aggregate inventory (ApparelInventory)
