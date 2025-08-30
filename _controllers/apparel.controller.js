@@ -1,6 +1,7 @@
-const express           = require('express');
-const router            = express.Router();
-const Joi               = require('joi');
+const express   = require('express');
+const router    = express.Router();
+const Joi       = require('joi');
+
 const apparelService    = require('_services/apparel.service.js');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');

@@ -4,6 +4,7 @@ module.exports = (sequelize) => {
 
     const attributes = {
         adminSupplyId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
         receiveAdminSupplyId:   { type: DataTypes.INTEGER,  allowNull: false },
         status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
     };

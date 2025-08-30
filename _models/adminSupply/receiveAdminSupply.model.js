@@ -3,6 +3,7 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
     const attributes = {
         receiveAdminSupplyId:   { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
         receivedFrom:           { type: DataTypes.STRING,   allowNull: false },
         receivedBy:             { type: DataTypes.INTEGER,  allowNull: false },
         supplyName:             { type: DataTypes.STRING,   allowNull: false },

@@ -5,6 +5,7 @@ const Role                  = require('_helpers/role');
 
 module.exports = authorize;
 
+// main
 function authorize(roles = []) {
     if (typeof roles === 'string') {
         roles = [roles];
@@ -17,7 +18,7 @@ function authorize(roles = []) {
         // 2) Authorize based on user role
         async (req, res, next) => {
             try {
-                const account = await db.Account.findByPk(req.auth.id);
+                const account = await db.Account.findByPk(req.auth.accountId);
                 if (!account) {
                     return res.status(401).json({ message: 'Account no longer exists' });
                 }
@@ -28,7 +29,7 @@ function authorize(roles = []) {
                 }
 
                 // Attach essential user details to req.user
-                req.user = { id: account.id, email: account.email, role: account.role };
+                req.user = { accountId: account.accountId, email: account.email, role: account.role };
                 next();
             } catch (error) {
                 console.error('Authorization error:', error);

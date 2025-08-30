@@ -1,8 +1,8 @@
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-const QRCode = require('qrcode');
-const db = require('_helpers/db-handler'); // adjust path if needed
+const fs      = require('fs');
+const path    = require('path');
+const crypto  = require('crypto');
+const QRCode  = require('qrcode');
+const db      = require('_helpers/db-handler');
 
 const UPLOADS_DIR = path.join(__dirname, '../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -16,29 +16,97 @@ module.exports = {
   generateBatchQR,
   generateUnitQR,
 
-  releaseUnit
+  scanItem
 };
 
-async function loadBatchRecord(stockroomType, apparelInventoryId, receiveApparelId, adminSupplyInventoryId, receiveAdminSupplyId) {
+async function loadBatchRecord(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  stockroomType = String(stockroomType).toLowerCase();
+
+  // apparel
   if (stockroomType === 'apparel') {
-    return (db.ApparelInventory && await db.ApparelInventory.findByPk(apparelInventoryId))
-        || (db.ReceiveApparel && await db.ReceiveApparel.findByPk(receiveApparelId));
+    // try apparelInventory by PK
+    if (db.ApparelInventory) {
+      const inv = await db.ApparelInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    // then try receive apparel batch by PK
+    if (db.ReceiveApparel) {
+      const recv = await db.ReceiveApparel.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
   }
-  if (stockroomType === 'adminSupply') {
-    return (db.AdminSupplyInventory && await db.AdminSupplyInventory.findByPk(adminSupplyInventoryId))
-        || (db.ReceiveAdminSupply && await db.ReceiveAdminSupply.findByPk(receiveAdminSupplyId));
+
+  // adminSupply
+  if (stockroomType === 'supply') {
+    if (db.AdminSupplyInventory) {
+      const inv = await db.AdminSupplyInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    if (db.ReceiveAdminSupply) {
+      const recv = await db.ReceiveAdminSupply.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
   }
-  if (db[stockroomType]) return db[stockroomType].findByPk(id);
+
+  // generalitem
+  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+    if (db.GenItemInventory) {
+      const inv = await db.GenItemInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    if (db.ReceiveGenItem) {
+      const recv = await db.ReceiveGenItem.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
+  }
+
+  // generic pattern: try <type>Inventory then <type> table
+  const inventoryModel = db[stockroomType + 'Inventory'] || db[stockroomType + '_inventory'];
+  if (inventoryModel) {
+    const inv = await inventoryModel.findByPk(id);
+    if (inv) return inv;
+  }
+  if (db[stockroomType]) {
+    const row = await db[stockroomType].findByPk(id);
+    if (row) return row;
+  }
   return null;
 }
-async function loadUnitRecord(stockroomType, aparelId, adminSupplyId) {
+async function loadUnitRecord(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  stockroomType = String(stockroomType).toLowerCase();
+
   if (stockroomType === 'apparel') {
-    return (db.Apparel && await db.Apparel.findByPk(aparelId))
+    if (db.Apparel) {
+      const u = await db.Apparel.findByPk(id);
+      if (u) return u;
+    }
+    // older naming possibilities
+    if (db.ApparelUnit) {
+      const u2 = await db.ApparelUnit.findByPk(id);
+      if (u2) return u2;
+    }
+    return null;
   }
-  if (stockroomType === 'adminSupply') {
-    return (db.AdminSupply && await db.AdminSupply.findByPk(adminSupplyId))
+
+  if (stockroomType === 'supply') {
+    if (db.AdminSupply) {
+      const u = await db.AdminSupply.findByPk(id);
+      if (u) return u;
+    }
+    return null;
   }
-  if (db[stockroomType]) return db[stockroomType].findByPk(id);
+
+  if (db[stockroomType]) {
+    const u = await db[stockroomType].findByPk(id);
+    if (u) return u;
+  }
   return null;
 }
 function buildBatchPayloadObject(stockroomType, batch) {
@@ -53,12 +121,22 @@ function buildBatchPayloadObject(stockroomType, batch) {
     };
   }
 
-  if (stockroomType === 'adminSupply') {
+  if (stockroomType === 'supply') {
     return {
       id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
       name:       batch.supplyName            ?? batch.name       ?? null,
       category:   batch.supplyCategory        ?? batch.category   ?? null,
       qty:        batch.totalQuantity         ?? batch.qty        ?? null
+    };
+  }
+
+  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+    return {
+      id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
+      name:   batch.genItemName       ?? batch.name   ?? null,
+      size:   batch.genItemSize       ?? batch.size   ?? null,
+      type:   batch.genItemType       ?? batch.type   ?? null,
+      qty:    batch.totalQuantity     ?? batch.qty        ?? null
     };
   }
 
@@ -78,12 +156,12 @@ function buildUnitPayloadObject(stockroomType, unit) {
     };
   }
 
-  if (stockroomType === 'adminSupply') {
+  if (stockroomType === 'supply') {
     return {
       unitId:     unit.adminSupplyId          ?? null,
       batchId:    unit.receiveAdminSupplyId   ?? unit.adminSupplyInventoryId ?? null,
       status:     unit.status                 ?? null,
-      location:   unit.location               ?? null,
+      roomId:     unit.roomId                 ?? null,
       createdAt:  unit.createdAt              ?? null
     };
   }
@@ -93,6 +171,7 @@ function buildUnitPayloadObject(stockroomType, unit) {
     name:   unit.name ?? null
   };
 }
+
 async function writePngFromPayload(stockroomType, payload) {
   const filename = filenameFromPayload(stockroomType, payload);
   const absolutePath = path.join(UPLOADS_DIR, filename);
@@ -105,159 +184,103 @@ async function writePngFromPayload(stockroomType, payload) {
   return { filename, absolutePath, publicPath };
 }
 
-async function generateBatchQR({ stockroomType, inventoryId }) {
-  if (!stockroomType || !inventoryId) throw new Error('stockroomType and inventoryId required');
+async function generateBatchQR(argsOrStockroom) {
+  // normalize arguments (keeps backwards compatibility)
+  let stockroomType, inventoryId;
+  if (typeof argsOrStockroom === 'object' && argsOrStockroom !== null && !Array.isArray(argsOrStockroom)) {
+    ({ stockroomType, inventoryId } = argsOrStockroom);
+  } else {
+    stockroomType = arguments[0];
+    inventoryId = arguments[1];
+  }
+
+  if (!stockroomType || !inventoryId) 
+    throw new Error('stockroomType and inventoryId required');
+
+  // load batch record (reuse your existing loader)
   const batch = await loadBatchRecord(stockroomType, inventoryId);
   if (!batch) throw new Error(`Batch not found for ${stockroomType} id=${inventoryId}`);
 
+  // build payload object (use your existing builder)
   const payloadObj = buildBatchPayloadObject(stockroomType, batch);
   const payload = JSON.stringify(payloadObj);
 
-  const { filename, absolutePath, publicPath } = await writePngFromPayload(stockroomType, payload);
+  // compute deterministic filename & absolute path BEFORE writing
+  const filename = filenameFromPayload(stockroomType, payload);
+  const absolutePath = path.join(UPLOADS_DIR, filename);
+  const publicPath = `/uploads/qrcodes/${filename}`;
 
-  // optional: update batch with payload path (swallow failures)
-  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: publicPath }); } catch (e) {}
+  // if file already exists, return info immediately (idempotent)
+  if (fs.existsSync(absolutePath)) {
+    return { filename, absolutePath, publicPath, payload, batch };
+  }
 
-  // optional audit row (swallow failures)
-  try { if (db.Qr) await db.Qr.create({ itemType: stockroomType, batchId: inventoryId, qrFilePath: payload }); } catch (e) {}
+  // otherwise, write new PNG (reuse your existing writePngFromPayload or similar)
+  // If you already have a writePngFromPayload(stockroomType, payload) that writes a file and returns paths,
+  // you can keep using it — but ensure it writes into QRCODES_DIR with the filename above.
+  // Example (adapt to your existing code):
+  const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
+    await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
-  return { filename, absolutePath, publicPath, payload, batch };
+  // optional: update DB rows with qr path info (if you do that elsewhere)
+  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+
+  return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, batch };
 }
-async function generateUnitQR({ stockroomType, unitId }) {
-  if (!stockroomType || !unitId) throw new Error('stockroomType and unitId required');
+async function generateUnitQR(argsOrStockroom) {
+  let stockroomType, unitId;
+  if (typeof argsOrStockroom === 'object' && argsOrStockroom !== null && !Array.isArray(argsOrStockroom)) {
+    ({ stockroomType, unitId } = argsOrStockroom);
+  } else {
+    stockroomType = arguments[0];
+    unitId = arguments[1];
+  }
+
+  if (!stockroomType || !unitId) 
+    throw new Error('stockroomType and unitId required');
+
   const unit = await loadUnitRecord(stockroomType, unitId);
   if (!unit) throw new Error(`Unit not found for ${stockroomType} id=${unitId}`);
 
   const payloadObj = buildUnitPayloadObject(stockroomType, unit);
   const payload = JSON.stringify(payloadObj);
 
-  const { filename, absolutePath, publicPath } = await writePngFromPayload(stockroomType, payload);
+  const filename = filenameFromPayload(stockroomType, payload);
+  const absolutePath = path.join(UPLOADS_DIR, filename);
+  const publicPath = `/uploads/qrcodes/${filename}`;
 
-  // optional: update unit with payload (if columns exist)
-  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: publicPath }); } catch (e) {}
+  if (fs.existsSync(absolutePath)) {
+    return { filename, absolutePath, publicPath, payload, unit };
+  }
 
-  // optional audit row
-  try { if (db.Qr) await db.Qr.create({ itemType: stockroomType, batchId: payloadObj.batchId ?? null, qrFilePath: payload }); } catch (e) {}
+  // otherwise create file
+  const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
+    await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
-  return { filename, absolutePath, publicPath, payload, unit };
+  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+
+  return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, unit };
 }
 
+async function scanItem(qrPayloadText) {
+  if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
 
+  // Attempt exact match against stored payload column (example uses qrFilePath or qrFilePath)
+  const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
 
-
-async function releaseUnit({ stockroomType, unitId, actorId = null }) {
-  if (!stockroomType || !unitId) throw new Error('stockroomType and unitId required');
-
-  // Start a transaction for safety
-  const t = await db.sequelize.transaction();
-
-  try {
-    // 1) load unit with FOR UPDATE lock
-    let unitModel;
-    if (stockroomType === 'apparel') {
-      unitModel = db.Apparel || db.ApparelUnit;
-    } else if (stockroomType === 'adminSupply') {
-      unitModel = db.AdminSupply || db.AdminSupplyUnit;
-    } else {
-      unitModel = db[stockroomType];
-    }
-    if (!unitModel) throw new Error('Unit model not found for type ' + stockroomType);
-
-    // find the unit row and lock it FOR UPDATE to prevent concurrent releases
-    const unit = await unitModel.findByPk(unitId, { transaction: t, lock: t.LOCK.UPDATE });
-    if (!unit) {
-      await t.rollback();
-      throw new Error('Unit not found');
-    }
-
-    // 2) idempotency: if already released, return sensible response
-    if ((unit.status || '').toLowerCase() === 'released') {
-      // already released: commit no DB change and return current state
-      await t.commit();
-      return { ok: true, message: 'Unit already released', unit };
-    }
-
-    // 3) find the batch/inventory row and lock it
-    let batchModel;
-    const batchId = unit.receiveApparelId ?? unit.apparelInventoryId ?? unit.receiveAdminSupplyId ?? unit.adminSupplyInventoryId;
-    if (stockroomType === 'apparel') {
-      batchModel = db.ApparelInventory || db.Receive_Apparel;
-    } else if (stockroomType === 'adminSupply') {
-      batchModel = db.AdminSupplyInventory || db.Receive_AdminSupply;
-    } else {
-      batchModel = db[stockroomType + 'Inventory'] || db[stockroomType];
-    }
-
-    if (!batchModel) {
-      await t.rollback();
-      throw new Error('Batch model not found for type ' + stockroomType);
-    }
-
-    if (!batchId) {
-      // unit lacks batch reference — still allow release but don't change batch qty
-      // decide business rule; here we proceed but warn
-    }
-
-    // lock batch row if exists
-    let batch = null;
-    if (batchId) {
-      batch = await batchModel.findByPk(batchId, { transaction: t, lock: t.LOCK.UPDATE });
-      if (!batch) {
-        await t.rollback();
-        throw new Error('Batch not found for unit');
+  if (!record) {
+    // fallback: try matching by decoded JSON fields (for example unitId)
+    try {
+      const parsed = JSON.parse(qrPayloadText);
+      if (parsed.unitId) {
+        // try to load the unit record from corresponding table
+        const unit = await loadUnitRecord(parsed.itemType || 'apparel', parsed.unitId);
+        if (unit) return { payload: parsed, unit };
       }
-      // 4) check batch quantity availability
-      const currentQty = (batch.totalQuantity ?? batch.quantity ?? 0);
-      if (currentQty <= 0) {
-        await t.rollback();
-        throw new Error('Batch has no available quantity to release');
-      }
-      // decrement the quantity by 1
-      const newQty = currentQty - 1;
-      // update the batch
-      await batch.update({ totalQuantity: newQty }, { transaction: t });
-    }
+    } catch (e) { /* not JSON — ignore */ }
 
-    // 5) mark unit as released
-    const now = new Date();
-    await unit.update({
-      status: 'released',
-      releasedAt: now,
-      releasedBy: actorId
-    }, { transaction: t });
-
-    // 6) create audit / release record
-    if (db.Release) {
-      await db.Release.create({
-        stockroomType,
-        unitId,
-        batchId: batchId ?? null,
-        qty: 1,
-        releasedBy: actorId ?? null,
-        releasedAt: now
-      }, { transaction: t });
-    } else {
-      // If your project has typed release tables e.g. ReleaseApparel, create there
-      // swallow if not present
-      try {
-        if (stockroomType === 'apparel' && db.ReleaseApparel) {
-          await db.ReleaseApparel.create({ unitId, batchId, qty:1, releasedBy: actorId, releasedAt: now }, { transaction: t });
-        }
-      } catch (e) {}
-    }
-
-    // 7) commit
-    await t.commit();
-
-    // reload unit & batch to return current state
-    await unit.reload();
-    if (batch) await batch.reload();
-
-    return { ok: true, unit, batch };
-
-  } catch (err) {
-    // rollback on any error
-    try { await t.rollback(); } catch (e) {}
-    throw err;
+    throw { status: 404, message: `QR code not found` };
   }
+
+  return record;
 }

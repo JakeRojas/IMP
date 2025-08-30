@@ -1,9 +1,12 @@
-const fs = require('fs');
-const qrService = require('_services/qr.service'); 
+const fs      = require('fs');
 const express = require('express');
-const router = express.Router();
+const router  = express.Router();
 
-router.post('/:stockroomType/unit/:unitId/release', releaseUnitHandler);
+const qrService   = require('_services/qr.service'); 
+const db          = require('../_helpers/db-handler');
+
+router.post('/scan',                                scanItem);
+router.post('/:stockroomType/unit/:unitId/release', releaseUnit);
 
 router.get('/:stockroomType/:inventoryId/qrcode', qrGeneratorBatch);
 router.get('/:stockroomType/unit/:unitId/qrcode', qrGeneratorUnit);
@@ -35,33 +38,36 @@ async function qrGeneratorUnit(req, res, next) {
   } catch (err) { next(err); }
 }
 
+async function scanItem(req, res, next) {
+  try {
+    const { qrId } = req.body;
+    const item = await itemService.scanItem(qrId);
+    return res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
 
-
-async function releaseUnitHandler(req, res, next) {
+async function releaseUnit(req, res, next) {
   try {
     const stockroomType = req.params.stockroomType;
     const unitId = parseInt(req.params.unitId, 10);
+    const actorId = req.body?.actorId;
+
     if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
 
-    // If you have authentication middleware, use req.user.id; otherwise accept actorId body (less secure)
-    const actorId = req.user?.id || (req.body && req.body.actorId) || null;
-
-    const result = await releaseService.releaseUnit({ stockroomType, unitId, actorId });
-
-    if (!result.ok) return res.status(400).json({ message: result.message || 'Release failed' });
-
-    // return updated objects
-    return res.json({
-      success: true,
-      message: result.message || 'Released',
-      unit: result.unit,
-      batch: result.batch
-    });
-  } catch (err) {
-    // map known errors to 400
-    if (err.message && (err.message.includes('not found') || err.message.includes('no available'))) {
-      return res.status(400).json({ success: false, message: err.message });
+    // delegate to specific service depending on stockroomType
+    if (stockroomType === 'apparel') {
+      const apparelService = require('_services/apparel.service');
+      const result = await apparelService.releaseUnitById(unitId, { actorId });
+      return res.json(result);
+    } else if (stockroomType === 'admin-supply' || stockroomType === 'supply') {
+      const supplyService = require('_services/adminSupply.service');
+      const result = await supplyService.releaseUnitById(unitId, { actorId });
+      return res.json(result);
+    } else {
+      // fallback — you can add gen item handler similarly
+      return res.status(400).json({ message: 'Unsupported stockroomType for unit release' });
     }
-    next(err);
-  }
+  } catch (err) { next(err); }
 }

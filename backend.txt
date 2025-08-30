@@ -1,0 +1,4772 @@
+
+================================================================================
+File: config.json
+Size: 558 B
+================================================================================
+
+{
+    "database": {
+        "host": "localhost",
+        "port": 3306,
+        "user": "root",
+        "password": "root",
+        "database": "IMP_db"
+    },
+    "secret": "THIS IS USED TO SIGN AND VERIFY JWT TOKENS, REPLACE IT WITH YOUR OWN SECRET, IT CAN BE ANY STRING", 
+    "emailFrom": "info@node-mysql-signup-verification-api.com",
+    "smtpOptions": {
+        "host": "smtp.ethereal.email", 
+        "port": 587,
+        "auth": {
+            "user":"fern34@ethereal.email",
+            "pass":"K283jn7kdcbq4tMXUn"
+        }
+    }
+}
+
+================================================================================
+File: notes.md
+Size: 626 B
+================================================================================
+
+<!-- items should have this status: -->
+    every room scanning status:
+        used - in used item
+        damage - damaged item
+        misplaced item - item that is not belong to that room
+    
+    rooms status
+        missing - missing item
+
+    stockroom status:
+        active - working item but not used
+        inactive - out of stock/
+
+<!-- roles should have -->
+    super admin
+    admin
+    user
+
+<!-- item category should have -->
+    IT assets
+    apparel assets
+    admin assets
+
+<!-- name casing -->
+    pascal casing / TestTest : model name
+    camel casing / testTest  : function name
+
+================================================================================
+File: package.json
+Size: 982 B
+================================================================================
+
+{
+  "name": "imp",
+  "version": "1.0.0",
+  "description": "Inventory Management Project",
+  "main": "server.js",
+  "scripts": {
+    "start": "node ./server.js",
+    "start:dev": "nodemon ./server.js",
+    "export:all": "folder2txt --include-all --output backend.txt C:/Users/Administrator/Desktop/Inventory Monitoring/IMP"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "body-parser": "^1.20.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "express": "^4.21.2",
+    "express-jwt": "^8.5.1",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "lodash": "^4.17.21",
+    "multer": "^2.0.0",
+    "mysql2": "^3.12.0",
+    "ngrok": "^5.0.0-beta.2",
+    "nodemailer": "^6.10.0",
+    "qrcode": "^1.5.4",
+    "rootpath": "^0.1.2",
+    "sequelize": "^6.37.5",
+    "swagger-ui-express": "^5.0.1",
+    "yamljs": "^0.3.0"
+  },
+  "devDependencies": {
+    "folder2txt": "^1.0.2",
+    "nodemon": "^3.1.9"
+  }
+}
+
+
+================================================================================
+File: README.md
+Size: 37 B
+================================================================================
+
+# IMP
+Inventory Management Project
+
+
+================================================================================
+File: server.js
+Size: 3.57 kB
+================================================================================
+
+require('rootpath')();
+const express         = require('express');
+const app             = express();
+const bodyParser      = require('body-parser');
+const cookieParser    = require('cookie-parser');
+const cors            = require('cors');
+const errorHandler    = require('_middlewares/error-handler');
+const path            = require('path');
+
+// ─── JSON / URL-ENCODED PARSING ───────────────────────────────────────────────
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// ─── BODY-PARSER & COOKIE ───────────────────────────────────────────────────
+app.use(bodyParser.urlencoded({extended: false }));
+app.use(bodyParser.json()); 
+app.use(cookieParser());
+
+// ─── FRONTEND PORT ───────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:4200',      // duplicated project
+  'http://localhost:4000',      // angularBoilerplate
+  'http://localhost:3000',      // nextjs frontend
+  'http://221.121.99.208:4200'    // your other device (keep or remove as needed)
+];
+
+app.use(cors({
+  origin: function(origin, callback){
+    // allow requests with no origin (like mobile apps or curl)
+    if(!origin) return callback(null, true);
+    if(allowedOrigins.indexOf(origin) !== -1){
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy does not allow access from this origin'));
+    }
+  },
+  credentials: true
+}));
+
+// ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// ─── API ROUTES ────────────────────────────────────────────────
+app.use('/rooms',       require('./_controllers/room.controller'));
+app.use('/accounts',    require('./_controllers/account.controller'));
+app.use('/items',       require('./_controllers/item.controller'));
+app.use('/apparels',    require('./_controllers/apparel.controller'));
+app.use('/supplies',    require('./_controllers/adminSupply.controller'));
+app.use('/qr',          require('./_controllers/qr.controller'));
+
+// ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
+app.use('/api-docs',    require('./_helpers/swagger'));
+
+// ─── GLOBAL ERROR HANDLER ────────────────────────────────────────────────
+app.use(errorHandler);
+
+// ─── START SERVER ────────────────────────────────────────────────
+const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80): 5000;
+app.listen(port, () => console.log('Server listening on port' + port));
+// const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 5000;
+// app.listen(port, '0.0.0.0', () => console.log(`Server listening on 0.0.0.0:${port}`));
+
+================================================================================
+File: swagger.yaml
+Size: 23.7 kB
+================================================================================
+
+openapi: 3.0.0
+info:
+  title: Node.js Sign-up and Verification API
+  description: Node.js and MySQL - API with email sign-up, verification, authentication and forgot password
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+
+paths:
+  /accounts/authenticate:
+    post:
+      summary: Authenticate account credentials and return a JWT token and a cookie with a refresh token
+      description: Accounts must be verified before authenticating.
+      operationId: authenticate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: "jason@example.com"
+                password:
+                  type: string
+                  example: "pass123"
+              required:
+                - email
+                - password
+      responses:
+        "200":
+          description: Account details, a JWT access token and a refresh token cookie
+          headers:
+            Set-Cookie:
+              description: "`refreshToken`"
+              schema:
+                type: string
+                example: refreshToken=51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550; Path=/; Expires=Tue, 16 Jun 2020 09:14:17 GMT; HttpOnly
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "5eb12e197e06a76ccdefc121"
+                  title:
+                    type: string
+                    example: "Mr"
+                  firstName:
+                    type: string
+                    example: "Jason"
+                  lastName:
+                    type: string
+                    example: "Watmore"
+                  email:
+                    type: string
+                    example: "jason@example.com"
+                  role:
+                    type: string
+                    example: "Admin"
+                  created:
+                    type: string
+                    example: "2020-05-05T09:12:57.848Z"
+                  isVerified:
+                    type: boolean
+                    example: true
+                  jwtToken:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWIxMmUxOTdlMDZhNzZjY2RlZmMxMjEiLCJpZCI6IjVlYjEyZTE5N2UwNmE3NmNjZGVmYzEyMSIsImlhdCI6MTU4ODc1ODE1N30.xR9H0STbFOpSkuGA9jHNZOJ6eS7umHHqKRhI807YT1Y"
+        "400":
+          description: The email or password is incorrect
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Email or password is incorrect"
+  /accounts/refresh-token:
+    post:
+      summary: Use a refresh token to generate a new JWT token and a new refresh token
+      description: The refresh token is sent and returned via cookies.
+      operationId: refreshToken
+      parameters:
+        - in: cookie
+          name: refreshToken
+          description: The `refreshToken` cookie
+          schema:
+            type: string
+            example: 51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550
+      responses:
+        "200":
+          description: Account details, a JWT access token and a new refresh token cookie
+          headers:
+            Set-Cookie:
+              description: "`refreshToken`"
+              schema:
+                type: string
+                example: refreshToken=51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550; Path=/; Expires=Tue, 16 Jun 2020 09:14:17 GMT; HttpOnly
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "5eb12e197e06a76ccdefc121"
+                  title:
+                    type: string
+                    example: "Mr"
+                  firstName:
+                    type: string
+                    example: "Jason"
+                  lastName:
+                    type: string
+                    example: "Watmore"
+                  email:
+                    type: string
+                    example: "jason@example.com"
+                  role:
+                    type: string
+                    example: "Admin"
+                  created:
+                    type: string
+                    example: "2020-05-05T09:12:57.848Z"
+                  isVerified:
+                    type: boolean
+                    example: true
+                  jwtToken:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZWIxMmUxOTdlMDZhNzZjY2RlZmMxMjEiLCJpZCI6IjVlYjEyZTE5N2UwNmE3NmNjZGVmYzEyMSIsImlhdCI6MTU4ODc1ODE1N30.xR9H0STbFOpSkuGA9jHNZOJ6eS7umHHqKRhI807YT1Y"
+        "400":
+          description: The refresh token is invalid, revoked or expired
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Invalid token"
+  /accounts/revoke-token:
+    post:
+      summary: Revoke a refresh token
+      description: Admin users can revoke the tokens of any account, regular users can only revoke their own tokens.
+      operationId: revokeToken
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: cookie
+          name: refreshToken
+          description: The refresh token can be sent in a cookie or the post body, if both are sent the token in the body is used.
+          schema:
+            type: string
+            example: 51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  example: "51872eca5efedcf424db4cf5afd16a9d00ad25b743a034c9c221afc85d18dcd5e4ad6e3f08607550"
+      responses:
+        "200":
+          description: The refresh token was successfully revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Token revoked"
+        "400":
+          description: The refresh token is invalid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Invalid token"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+  /accounts/register:
+    post:
+      summary: Register a new user account and send a verification email
+      description: The first account registered in the system is assigned the `Admin` role, other accounts are assigned the `User` role.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  example: "Mr"
+                firstName:
+                  type: string
+                  example: "Jason"
+                lastName:
+                  type: string
+                  example: "Watmore"
+                email:
+                  type: string
+                  example: "jason@example.com"
+                password:
+                  type: string
+                  example: "pass123"
+                confirmPassword:
+                  type: string
+                  example: "pass123"
+                acceptTerms:
+                  type: boolean
+              required:
+                - title
+                - firstName
+                - lastName
+                - email
+                - password
+                - confirmPassword
+                - acceptTerms
+      responses:
+        "200":
+          description: The registration request was successful and a verification email has been sent to the specified email address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Registration successful, please check your email for verification instructions"
+  /accounts/verify-email:
+    post:
+      summary: Verify a new account with a verification token received by email after registration
+      operationId: verifyEmail
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
+              required:
+                - token
+      responses:
+        "200":
+          description: Verification was successful so you can now login to the account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Verification successful, you can now login"
+        "400":
+          description: Verification failed due to an invalid token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Verification failed"
+  /accounts/forgot-password:
+    post:
+      summary: Submit email address to reset the password on an account
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: "jason@example.com"
+              required:
+                - email
+      responses:
+        "200":
+          description: The request was received and an email has been sent to the specified address with password reset instructions (if the email address is associated with an account)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Please check your email for password reset instructions"
+  /accounts/validate-reset-token:
+    post:
+      summary: Validate the reset password token received by email after submitting to the /accounts/forgot-password route
+      operationId: validateResetToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
+              required:
+                - token
+      responses:
+        "200":
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Token is valid"
+        "400":
+          description: Token is invalid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Invalid token"
+  /accounts/reset-password:
+    post:
+      summary: Reset the password for an account
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  example: "3c7f8d9c4cb348ff95a0b74a1452aa24fc9611bb76768bb9eafeeb826ddae2935f1880bc7713318f"
+                password:
+                  type: string
+                  example: "newPass123"
+                confirmPassword:
+                  type: string
+                  example: "newPass123"
+              required:
+                - token
+                - password
+                - confirmPassword
+      responses:
+        "200":
+          description: Password reset was successful so you can now login to the account with the new password
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Password reset successful, you can now login"
+        "400":
+          description: Password reset failed due to an invalid token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Invalid token"
+  /accounts:
+    get:
+      summary: Get a list of all accounts
+      description: Restricted to admin users.
+      operationId: getAllAccounts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: An array of all accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      example: "5eb12e197e06a76ccdefc121"
+                    title:
+                      type: string
+                      example: "Mr"
+                    firstName:
+                      type: string
+                      example: "Jason"
+                    lastName:
+                      type: string
+                      example: "Watmore"
+                    email:
+                      type: string
+                      example: "jason@example.com"
+                    role:
+                      type: string
+                      example: "Admin"
+                    created:
+                      type: string
+                      example: "2020-05-05T09:12:57.848Z"
+                    updated:
+                      type: string
+                      example: "2020-05-08T03:11:21.553Z"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    post:
+      summary: Create a new account
+      description: Restricted to admin users.
+      operationId: createAccount
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  example: "Mr"
+                firstName:
+                  type: string
+                  example: "Jason"
+                lastName:
+                  type: string
+                  example: "Watmore"
+                email:
+                  type: string
+                  example: "jason@example.com"
+                password:
+                  type: string
+                  example: "pass123"
+                confirmPassword:
+                  type: string
+                  example: "pass123"
+                role:
+                  type: string
+                  enum: [Admin, User]
+              required:
+                - title
+                - firstName
+                - lastName
+                - email
+                - password
+                - confirmPassword
+                - role
+      responses:
+        "200":
+          description: Account created successfully, verification is not required for accounts created with this endpoint. The details of the new account are returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "5eb12e197e06a76ccdefc121"
+                  title:
+                    type: string
+                    example: "Mr"
+                  firstName:
+                    type: string
+                    example: "Jason"
+                  lastName:
+                    type: string
+                    example: "Watmore"
+                  email:
+                    type: string
+                    example: "jason@example.com"
+                  role:
+                    type: string
+                    example: "Admin"
+                  created:
+                    type: string
+                    example: "2020-05-05T09:12:57.848Z"
+        "400":
+          description: Email is already registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Email 'jason@example.com' is already registered"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+  /accounts/{id}:
+    parameters:
+      - in: path
+        name: id
+        description: Account id
+        required: true
+        example: "5eb12e197e06a76ccdefc121"
+        schema:
+          type: string
+    get:
+      summary: Get a single account by id
+      description: Admin users can access any account, regular users are restricted to their own account.
+      operationId: getAccountById
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Details of the specified account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "5eb12e197e06a76ccdefc121"
+                  title:
+                    type: string
+                    example: "Mr"
+                  firstName:
+                    type: string
+                    example: "Jason"
+                  lastName:
+                    type: string
+                    example: "Watmore"
+                  email:
+                    type: string
+                    example: "jason@example.com"
+                  role:
+                    type: string
+                    example: "Admin"
+                  created:
+                    type: string
+                    example: "2020-05-05T09:12:57.848Z"
+                  updated:
+                    type: string
+                    example: "2020-05-08T03:11:21.553Z"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    put:
+      summary: Update an account
+      description: Admin users can update any account including role, regular users are restricted to their own account and cannot update role.
+      operationId: updateAccount
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  example: "Mr"
+                firstName:
+                  type: string
+                  example: "Jason"
+                lastName:
+                  type: string
+                  example: "Watmore"
+                email:
+                  type: string
+                  example: "jason@example.com"
+                password:
+                  type: string
+                  example: "pass123"
+                confirmPassword:
+                  type: string
+                  example: "pass123"
+                role:
+                  type: string
+                  enum: [Admin, User]
+      responses:
+        "200":
+          description: Account updated successfully. The details of the updated account are returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "5eb12e197e06a76ccdefc121"
+                  title:
+                    type: string
+                    example: "Mr"
+                  firstName:
+                    type: string
+                    example: "Jason"
+                  lastName:
+                    type: string
+                    example: "Watmore"
+                  email:
+                    type: string
+                    example: "jason@example.com"
+                  role:
+                    type: string
+                    example: "Admin"
+                  created:
+                    type: string
+                    example: "2020-05-05T09:12:57.848Z"
+                  updated:
+                    type: string
+                    example: "2020-05-08T03:11:21.553Z"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+    delete:
+      summary: Delete an account
+      description: Admin users can delete any account, regular users are restricted to their own account.
+      operationId: deleteAccount
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Account deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Account deleted successfully"
+        "404":
+          $ref: "#/components/responses/NotFoundError"
+        "401":
+          $ref: "#/components/responses/UnauthorizedError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    UnauthorizedError:
+      description: Access token is missing or invalid, or the user does not have access to perform the action
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Unauthorized"
+    NotFoundError:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "Not Found"
+
+================================================================================
+File: _controllers\account.controller.js
+Size: 10.64 kB
+================================================================================
+
+// main functions of account controller
+const express   = require('express');
+const router    = express. Router(); 
+const Joi       = require('joi');
+
+const validateRequest   = require('_middlewares/validate-request'); 
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
+const accountService    = require('_services/account.service');
+
+router.post('/authenticate',            authenticateSchema, authenticate);
+router.post('/refresh-token',           authorize(), refreshToken);
+router.post('/revoke-token',            authorize(), revokeTokenSchema, revokeToken); 
+router.post('/register',                authorize(Role.SuperAdmin), registerSchema, register);
+router.post('/verify-email',            verifyEmailSchema, verifyEmail);
+router.post('/forgot-password',         forgotPasswordSchema, forgotPassword);
+router.post('/validate-reset-token',    validateResetTokenSchema, validateResetToken);
+router.post('/reset-password',          resetPasswordSchema, resetPassword);
+
+router.post('/:id/activity',            authorize(), getActivities);
+router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivityLogs);
+
+router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
+router.get('/',                         authorize (Role.SuperAdmin), getAll);
+router.get('/:id',                      authorize(), getById);
+router.put('/:id',                      authorize(), updateSchema, update);
+router.delete('/:id',                   authorize(Role.SuperAdmin), _delete);
+
+module.exports = router;
+
+function authenticateSchema(req, res, next) { 
+    const schema = Joi.object({
+        email: Joi.string().required(),
+        password: Joi.string().required()
+    });
+
+    validateRequest(req, next, schema);
+}
+async function authenticate(req, res, next) {
+try {
+    const { email, password } = req.body;
+    const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+
+    // accountService.authenticate returns { ...basicDetails(account), jwtToken, refreshToken: token }
+    const account = await accountService.authenticate({ email, password, ipAddress, browserInfo });
+
+    // set jwt cookie (if you want a jwt cookie) — keep same options as before
+    res.cookie('token', account.jwtToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 60 * 60 * 1000, // 1h
+    });
+
+    // set refresh-token cookie (httpOnly) — setTokenCookie already does this
+    setTokenCookie(res, account.refreshToken);
+
+    // return the account object (frontend expects account + jwtToken)
+    return res.json(account);
+} catch (err) {
+    next(err);
+}
+}
+//===================Logging Function=======================================
+function getActivities(req, res, next) {
+    const filters = {
+        actionType: req.query.actionType,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate
+    };
+    accountService.getAccountActivities(req.params.id, filters)
+        .then(activities => res.json(activities))
+        .catch(next);
+}
+function getAllActivityLogs(req, res, next) {
+    const filters = {
+        actionType: req.query.actionType,
+        startDate: req.query.startDate,
+        endDate: req.query.endDate,
+        userId: req.query.userId
+    };
+    
+    accountService.getAllActivityLogs(filters)
+        .then(logs => res.json({
+            success: true,
+            data: logs
+        }))
+        .catch(next);
+}
+function refreshToken (req, res, next) {
+    const token = req.cookies.refreshToken;
+    const ipAddress = req.ip;
+    accountService.refreshToken({ token, ipAddress })
+        .then(({refreshToken, ...account }) => {
+            setTokenCookie(res, refreshToken);
+            res.json(account);
+        })
+        .catch(next);
+}
+function revokeTokenSchema(req, res, next) { 
+    const schema = Joi.object({
+        token: Joi.string().empty('')
+    });
+    validateRequest(req, next, schema);
+}
+function revokeToken (req, res, next) {
+    const token = req.body.token || req.cookies.refreshToken; 
+    const ipAddress = req.ip;
+
+    if (!token) return res.status(400).json({ message: 'Token is required' });
+    
+    if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    accountService.revokeToken({token, ipAddress })
+        .then(() =>res.json({ message: 'Token revoked' }))
+        .catch(next);
+}
+function registerSchema(req, res, next) {
+    const schema = Joi.object({
+        title: Joi.string().required(),
+        firstName: Joi.string().required(), 
+        lastName: Joi.string().required(),
+        email: Joi.string().email().required(),
+        password: Joi.string().min(6).required(),
+        confirmPassword: Joi.string().valid(Joi.ref('password')).required(), 
+    });
+    validateRequest(req, next, schema);
+}
+function register(req, res, next) {
+    accountService.register(req.body, req.get('origin'))
+        .then(() => res.json({ message: 'Registration successful, please check your email for verification instructions' })) 
+        .catch(next);
+}
+function verifyEmailSchema(req, res, next) {
+    const schema = Joi.object({
+        token: Joi.string().required()
+    });
+    validateRequest(req, next, schema);
+}
+function verifyEmail(req, res, next) {
+    accountService.verifyEmail(req.body)
+        .then(() => res.json({ message: 'Verification successful, you can now login' })) 
+        .catch(next);
+}
+function forgotPasswordSchema(req, res, next) {
+    const schema = Joi.object({
+        email: Joi.string().email().required()
+    });
+    validateRequest(req, next, schema);
+}
+function forgotPassword(req, res, next) {
+    accountService.forgotPassword(req.body, req.get('origin'))
+        .then(() => res.json({ message: 'Please check your email for password reset instructions' })) 
+        .catch(next);
+}
+function validateResetTokenSchema(req, res, next) {
+    const schema = Joi.object({
+        token: Joi.string().required()
+    });
+    validateRequest(req, next, schema);
+}
+function validateResetToken(req, res, next) {
+    accountService.validateResetToken(req.body)
+        .then(() => res.json({ message: 'Token is valid' }))
+        .catch(next);
+}
+function resetPasswordSchema(req, res, next) {
+    const schema = Joi.object({
+        token: Joi.string().required(),
+        password: Joi.string().min(6).required(),
+        confirmPassword: Joi.string().valid(Joi.ref('password')).required()
+    });
+    validateRequest(req, next, schema);
+}
+function resetPassword(req, res, next) {
+    const { token, password } = req.body;
+    const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  
+    accountService.resetPassword({ token, password }, ipAddress, browserInfo)
+      .then(() => {
+        res.json({ message: 'Password reset successful, you can now login' });
+      })
+      .catch(next);
+  }
+function getAll(req, res, next) {
+    accountService.getAll()
+        .then (accounts => res.json (accounts))
+        .catch(next);
+}
+function getById(req, res, next) {
+    //Check if the user is trying to access their own account or is anSuperadmin
+    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
+        return res.status(403).json({ message: 'Access to other user\'s data is forbidden' });
+    }
+    
+    accountService.getById(req.params.id)
+        .then(account => account ? res.json(account) : res.sendStatus(404)) 
+        .catch(next);
+}
+function createSchema (req, res, next) {
+    const schema = Joi.object({
+        title: Joi.string().required(), 
+        firstName: Joi.string().required(), 
+        lastName: Joi.string().required(), 
+        email: Joi.string().email().required(),
+        password: Joi.string().min(6).required(), 
+        confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
+        role: Joi.string().valid(Role. SuperAdmin, Role.Admin, Role.User).required()
+    });
+    validateRequest(req, next, schema);
+}
+function create(req, res, next) {
+    accountService.create(req.body) 
+    .then (account => res.json (account)) 
+    .catch(next);
+}
+function updateSchema(req, res, next) { 
+    const schemaRules = {
+        title: Joi.string().empty(''), 
+        firstName: Joi.string().empty(''), 
+        lastName: Joi.string().empty(''),
+        email: Joi.string().email().empty(''),
+        password: Joi.string().min(6).empty(''),
+        confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
+    }
+
+    if (req.user.role === Role.SuperAdmin) {
+        schemaRules.role = Joi.string().valid (Role.SuperAdmin, Role.User, Role.Staff).empty('');
+    }
+
+    const schema = Joi.object(schemaRules).with('password', 'confirmPassword'); 
+    validateRequest(req, next, schema);
+}
+function update(req, res, next) {
+    //Check authorization
+    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized - You can only update your own account unless you are anSuperadmin'
+      });
+    }
+  
+    const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  
+    accountService.update(req.params.id, req.body, ipAddress, browserInfo)
+      .then(account => {
+        res.json({
+          success: true,
+          message: 'Account updated successfully',
+          account: account
+        });
+      })
+      .catch(next);
+  }
+function _delete(req, res, next) {
+    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+    
+    accountService.delete(req.params.id)
+        .then(() =>res.json({ message: 'Account deleted successfully' })) 
+        .catch(next);
+} 
+function setTokenCookie(res, token) {
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    expires: new Date(Date.now() + 7*24*60*60*1000)
+  };
+  res.cookie('refreshToken', token, cookieOptions);
+}
+
+================================================================================
+File: _controllers\adminSupply.controller.js
+Size: 3.31 kB
+================================================================================
+
+const express   = require('express');
+const router    = express.Router();
+const Joi       = require('joi');
+
+const supplyService     = require('_services/adminSupply.service.js');
+const validateRequest   = require('_middlewares/validate-request');
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
+
+router.post('/receive',     receiveAdminSupplySchema, receiveAdminSupply);
+router.post('/release',     releaseSupplyHandlerSchema, releaseSupply);
+
+router.get('/received',     getReceivedAdminSupply);
+router.get('/released',     getReleasedSupply);
+router.get('/:id',          getReceivedAdminSupplyById);
+
+router.put('/:id',          updateReceivedAdminSupplySchema, updateReceivedAdminSupply);
+
+module.exports = router;
+
+// Schema's Part
+function receiveAdminSupplySchema (req, res, next) {
+  const schema = Joi.object({
+        receivedFrom: Joi.string().max(50).required(), 
+        receivedBy: Joi.string().required(), 
+        supplyName: Joi.string().max(20).required(), 
+        supplyQuantity: Joi.number().integer().min(1).required(),
+        supplyMeasure: Joi.string().valid(
+          'pc', 'box', 'bottle', 'pack', 'ream', 
+          'meter', 'roll', 'gallon', 'unit', 'educ', 
+          'teachers').required()
+  });
+  validateRequest(req, next, schema);
+}
+function updateReceivedAdminSupplySchema(req, res, next) {
+  const schema = Joi.object({
+    receivedFrom: Joi.string().max(50).empty(), 
+    receivedBy: Joi.string().empty(), 
+    supplyName: Joi.string().max(20).empty(), 
+    supplyQuantity: Joi.number().integer().min(1).empty(),
+    supplyMeasure: Joi.string().valid(
+      'pc', 'box', 'bottle', 'pack', 'ream', 
+      'meter', 'roll', 'gallon', 'unit', 'educ', 
+      'teachers').empty()
+  });
+  validateRequest(req, next, schema);
+}
+function releaseSupplyHandlerSchema (req, res, next) {
+  const schema = Joi.object({
+        releasedBy: Joi.string().max(50).required(), 
+        claimedBy: Joi.string().required(),
+        apparelQuantity: Joi.number().integer().min(1).required()
+  });
+  validateRequest(req, next, schema);
+}
+
+// Receive Admin Supply Part
+function receiveAdminSupply(req, res, next) {
+  supplyService.receiveAdminSupplyHandler(req.body) 
+  .then (apparel => res.json (apparel)) 
+  .catch(next);
+}
+function getReceivedAdminSupply(req, res, next) {
+  supplyService.getReceivedSupplyHandler()
+      .then(apparel => res.json(apparel))
+      .catch(next);
+}
+function getReceivedAdminSupplyById(req, res, next) {
+  supplyService.getReceivedSupplyByIdHandler(req.params.id)
+        .then(apparel => res.json(apparel))
+        .catch(next);
+}
+function updateReceivedAdminSupply(req, res, next) {
+  supplyService.updateReceivedSupplyHandler(req.params.id, req.body)
+        .then(() => res.json({ message: `Apparel ${req.params.id} was updated succesfully` }))
+        .catch(next);
+}
+
+// Release Admin Supply Part
+function releaseSupply(req, res, next) {
+  supplyService.releaseSupplyHandler(req.body) 
+  .then (supplies => res.json (supplies)) 
+  .catch(next);
+}
+function getReleasedSupply(req, res, next) {
+  supplyService.getReleasedSupplyHandler()
+      .then(release => res.json(release))
+      .catch(next);
+}
+
+================================================================================
+File: _controllers\apparel.controller.js
+Size: 3.37 kB
+================================================================================
+
+const express   = require('express');
+const router    = express.Router();
+const Joi       = require('joi');
+
+const apparelService    = require('_services/apparel.service.js');
+const validateRequest   = require('_middlewares/validate-request');
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
+
+router.post('/receive',     receiveApparelSchema, receiveApparel);
+router.post('/release',     releaseApparelSchema, releaseApparel);
+
+router.get('/',             getReceivedApparel);
+router.get('/:id',          getReceivedApparelById);
+
+router.put('/:id',          updateReceivedApparelSchema, updateReceivedApparel);
+
+module.exports = router;
+
+// Schema's part
+function receiveApparelSchema (req, res, next) {
+  const schema = Joi.object({
+        receivedFrom: Joi.string().max(50).required(), 
+        receivedBy: Joi.string().required(), 
+        apparelName: Joi.string().max(20).required(), 
+        apparelLevel: Joi.string().valid('pre', 'elem', '7', '8', '9', '10', 'sh', 'it', 'hs', 'educ', 'teachers').required(),
+        apparelType: Joi.string().valid('uniform', 'pe').required(),
+        apparelFor: Joi.string().valid('girls', 'boys').required(),
+        apparelSize: Joi.string().valid('2', '4', '6', '8', '10', '12', '14', '16', '18', '20', 'xs', 's', 'm', 'l', 'xl', '2xl', '3xl').required(),
+        apparelQuantity: Joi.number().integer().min(1).required(),
+  });
+  validateRequest(req, next, schema);
+}
+function releaseApparelSchema(req, res, next) {
+  const schema = Joi.object({
+    apparelInventoryId: Joi.number().integer().required(),
+    releasedBy: Joi.string().max(50).required(),
+    claimedBy: Joi.string().required(),
+    releaseQuantity: Joi.number().integer().min(1).required()
+  });
+  validateRequest(req, next, schema);
+}
+function updateReceivedApparelSchema(req, res, next) {
+  const schema = Joi.object({
+      apparelName: Joi.string().max(50).empty(), 
+      apparelLevel: Joi.string().valid('pre', 'elem', '7', '8', '9', '10', 'sh', 'it', 'hs', 'educ', 'teachers').empty(),
+      apparelType: Joi.string().valid('uniform', 'pe').empty(),
+      apparelFor: Joi.string().valid('girls', 'boys').empty(),
+      apparelSize: Joi.string().max(3).empty(),
+      apparelQuantity: Joi.number().integer().min(1).empty()
+  });
+  validateRequest(req, next, schema);
+}
+
+// Receive Apparel part
+function receiveApparel(req, res, next) {
+  apparelService.receiveApparelHandler(req.body) 
+  .then (apparel => res.json (apparel)) 
+  .catch(next);
+}
+function getReceivedApparel(req, res, next) {
+  apparelService.getReceivedApparelHandler()
+      .then(apparel => res.json(apparel))
+      .catch(next);
+}
+function getReceivedApparelById(req, res, next) {
+    apparelService.getReceivedApparelByIdHandler(req.params.id)
+        .then(apparel => res.json(apparel))
+        .catch(next);
+}
+function updateReceivedApparel(req, res, next) {
+    apparelService.updateReceivedApparelHandler(req.params.id, req.body)
+        .then(() => res.json({ message: `Apparel ${req.params.id} was updated succesfully` }))
+        .catch(next);
+}
+
+// Release Apparel part
+function releaseApparel(req, res, next) {
+  apparelService.releaseApparelHandler(req.body)
+    .then(release => res.json(release))
+    .catch(next);
+}
+
+================================================================================
+File: _controllers\item.controller.js
+Size: 5.25 kB
+================================================================================
+
+const express             = require('express');
+const router              = express.Router();
+const Joi                 = require('joi');
+const itemService         = require('_services/item.service');
+const apparelService      = require('_services/apparel.service.js');
+const validateRequest     = require('_middlewares/validate-request');
+const { Router }          = require('express');
+const multer              = require('multer');
+const fs                  = require('fs');
+const path                = require('path');
+const authorize           = require('_middlewares/authorize');
+const Role                = require('_helpers/role');
+const QRCode              = require('qrcode');
+
+const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    cb(null, UPLOAD_DIR);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${Date.now()}-${file.originalname}`;
+    cb(null, uniqueName);
+  }
+});
+
+const upload = multer({ storage }).single('itemQrCode');
+
+router.get('/filtered-by',        getFilteredItems);
+router.get('/:id/qrcode',         qrGenerator);
+router.post('/create-item',       createItemSchema, createItem);
+router.get('/',                   getItems);
+router.get('/:id',                getItemById);
+router.post('/assign-item',       createAssignment); 
+router.put('/:id/activation',     itemActivation);
+
+router.post('/scan',              scanItemHandler);
+router.put('/:id/status',         updateItemStatusHandler);
+router.put('/:id/transaction',    updateTransactionHandler);
+
+module.exports = router;
+
+// Schema's part
+function createItemSchema(req, res, next) {
+  const schema = Joi.object({
+      itemName: Joi.string().required().min(1).max(20),
+      itemCategory: Joi.string().lowercase().valid('it', 'apparel', 'academic', 'unknown').required(),
+      roomId: Joi.number().optional()
+  });
+  validateRequest(req, next, schema);
+}
+
+// Management part
+async function createItem(req, res, next) {
+  try {
+    const { itemName, itemCategory, roomId } = req.body;
+    const newItem = await itemService.createItem({ itemName, itemCategory, roomId });
+    res.status(201).json(newItem);
+  } catch (err) {
+    next(err);
+  }
+}
+function getItems(req, res, next) {
+  itemService.getItems()
+      .then(items => res.json(items))
+      .catch(next);
+}
+function getItemById(req, res, next) {
+  itemService.getItemById(req.params.id)
+      .then(items => res.json(items))
+      .catch(next);
+}
+
+// QR and Scanning part
+async function qrGenerator(req, res, next) {
+  try {
+    // fetch the item
+    const item = await itemService.getItemById(req.params.id);
+    if (!item) {
+      return res.status(404).json({ message: 'Item not found' });
+    }
+
+    // 2) generate + store + get buffer & filename
+    const { pngBuffer, filename } = await itemService.generateAndStoreQRCode(item);
+
+    // tell Express it’s a PNG stream
+    res.type('png');
+
+    // 3) set headers so browser downloads the file
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.type('png');
+
+    // 4) send the actual PNG
+    res.send(pngBuffer);
+  } catch (err) {
+    next(err);
+  }
+}
+async function scanItemHandler(req, res, next) {
+  try {
+    const { itemQrCode } = req.body;
+    const item = await itemService.scanItem(itemQrCode);
+    return res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Status part
+function itemActivation(req, res, next) {
+  const { id } = req.params;
+
+  itemService
+    .itemActivation(id)
+    .then((newStatus) =>
+      res.json({ message: `Product ${newStatus} successfully` })
+    )
+    .catch(next);
+}
+async function updateItemStatusHandler(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { itemStatus } = req.body;
+    await itemService.updateItemStatus(id, itemStatus);
+    res.json({ message: 'Status updated' });
+  } catch (err) {
+    next(err);
+  }
+}
+async function updateTransactionHandler(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { transactionType } = req.body;
+    await itemService.updateTransaction(id, transactionType);
+    res.json({ message: 'Transaction updated' });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Other features
+async function createAssignment(req, res, next) {
+  try {
+    const { params } = req.body;
+    const assignment = await itemService.assignItem({ params });
+    res.status(201).json(assignment);
+  } catch (err) {
+    next(err);
+  }
+}
+async function getFilteredItems(req, res, next) {
+  try {
+    // read your dropdown filters off query-string
+    const {
+      category: itemCategory,
+      status: itemStatus,
+      activated: activateStatus,
+      transaction: transactionStatus,
+    } = req.query;
+
+    const items = await itemService.getFilteredItems({
+      itemCategory,
+      itemStatus,
+      activateStatus,
+      transactionStatus,
+    });
+
+    res.json(items);
+  } catch (err) {
+    next(err);
+  }
+}
+
+================================================================================
+File: _controllers\qr.controller.js
+Size: 3.04 kB
+================================================================================
+
+const fs      = require('fs');
+const express = require('express');
+const router  = express.Router();
+
+const qrService   = require('_services/qr.service'); 
+const db          = require('../_helpers/db-handler');
+
+router.post('/scan',                                scanItem);
+router.post('/:stockroomType/unit/:unitId/release', releaseUnit);
+
+router.get('/:stockroomType/:inventoryId/qrcode', qrGeneratorBatch);
+router.get('/:stockroomType/unit/:unitId/qrcode', qrGeneratorUnit);
+
+module.exports = router;
+
+async function qrGeneratorBatch(req, res, next) {
+  try {
+    const stockroomType = req.params.stockroomType; 
+    const inventoryId = parseInt(req.params.inventoryId, 10);
+    if (!stockroomType || Number.isNaN(inventoryId)) return res.status(400).json({ message: 'Invalid params' });
+
+    const { filename, absolutePath } = await qrService.generateBatchQR({ stockroomType, inventoryId });
+    const buffer = await fs.promises.readFile(absolutePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.type('png').send(buffer);
+  } catch (err) { next(err); }
+}
+async function qrGeneratorUnit(req, res, next) {
+  try {
+    const stockroomType = req.params.stockroomType;   // 'apparel' or 'adminSupply'
+    const unitId = parseInt(req.params.unitId, 10);
+    if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
+
+    const { filename, absolutePath } = await qrService.generateUnitQR({ stockroomType, unitId });
+    const buffer = await fs.promises.readFile(absolutePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.type('png').send(buffer);
+  } catch (err) { next(err); }
+}
+
+async function scanItem(req, res, next) {
+  try {
+    const { qrId } = req.body;
+    const item = await itemService.scanItem(qrId);
+    return res.json({ item });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function releaseUnit(req, res, next) {
+  try {
+    const stockroomType = req.params.stockroomType;
+    const unitId = parseInt(req.params.unitId, 10);
+    const actorId = req.body?.actorId;
+
+    if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
+
+    // delegate to specific service depending on stockroomType
+    if (stockroomType === 'apparel') {
+      const apparelService = require('_services/apparel.service');
+      const result = await apparelService.releaseUnitById(unitId, { actorId });
+      return res.json(result);
+    } else if (stockroomType === 'admin-supply' || stockroomType === 'supply') {
+      const supplyService = require('_services/adminSupply.service');
+      const result = await supplyService.releaseUnitById(unitId, { actorId });
+      return res.json(result);
+    } else {
+      // fallback — you can add gen item handler similarly
+      return res.status(400).json({ message: 'Unsupported stockroomType for unit release' });
+    }
+  } catch (err) { next(err); }
+}
+
+================================================================================
+File: _controllers\room.controller.js
+Size: 21.97 kB
+================================================================================
+
+const express   = require('express');
+const router    = express.Router();
+const Joi       = require('joi');
+const fs        = require('fs');
+const path      = require('path');
+
+const roomService       = require('_services/room.service');
+const validateRequest   = require('_middlewares/validate-request');
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
+
+// POST -------------------------------------------------------------------------------------
+router.post('/create-room',                               authorize(Role.SuperAdmin),             createRoomschema,           createRoom);
+router.post('/:roomId/receive/apparel',                   authorize(Role.SuperAdmin, Role.Admin), receiveApparelSchema,       receiveApparel);
+router.post('/:roomId/receive/supply',                    authorize(Role.SuperAdmin, Role.Admin), receiveAdminSupplySchema,   receiveAdminSupply);
+router.post('/:roomId/receive/item',                      authorize(Role.SuperAdmin, Role.Admin), receiveGenItemSchema,       receiveGenItem);
+
+router.post('/:roomId/release/apparel',                   authorize(Role.SuperAdmin, Role.Admin), releaseApparel);
+router.post('/:roomId/release',                           authorize(Role.SuperAdmin, Role.Admin), releaseInStockroom);
+
+// GET & POST ------------------------------------------------------------------------------
+router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize(Role.SuperAdmin, Role.Admin), getApparelBatchQr);
+router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyBatchQr);
+router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getGenItemBatchQr);
+
+router.get('/:roomId/qr/apparel/unit/:unitId',            authorize(Role.SuperAdmin, Role.Admin), getApparelUnitQr);
+router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyUnitQr);
+
+// GET -------------------------------------------------------------------------------------
+router.get('/',                           authorize(Role.SuperAdmin, Role.Admin), getRooms);
+router.get('/:roomId',                    authorize(), getRoomById);
+
+router.get('/:roomId/receive-apparels',   authorize(Role.SuperAdmin, Role.Admin), getReceiveApparels);
+router.get('/:roomId/apparels',           authorize(Role.SuperAdmin, Role.Admin), getApparelUnits);
+router.get('/:roomId/apparel-inventory',  authorize(Role.SuperAdmin, Role.Admin), getApparelInventory);
+
+router.get('/:roomId/receive-supply',     authorize(Role.SuperAdmin, Role.Admin), getReceiveAdminSupply);
+router.get('/:roomId/supply',             authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyUnits);
+router.get('/:roomId/supply-inventory',   authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyInventory);
+
+router.get('/:roomId/receive-items',      authorize(Role.SuperAdmin, Role.Admin), getReceiveGenItem);
+router.get('/:roomId/items',              authorize(Role.SuperAdmin, Role.Admin), getGenItemUnits);
+router.get('/:roomId/items-inventory',    authorize(Role.SuperAdmin, Role.Admin), getGenItemInventory);
+
+router.get('/:roomId/release-apparels',   authorize(Role.SuperAdmin, Role.Admin), getReleaseApparels);
+
+// PUT -------------------------------------------------------------------------------------
+router.put('/:roomId',             authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema,   updateRoom);
+router.put('/:roomId/item/status', authorize(Role.SuperAdmin, Role.Admin),  updateItemStatus);
+
+function resolveQrFilePath(result) {
+  if (!result) return null;
+  if (result.absolutePath && fs.existsSync(result.absolutePath)) return path.resolve(result.absolutePath);
+
+  // fallback: try uploads/qrcodes/<filename>
+  const projectRoot = path.join(__dirname, '../uploads');
+  const try1 = path.join(projectRoot, 'uploads', 'qrcodes', result.filename || '');
+  if (fs.existsSync(try1)) return try1;
+
+  // fallback: try uploads/<filename>
+  const try2 = path.join(projectRoot, 'uploads', result.filename || '');
+  if (fs.existsSync(try2)) return try2;
+
+  return null;
+}
+
+module.exports = router;
+
+// Schema's part
+function createRoomschema(req, res, next) {
+  const schema = Joi.object({
+      roomName: Joi.string().required().min(1).max(30),
+      roomFloor: Joi.string().required().min(1).max(5),
+      roomType: Joi.string().lowercase().valid('stockroom','subStockroom','office','classroom','comfortroom','openarea','unknownroom').required(),
+      stockroomType: Joi.string().valid('apparel','supply','it','maintenance','unknownType').optional(),
+      roomInCharge: Joi.number().integer().min(0)
+  });
+  validateRequest(req, next, schema);
+}
+function updateRoomSchema(req, res, next) {
+  const schema = Joi.object({
+    roomName: Joi.string().min(1).max(30).optional(),
+    roomFloor: Joi.string().min(1).max(5).optional(),
+    roomType: Joi.string().lowercase().valid('stockroom','subStockroom','office','classroom','comfortroom','openarea','unknownroom').optional(),
+    stockroomType: Joi.string().valid('apparel','supply','it','maintenance','unknownType').optional(),
+    roomInCharge: Joi.number().integer().min(0).optional()
+  });
+  validateRequest(req, next, schema);
+}
+function receiveApparelSchema(req, res, next) {
+  const paramsSchema = Joi.object({
+    roomId: Joi.number().integer().min(1).required()
+  });
+
+  const bodySchema = Joi.object({
+    apparelName:      Joi.string().trim().min(1).max(200).required(),
+    apparelLevel:     Joi.string().trim().max(50).allow('', null).optional(),
+    apparelType:      Joi.string().trim().max(50).allow('', null).optional(),
+    apparelFor:       Joi.string().trim().max(50).allow('', null).optional(),
+    apparelSize:      Joi.string().trim().max(50).allow('', null).optional(),
+    apparelQuantity:  Joi.number().integer().min(1).required(),
+
+    receivedFrom:     Joi.string().trim().min(1).max(200).required(),
+    receivedBy:       Joi.number().integer().min(1).required(),
+    
+    notes:            Joi.string().trim().allow('', null).optional()
+  });
+
+  // validate params first
+  const { error: paramsErr } = paramsSchema.validate(req.params);
+  if (paramsErr) return next(paramsErr);
+
+  // validate body
+  validateRequest(req, next, bodySchema);
+}
+function receiveAdminSupplySchema(req, res, next) {
+  const paramsSchema = Joi.object({
+    roomId: Joi.number().integer().min(1).required()
+  });
+
+  const bodySchema = Joi.object({
+    supplyName:     Joi.string().trim().min(1).max(200).required(),
+    supplyQuantity: Joi.number().integer().min(1).required(),
+    supplyMeasure:  Joi.string().trim().max(50).required(),
+
+    receivedFrom:   Joi.string().trim().min(1).max(200).required(),
+    receivedBy:     Joi.number().integer().min(1).required(),
+
+    notes:          Joi.string().trim().allow('', null).optional()
+  });
+
+  const { error: paramsErr } = paramsSchema.validate(req.params);
+  if (paramsErr) return next(paramsErr);
+
+  validateRequest(req, next, bodySchema);
+}
+function receiveGenItemSchema(req, res, next) {
+  const paramsSchema = Joi.object({
+    roomId: Joi.number().integer().min(1).required()
+  });
+
+  const bodySchema = Joi.object({
+    genItemName:      Joi.string().trim().min(1).max(200).required(),
+    genItemSize:      Joi.string().trim().max(50).allow('', null).optional(),
+    genItemQuantity:  Joi.number().integer().min(1).required(),
+    genItemType:      Joi.string().lowercase().valid('it','maintenance','unknownType').required(),
+
+    receivedFrom:     Joi.string().trim().min(1).max(200).required(),
+    receivedBy:       Joi.number().integer().min(1).required(),
+    
+    notes:            Joi.string().trim().allow('', null).optional()
+  });
+
+  // validate params first
+  const { error: paramsErr } = paramsSchema.validate(req.params);
+  if (paramsErr) return next(paramsErr);
+
+  // validate body
+  validateRequest(req, next, bodySchema);
+}
+
+// Management part
+function createRoom(req, res, next) {
+  roomService.createRoomHandler(req.body)
+      .then(() => res.json({ message: 'Room created' }))
+      .catch(next);
+}
+function getRooms(req, res, next) {
+  roomService.getRoomsHandler()
+      .then(room => res.json(room))
+      .catch(next);
+}
+function getRoomById(req, res, next) {
+  roomService.getRoomByIdHandler(req.params.roomId)
+      .then(rooms => res.json(rooms))
+      .catch(next);
+}
+async function updateRoom(req, res, next) {
+  try {
+    const updated = await roomService.updateRoomHandler(req.params.id, req.body);
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// Receive part
+async function receiveApparel(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const result = await roomService.receiveApparelInRoomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+async function receiveAdminSupply(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const result = await roomService.receiveAdminSupplyInRoomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+async function receiveGenItem(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+
+// Release part
+async function releaseApparel(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+async function releaseInStockroom(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    // normalize fields so room.service gets the expected names
+    if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
+      req.body.releaseApparelQuantity = req.body.releaseQuantity;
+    }
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    // support both claimedBy / releasedBy fields already present in your release schema
+    const result = await roomService.releaseInStockroomHandler(roomId, req.body);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+
+// Get Received part
+function getReceiveApparels(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReceiveApparelsByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
+function getApparelUnits(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getApparelUnitsByRoomHandler(roomId)
+    .then(units => res.json(units))
+    .catch(next);
+}
+function getApparelInventory(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getApparelInventoryByRoomHandler(roomId)
+    .then(inventory => res.json(inventory))
+    .catch(next);
+}
+
+function getReceiveAdminSupply(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReceiveAdminSupplyByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
+function getAdminSupplyUnits(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getAdminSupplyUnitsByRoomHandler(roomId)
+    .then(units => res.json(units))
+    .catch(next);
+}
+function getAdminSupplyInventory(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getAdminSupplyInventoryByRoomHandler(roomId)
+    .then(inventory => res.json(inventory))
+    .catch(next);
+}
+
+function getReceiveGenItem(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReceiveGenItemByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
+function getGenItemUnits(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getGenItemUnitsByRoomHandler(roomId)
+    .then(units => res.json(units))
+    .catch(next);
+}
+function getGenItemInventory(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getGenItemInventoryByRoomHandler(roomId)
+    .then(inventory => res.json(inventory))
+    .catch(next);
+}
+
+// Get Relesed Apparels part
+function getReleaseApparels(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReleaseApparelsByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
+
+// Generate and Get QR Code part
+async function getApparelBatchQr(req, res, next) {
+  try {
+    const roomId = req.params.roomId;
+    const inventoryId = req.params.inventoryId;
+
+    // service will generate if missing (idempotent)
+    const result = await roomService.generateApparelBatchForRoom(roomId, inventoryId);
+
+    const absolute = resolveQrFilePath(result);
+    if (!absolute) return res.status(404).json({ message: 'QR file not found' });
+
+    // Always return the PNG image
+    return res.type('png').sendFile(absolute);
+  } catch (err) {
+    if (err && err.status && err.message)
+      return res.status(err.status).json({ message: err.message });
+    next(err);
+  }
+}
+// async function getApparelBatchQr(req, res, next) {
+//   try {
+//     const roomId = req.params.roomId;
+//     const inventoryId = req.params.inventoryId;
+
+//     // new buffer service call:
+//     const result = await roomService.generateApparelBatchBufferForRoom(roomId, inventoryId);
+//     if (!result || !result.buffer) return res.status(500).json({ message: 'QR generation failed' });
+
+//     res.type('png').send(result.buffer);
+//   } catch (err) {
+//     if (err && err.status && err.message) return res.status(err.status).json({ message: err.message });
+//     next(err);
+//   }
+// }
+async function getAdminSupplyBatchQr(req, res, next) {
+  try {
+    const roomId = req.params.roomId;
+    const inventoryId = req.params.inventoryId;
+
+    // service will generate if missing (idempotent)
+    const result = await roomService.generateAdminSupplyBatchForRoom(roomId, inventoryId);
+
+    const absolute = resolveQrFilePath(result);
+    if (!absolute) return res.status(404).json({ message: 'QR file not found' });
+
+    // Always return the PNG image
+    return res.type('png').sendFile(absolute);
+  } catch (err) {
+    if (err && err.status && err.message)
+      return res.status(err.status).json({ message: err.message });
+    next(err);
+  }
+}
+async function getGenItemBatchQr(req, res, next) {
+  try {
+    const roomId = req.params.roomId;
+    const inventoryId = req.params.inventoryId;
+
+    // service will generate if missing (idempotent)
+    const result = await roomService.generateGenItemBatchForRoom(roomId, inventoryId);
+
+    const absolute = resolveQrFilePath(result);
+    if (!absolute) return res.status(404).json({ message: 'QR file not found' });
+
+    // Always return the PNG image
+    return res.type('png').sendFile(absolute);
+  } catch (err) {
+    if (err && err.status && err.message)
+      return res.status(err.status).json({ message: err.message });
+    next(err);
+  }
+}
+
+async function getApparelUnitQr(req, res, next) {
+  try {
+    const roomId = req.params.roomId;
+    const unitId = req.params.unitId;
+
+    const result = await roomService.generateApparelUnitForRoom(roomId, unitId);
+
+    const absolute = resolveQrFilePath(result);
+    if (!absolute) return res.status(404).json({ message: 'QR file not found' });
+
+    return res.type('png').sendFile(absolute);
+  } catch (err) {
+    if (err && err.status && err.message)
+      return res.status(err.status).json({ message: err.message });
+    next(err);
+  }
+}
+async function getAdminSupplyUnitQr(req, res, next) {
+  try {
+    const roomId = req.params.roomId;
+    const unitId = req.params.unitId;
+
+    const result = await roomService.generateAdminSupplyUnitForRoom(roomId, unitId);
+
+    const absolute = resolveQrFilePath(result);
+    if (!absolute) return res.status(404).json({ message: 'QR file not found' });
+
+    return res.type('png').sendFile(absolute);
+  } catch (err) {
+    if (err && err.status && err.message)
+      return res.status(err.status).json({ message: err.message });
+    next(err);
+  }
+}
+
+
+
+
+async function updateItemStatus(req, res, next) {
+  try {
+    const { id, status } = req.body;
+    if (!id || !status) return res.status(400).json({ message: 'id and status required' });
+    // example service call
+    const updated = await itemService.updateStatus({ id, status, roomId: req.params.roomId, userId: req.user?.id });
+    return res.json({ success: true, item: updated });
+  } catch (err) { next(err); }
+}
+
+
+// // Receive Apparel part
+// async function receiveItem(req, res, next) {
+//   // try {
+//   //   const { roomId } = req.params;
+//   //   const result     = await roomService.receiveInStockroom(roomId, req.body);
+//   //   res.status(201).json(result);
+//   // } catch (err) {
+//   //   next(err);
+//   // }
+//   try {
+//     const result = await roomService.receiveInStockroom(req.params.roomId, req.body);
+//     res.status(201).json(result);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// async function getReceivedItems(req, res, next) {
+//   const { roomId } = req.params;
+//   if (!/^\d+$/.test(roomId)) {
+//     return res.status(400).json({ message: 'Invalid roomId' });
+//   }
+//   try {
+//     const items = await roomService.getReceivedItemsByRoom(roomId);
+//     res.json({ items });
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// function getReceivedApparel(req, res, next) {
+//   apparelService.getReceivedApparelHandler()
+//       .then(apparel => res.json(apparel))
+//       .catch(next);
+// }
+// ========================================================
+// // Release Apparel part
+// async function releaseApparelFromRoom(req, res, next) {
+//   const roomId = parseInt(req.params.id, 10);
+//   if (!Number.isInteger(roomId)) return next(new Error('Invalid room id'));
+
+//   try {
+//     // delegate all business logic to room service
+//     const result = await roomService.releaseApparelFromRoomHandler(roomId, req.body);
+//     return res.json(result);
+//   } catch (err) {
+//     return next(err);
+//   }
+// }
+// ========================================================
+// // Inventory part
+// async function getInventory(req, res, next) {
+//   try {
+//     const inventory = await roomService.getInventoryByRoom(req.params.roomId);
+//     res.json(inventory);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// // Other features
+// async function getInChargeOptions(req, res, next) {
+//   try {
+//     const users = await roomService.getUsersForDropdown();
+//     res.json(users);
+//   } catch (err) {
+//     next(err);
+//   }
+//   // try {
+//   //   const accounts = await get('getAll')();
+//   //   res.json(accounts);
+//   // } catch (err) { next(err); }
+// }
+// ========================================================
+// async function registerItem(req, res, next) {
+//   try {
+//     const { itemId } = req.body;
+//     const inventory = await roomService.registerItem(req.params.roomId, itemId);
+//     res.status(201).json(inventory);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// async function getRoomItems(req, res, next) {
+//   try {
+//     const items = await roomService.getRoomItems(req.params.roomId);
+//     res.json(items);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// async function updateItemStatus(req, res, next) {
+//   try {
+//     const { roomId, itemQrCode } = req.params;
+//     const { newStatus } = req.body;
+//     const updatedInventory = await roomService.updateInventoryStatus(
+//       roomId,
+//       itemQrCode,
+//       newStatus
+//     );
+//     return res.json({ inventory: updatedInventory });
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// async function getFilteredRooms(req, res, next) {
+//   try {
+//     // read your dropdown filters off query-string
+//     const {
+//       type: roomType
+//     } = req.query;
+
+//     const rooms = await roomService.getFilteredRooms({
+//       roomType,
+//     });
+
+//     res.json(rooms);
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+// ========================================================
+// async function getRoomEnumOptions(req, res, next) {
+//   try {
+//     const room = await db.Room.findByPk(req.params.roomId);
+//     if (!room) return res.status(404).json({ options: {} });
+
+//     const modelName = `Receive_${capitalize(room.stockroomType)}`;
+//     const ReceiveModel = db[modelName];
+
+//     if (!ReceiveModel) {
+//       console.warn(`No model found for name: ${modelName}`);
+//       return res.json({ options: {} });
+//     }
+
+//     const options = {};
+    
+//     for (const [field, attr] of Object.entries(ReceiveModel.rawAttributes)) {
+//       if (attr.type instanceof DataTypes.ENUM) {
+//         options[field] = attr.values;
+//         console.log(`  • ${field}: [${attr.values.join(', ')}]`);
+//       }
+//     }
+
+//     return res.json({ options });
+//   } catch (err) {
+//     next(err);
+//   }
+// }
+
+
+
+================================================================================
+File: _helpers\db-handler.js
+Size: 5.36 kB
+================================================================================
+
+const config            = require('config.json');
+const mysql             = require('mysql2/promise');
+const { Sequelize }     = require('sequelize');
+
+module.exports = db = {};
+
+initialize();
+async function initialize() { 
+    const { host, port, user, password, database } = config.database;
+    const connection = await mysql.createConnection({ host, port, user, password });
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+    
+    await connection.end();
+
+    const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
+
+// Initialize models and add them to the exported `db` object
+db.Room             = require('../_models/room.model')(sequelize);
+db.Account          = require('../_models/account.model')(sequelize);
+db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
+db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
+
+// Apparel models
+db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
+db.ReceiveApparel     = require('../_models/apparel/receiveApparel.model')(sequelize);
+db.ReleaseApparel     = require('../_models/apparel/releaseApparel.model')(sequelize);
+db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(sequelize);
+
+// Admin Supply models
+db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
+db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
+db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
+
+// Item models
+db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
+db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
+db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
+db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
+
+// Qr code models
+db.Qr = require('../_models/qr.model')(sequelize);
+
+dbAssociations();
+
+    await sequelize.sync({ alter: true }); 
+}  
+
+function dbAssociations() {
+  // ---------------- Account / Auth ----------------
+  // Account -> RefreshToken : store JWT refresh tokens for an account (cascade delete)
+  db.Account.hasMany(db.RefreshToken, { onDelete: 'CASCADE' });
+  db.RefreshToken.belongsTo(db.Account);
+
+  // ---------------- Account / Room ----------------
+  // [Label] Account (roomInCharge) -> Room : which account is in charge of a room
+  db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge' });
+  db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge' });
+
+  // ---------- APPAREL / BATCH / ROOM associations ----------
+  // ReceiveApparel -> Apparel (per-unit), keep alias 'apparel' (matches prior code)
+  db.ReceiveApparel.hasMany(db.Apparel, { foreignKey: 'receiveApparelId' });
+  db.Apparel.belongsTo(db.ReceiveApparel, { foreignKey: 'receiveApparelId' });
+
+  // ReceiveApparel -> Room (batch belongs to room) and Room -> ReceiveApparel
+  db.ReceiveApparel.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReceiveApparel, { foreignKey: 'roomId' });
+
+  // Apparel may optionally belong to a Room directly (if your model has roomId)
+  // Keep these so code that queries by Apparel.roomId keeps working if the attribute exists.
+  db.Apparel.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.Apparel, { foreignKey: 'roomId' });
+
+  // ApparelInventory (aggregate) belongs to Room and Room has many ApparelInventory rows
+  db.Room.hasMany(db.ApparelInventory, { foreignKey: 'roomId' });
+  db.ApparelInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+  // ApparelInventory <-> ReleaseApparel
+  db.ApparelInventory.hasMany(db.ReleaseApparel, { foreignKey: 'apparelInventoryId' });
+  db.ReleaseApparel.belongsTo(db.ApparelInventory, { foreignKey: 'apparelInventoryId'  });
+
+  // ApparelInventory -> Apparel (optional relation if your model uses apparelInventoryId)
+  db.ApparelInventory.hasMany(db.Apparel, { foreignKey: 'apparelInventoryId' });
+  db.Apparel.belongsTo(db.ApparelInventory, { foreignKey: 'apparelInventoryId' });
+
+  // ---------- ADMIN SUPPLY associations ----------
+  db.ReceiveAdminSupply.hasMany(db.AdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+  db.AdminSupply.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+
+  db.Account.hasMany(db.ReceiveApparel, { foreignKey: 'accountId'});
+  db.ReceiveApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId'});
+  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.Account.hasMany(db.ReleaseApparel, { foreignKey: 'accountId'});
+  db.ReleaseApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.ReleaseApparel.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReleaseApparel, { foreignKey: 'roomId' });
+
+  db.ReceiveGenItem.hasMany(db.GenItem, { foreignKey: 'receiveGenItemId' });
+  db.GenItem.belongsTo(db.ReceiveGenItem, { foreignKey: 'receiveGenItemId' });
+
+  db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
+
+}
+
+================================================================================
+File: _helpers\role.js
+Size: 92 B
+================================================================================
+
+module.exports = {
+    SuperAdmin: 'superAdmin',
+    Admin: 'admin',
+    User: 'user',
+}
+
+================================================================================
+File: _helpers\send-email.js
+Size: 337 B
+================================================================================
+
+const nodemailer    = require('nodemailer');
+const config        = require('config.json');
+
+module.exports = sendEmail;
+
+async function sendEmail({ to, subject, html, from = config.emailFrom }) {
+    const transporter = nodemailer.createTransport(config.smtpOptions);
+    await transporter.sendMail({ from, to, subject, html});
+}
+
+================================================================================
+File: _helpers\swagger.js
+Size: 369 B
+================================================================================
+
+const express               = require('express');
+const router                = express.Router();
+const swaggerUi             = require('swagger-ui-express');
+const YAML                  = require('yamljs');
+const swaggerDocument       = YAML.load('./swagger.yaml');
+
+router.use('/', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+module.exports = router;
+
+================================================================================
+File: _middlewares\authorize.js
+Size: 1.55 kB
+================================================================================
+
+const { expressjwt: jwt }   = require('express-jwt');
+const { secret }            = require('config.json');
+const db                    = require('_helpers/db-handler');
+const Role                  = require('_helpers/role');
+
+module.exports = authorize;
+
+// main
+function authorize(roles = []) {
+    if (typeof roles === 'string') {
+        roles = [roles];
+    }
+
+    return [
+        // 1) Authenticate JWT token and attach decoded token to request as req.auth
+        jwt({ secret, algorithms: ['HS256'], requestProperty: 'auth' }),
+
+        // 2) Authorize based on user role
+        async (req, res, next) => {
+            try {
+                const account = await db.Account.findByPk(req.auth.accountId);
+                if (!account) {
+                    return res.status(401).json({ message: 'Account no longer exists' });
+                }
+
+                // Disallow if role not in allowed list
+                if (roles.length && !roles.includes(account.role)) {
+                    return res.status(403).json({ message: 'Forbidden: insufficient permissions' });
+                }
+
+                // Attach essential user details to req.user
+                req.user = { accountId: account.accountId, email: account.email, role: account.role };
+                next();
+            } catch (error) {
+                console.error('Authorization error:', error);
+                res.status(500).json({ message: 'Internal server error during authorization' });
+            }
+        }
+    ];
+}
+
+================================================================================
+File: _middlewares\error-handler.js
+Size: 717 B
+================================================================================
+
+//main
+module.exports = errorHandler;
+
+function errorHandler(err, req, res, next) {
+    switch (true) {
+        case typeof err === 'string':
+            const is404 = err.toLowerCase().endsWith('not found');
+            const statusCode = is404 ? 404 : 400;
+            return res.status(statusCode).json({ message: err });
+        // case err.message && err.message.toLowerCase().includes('deactivated'):
+        //     return res.status(403).json({ message: 'deactivated' });
+        case err.name === 'UnauthorizedError':
+            return res.status(401).json({ message: 'Unauthorized error-handler' });
+        default:
+            return res.status(500).json({ message: err.message });
+    }
+}
+
+================================================================================
+File: _middlewares\validate-request.js
+Size: 436 B
+================================================================================
+
+module.exports = validateRequest;
+
+function validateRequest(req, next, schema) {
+    const options = {
+        abortEarly: false,
+        allowUnknown: true,
+        stripUnknown: true
+    };
+    const { error, value } = schema.validate(req.body, options);
+    if (error) {
+        next(`Validation error: ${error.details.map(x => x.message).join(', ')}`);
+    } else {
+        req.body = value;
+        next();
+    }
+}
+
+
+================================================================================
+File: _models\account.model.js
+Size: 1.69 kB
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = model;
+
+function model(sequelize) {
+    const attributes = {
+        accountId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        email:              { type: DataTypes.STRING,   allowNull: false }, 
+        //phoneNumber:        { type: DataTypes.STRING,   allowNull: false },
+        passwordHash:       { type: DataTypes.STRING,   allowNull: false }, 
+        title:              { type: DataTypes.STRING,   allowNull: false }, 
+        firstName:          { type: DataTypes.STRING,   allowNull: false }, 
+        lastName:           { type: DataTypes.STRING,   allowNull: false },
+        role:               { type: DataTypes.STRING,   allowNull: true }, 
+        verificationToken:  { type: DataTypes.STRING },
+        verified:           { type: DataTypes.DATE },
+        resetToken:         { type: DataTypes.STRING },
+        resetTokenExpires:  { type: DataTypes.DATE },
+        passwordReset:      { type: DataTypes.DATE},
+        created:            { type: DataTypes.DATE,     allowNull: false, defaultValue: DataTypes.NOW }, 
+        updated:            { type: DataTypes.DATE },
+        isVerified:         { type: DataTypes.VIRTUAL,
+                                get() { return !!(this.verified || this.passwordReset); }
+                            }
+    };
+
+    const options = {
+        timestamps: false,
+        defaultScope: {
+            attributes: {exclude: ['passwordHash'] }
+        },
+        scopes: {
+            withHash: { attributes: {}, }
+        }
+    };
+
+    return sequelize.define('Account', attributes, options);
+    
+}
+
+================================================================================
+File: _models\activitylog.model.js
+Size: 806 B
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = model;
+
+function model(sequelize) {
+    const attributes = {
+        activityLogId:  { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        accountId:      { type: DataTypes.INTEGER,  allowNull: false },
+        // entity: { type: DataTypes.STRING, allowNull: true },
+        // entityId: { type: DataTypes.INTEGER, allowNull: true },
+        actionType:     { type: DataTypes.STRING,   allowNull: false },
+        actionDetails:  { type: DataTypes.TEXT,     allowNull: true },
+        timestamp:      { type: DataTypes.DATE,     defaultValue: DataTypes.NOW },
+    };
+
+    const options = {
+        timestamps: false 
+        
+    };
+
+    return sequelize.define('ActivityLog', attributes, options);
+}
+
+================================================================================
+File: _models\adminSupply\adminSupply.model.js
+Size: 609 B
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+
+    const attributes = {
+        adminSupplyId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
+        receiveAdminSupplyId:   { type: DataTypes.INTEGER,  allowNull: false },
+        status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('AdminSupply', attributes);
+};
+
+================================================================================
+File: _models\adminSupply\adminSupplyInventory.model.js
+Size: 1.52 kB
+================================================================================
+
+/* 
+    - this model will be the innventory of admin supply.
+    - it will store all the received bathes of admin supply items but if the received item is the same to the existing item, only the total quantity will be change
+    - ex.: if db.ReceiveAdminSupply received 5 quantities of one specific item and received again that kind of item but only 3 quantities, 
+        the total quantity of that item will change by adding the new quantity into the existing.
+    - this model will not store duplicate items but the total quantity will update. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+    adminSupplyInventoryId: { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+    roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
+    supplyName:             { type: DataTypes.STRING,   allowNull: false },
+    supplyMeasure:          { type: DataTypes.ENUM(
+                                'pc', 'box', 'bottle', 'pack', 'ream', 
+                                'meter', 'roll', 'gallon', 'unit', 'educ', 
+                                'teachers'
+                                ), 
+                                allowNull: false 
+                            },
+    totalQuantity:          { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('AdminSupplyInventory', attributes);
+};
+
+================================================================================
+File: _models\adminSupply\receiveAdminSupply.model.js
+Size: 1.31 kB
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        receiveAdminSupplyId:   { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
+        receivedFrom:           { type: DataTypes.STRING,   allowNull: false },
+        receivedBy:             { type: DataTypes.INTEGER,  allowNull: false },
+        supplyName:             { type: DataTypes.STRING,   allowNull: false },
+        supplyQuantity:         { type: DataTypes.INTEGER,  allowNull: false },
+        supplyMeasure:          { type: DataTypes.ENUM(
+                                    'pc', 'box', 'bottle', 'pack', 'ream', 
+                                    'meter', 'roll', 'gallon', 'unit', 'educ', 
+                                    'teachers'
+                                    ), 
+                                    allowNull: false 
+                                },
+        receivedAt:             { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+        updated:                { type: DataTypes.DATE },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ReceiveAdminSupply', attributes);
+};
+
+================================================================================
+File: _models\apparel\apparel.model.js
+Size: 838 B
+================================================================================
+
+/* 
+    - this model will store all the received bathes of apprel items into rows
+    - ex.: if db.ReceiveApprel received 5 quantitys of one specific item and will store as one row.
+    - this model will store the 5 quantities into 5 rows. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+
+    const attributes = {
+        apparelId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
+        receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
+        status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('Apparel', attributes);
+};
+
+================================================================================
+File: _models\apparel\apparelInventory.model.js
+Size: 1.97 kB
+================================================================================
+
+/* 
+    - this model will be the innventory of apparel.
+    - it will store all the received bathes of apprel items but if the received item is the same to the existing item, only the total quantity will be change
+    - ex.: if db.ReceiveApprel received 5 quantities of one specific item and received again that kind of item but only 3 quantities, 
+        the total quantity of that item will change by adding the new quantity into the existing.
+    - this model will not store duplicate items but the total quantity will update. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+    apparelInventoryId: { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+    roomId:             { type: DataTypes.INTEGER,  allowNull: false },
+    apparelName:        { type: DataTypes.STRING,   allowNull: false },
+    apparelLevel:       { type: DataTypes.ENUM(
+                            'pre','elem',
+                            '7','8','9','10',
+                            'sh','it','hs','educ',
+                            'teachers'
+                            ), 
+                            allowNull: false },
+    apparelType:        { type: DataTypes.ENUM('uniform','pe'), allowNull: false },
+    apparelFor:         { type: DataTypes.ENUM('boys','girls'), allowNull: false },
+    apparelSize:        { type: DataTypes.ENUM(
+                            '2', '4', '6', '8', '10', 
+                            '12', '14', '16', '18', '20', 
+                            'xs', 's', 'm', 'l', 'xl', 
+                            '2xl', '3xl'
+                            ), 
+                            allowNull: false  
+                        },
+    totalQuantity:      { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ApparelInventory', attributes);
+};
+
+================================================================================
+File: _models\apparel\receiveApparel.model.js
+Size: 2.37 kB
+================================================================================
+
+/* 
+    - this model will store all the received bathes of apprel one row per batch.
+    - ex.: if db.ReceiveApprel received 5 quantitys of one specific item and will store as one row, 
+    - this model will store the 5 quantities into 1 row. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        receiveApparelId:   { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
+        receivedFrom:       { type: DataTypes.STRING,   allowNull: false },
+        receivedBy:         { type: DataTypes.INTEGER,  allowNull: false },
+        apparelName:        { type: DataTypes.STRING,   allowNull: false },
+        apparelLevel:       { type: DataTypes.ENUM(
+                                'pre', 'elem', 
+                                '7', '8', '9', '10', 
+                                'sh', 'it', 'hs', 'educ', 
+                                'teachers'
+                                ), 
+                                allowNull: false 
+                            },
+        apparelType:        { type: DataTypes.ENUM(
+                                'uniform', 'pe'
+                                ), 
+                                allowNull: false 
+                            },
+        apparelFor:         { type: DataTypes.ENUM(
+                                'boys', 'girls'
+                                ), 
+                                allowNull: false 
+                            },
+        apparelSize:        { type: DataTypes.ENUM(
+                                '2', '4', '6', '8', '10', 
+                                '12', '14', '16', '18', '20', 
+                                'xs', 's', 'm', 'l', 'xl', 
+                                '2xl', '3xl'
+                                ), 
+                                allowNull: false  
+                            },
+        apparelQuantity:    { type: DataTypes.INTEGER,  allowNull: false },
+        receivedAt:         { type: DataTypes.DATE,     allowNull: false, defaultValue: DataTypes.NOW },
+        updated:            { type: DataTypes.DATE },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ReceiveApparel', attributes);
+};
+
+================================================================================
+File: _models\apparel\releaseApparel.model.js
+Size: 1.09 kB
+================================================================================
+
+/* 
+    - this model will store all the released of apprels.
+    - its like as receave but this one is for release feature.
+    - this model will store 1 row per released item. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        releaseApparelId:           { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                     { type: DataTypes.INTEGER,  allowNull: false },
+        apparelInventoryId:         { type: DataTypes.INTEGER,  allowNull:  false },
+        releasedBy:                 { type: DataTypes.STRING,   allowNull:  false },
+        claimedBy:                  { type: DataTypes.STRING,   allowNull:  false },
+        releaseApparelQuantity:     { type: DataTypes.INTEGER,  allowNull:  false },
+        releasedAt:                 { type: DataTypes.DATE,     allowNull:  false, defaultValue: DataTypes.NOW },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ReleaseApparel', attributes, options);
+};
+
+================================================================================
+File: _models\borrowFromStockroom.model.js
+Size: 774 B
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        borrowFromStockroomId:  { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        borrower:               { type: DataTypes.STRING,   allowNull: false},
+        itemName:               { type: DataTypes.STRING,   allowNull: false },
+        itemCondition:          { type: DataTypes.ENUM(
+                                    'good', 'damage',
+                                    ),
+                                },
+        purpose:                { type: DataTypes.STRING, allowNull: false }
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('BorrowFromStockroom', attributes);
+};
+
+================================================================================
+File: _models\genItem\genItem.model.js
+Size: 832 B
+================================================================================
+
+/* 
+    - this model will store all the received bathes of apprel items into rows
+    - ex.: if db.ReceiveApprel received 5 quantitys of one specific item and will store as one row.
+    - this model will store the 5 quantities into 5 rows. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+
+    const attributes = {
+        genItemId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:          { type: DataTypes.INTEGER,  allowNull: false },
+        receiveGenItemId:   { type: DataTypes.INTEGER,  allowNull: false },
+        status:          { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('GenItem', attributes);
+};
+
+================================================================================
+File: _models\genItem\genItemInventory.model.js
+Size: 1.41 kB
+================================================================================
+
+/* 
+    - this model will be the innventory of apparel.
+    - it will store all the received bathes of apprel items but if the received item is the same to the existing item, only the total quantity will be change
+    - ex.: if db.ReceiveApprel received 5 quantities of one specific item and received again that kind of item but only 3 quantities, 
+        the total quantity of that item will change by adding the new quantity into the existing.
+    - this model will not store duplicate items but the total quantity will update. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+    genItemInventoryId: { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+    roomId:             { type: DataTypes.INTEGER,  allowNull: false },
+    genItemName:        { type: DataTypes.STRING,   allowNull: false },
+    genItemSize:        { type: DataTypes.STRING,   allowNull: true },
+    genItemType:        { type: DataTypes.ENUM(
+                            'it', 'maintenance', 'unknownType'
+                            ), 
+                            allowNull: false 
+                        },
+    totalQuantity:      { type: DataTypes.INTEGER,  allowNull: false, defaultValue: 0 },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('GenItemInventory', attributes);
+};
+
+================================================================================
+File: _models\genItem\receiveGenItem.model.js
+Size: 1.45 kB
+================================================================================
+
+/* 
+    - this model will store all the received bathes of apprel one row per batch.
+    - ex.: if db.ReceiveApprel received 5 quantitys of one specific item and will store as one row, 
+    - this model will store the 5 quantities into 1 row. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        receiveGenItemId:   { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
+        receivedFrom:       { type: DataTypes.STRING,   allowNull: false },
+        receivedBy:         { type: DataTypes.INTEGER,  allowNull: false },
+        genItemName:        { type: DataTypes.STRING,   allowNull: false },
+        genItemSize:        { type: DataTypes.STRING,   allowNull: true },
+        genItemQuantity:    { type: DataTypes.INTEGER,  allowNull: false },
+        genItemType:        { type: DataTypes.ENUM(
+                                'it', 'maintenance', 'unknownType'
+                                ), 
+                                allowNull: false 
+                            },
+        receivedAt:         { type: DataTypes.DATE,     allowNull: false, defaultValue: DataTypes.NOW },
+        updated:            { type: DataTypes.DATE },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ReceiveGenItem', attributes);
+};
+
+================================================================================
+File: _models\genItem\releaseGenItem.model.js
+Size: 1.32 kB
+================================================================================
+
+/* 
+    - this model will store all the released of apprels.
+    - its like as receave but this one is for release feature.
+    - this model will store 1 row per released item. 
+*/
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+    const attributes = {
+        releaseGenItemId:       { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
+        genItemInventoryId:     { type: DataTypes.INTEGER,  allowNull:  false },
+        releasedBy:             { type: DataTypes.STRING,   allowNull:  false },
+        claimedBy:              { type: DataTypes.STRING,   allowNull:  false },
+        releaseItemQuantity:    { type: DataTypes.INTEGER,  allowNull:  false },
+        genItemType:            { type: DataTypes.ENUM(
+                                    'it', 'maintenance', 'unknownType'
+                                    ), 
+                                    allowNull: false 
+                                },
+        releasedAt:             { type: DataTypes.DATE,     allowNull:  false, defaultValue: DataTypes.NOW },
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('ReleaseGenItem', attributes, options);
+};
+
+================================================================================
+File: _models\qr.model.js
+Size: 723 B
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+  const attributes = {
+    qrId:         { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true }, 
+    itemType:     { type: DataTypes.STRING,   allowNull: false },
+    batchId:      { type: DataTypes.INTEGER,  allowNull: true },
+    unitId:       { type: DataTypes.INTEGER,  allowNull: true },
+    qrFilePath:   { type: DataTypes.TEXT,     allowNull: false },
+    qrCodePath:   { type: DataTypes.STRING,   allowNull: true },
+    createdAt:    { type: DataTypes.DATE,     defaultValue: DataTypes.NOW }
+  };
+
+  const options = {
+    timestamps: false
+  };
+
+  return sequelize.define('Qr', attributes, options);
+};
+
+
+================================================================================
+File: _models\refresh-token.model.js
+Size: 1.23 kB
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = model;
+
+function model(sequelize) {
+    const attributes = {
+        refreshTokenId:     { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+        token:              { type: DataTypes.STRING },
+        expires:            { type: DataTypes.DATE },
+        created:            { type: DataTypes.DATE,     allowNull: false, defaultValue: DataTypes.NOW }, 
+        createdByIp:        { type: DataTypes.STRING },
+        revoked:            { type: DataTypes.DATE },
+        revokedByIp:        { type: DataTypes.STRING },
+        replacedByToken:    { type: DataTypes.STRING }, 
+        accountId:          { type: DataTypes.INTEGER,  allowNull: false },
+        isExpired:          { type: DataTypes.VIRTUAL,
+                                get() { return Date.now() >= this.expires; }
+                            },
+        isActive:           { type: DataTypes.VIRTUAL, 
+                                get() { return !this.revoked && !this.isExpired; }
+                            }
+    };
+
+    const options = {
+        timestamps: false
+    };
+
+    return sequelize.define('RefreshToken', attributes, options);
+}
+
+================================================================================
+File: _models\room.model.js
+Size: 1 kB
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+  const attributes = {
+    roomId:         { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
+    roomName:       { type: DataTypes.STRING,   allowNull: false },
+    roomFloor:      { type: DataTypes.STRING,   allowNull: false },
+    roomType:       { type: DataTypes.ENUM(
+                        'stockroom', 'subStockroom', 
+                        'office', 'classroom', 'comfortroom', 
+                        'openarea', 'unknownroom'
+                        ), 
+                      allowNull: false, defaultValue: 'unknownroom' },
+    stockroomType:  { type: DataTypes.ENUM(
+                        'apparel', 'supply', 'it', 
+                        'maintenance', 'unknownType' 
+                        ), 
+                      allowNull: true },
+    roomInCharge:   { type: DataTypes.INTEGER,  allowNull: false }
+  };
+
+  return sequelize.define('Room', attributes);
+};
+
+================================================================================
+File: _models\roomInventory.model.js
+Size: 546 B
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = (sequelize) => {
+  const attributes = {
+    roomInventoryId:  { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    roomId:           { type: DataTypes.INTEGER, allowNull: false },
+    itemId:           { type: DataTypes.INTEGER, allowNull: false },
+    quantity:         { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+  };
+
+  const options = {
+    timestamps: false,
+  };
+  
+  return sequelize.define('RoomInventory', attributes);
+};
+
+================================================================================
+File: _services\account.service.js
+Size: 34.09 kB
+================================================================================
+
+const config    = require('config.json'); 
+const jwt       = require('jsonwebtoken'); 
+const bcrypt    = require('bcryptjs'); 
+const crypto    = require("crypto"); 
+const { Op}     = require('sequelize');
+
+const sendEmail   = require('_helpers/send-email'); 
+const db          = require('_helpers/db-handler');
+const Role        = require('_helpers/role');
+
+module.exports = { 
+    authenticate,
+    refreshToken,
+    revokeToken,
+    register,
+    verifyEmail,
+    forgotPassword,
+    validateResetToken,
+    resetPassword, 
+    getAll,
+    getById,
+    create,
+    logActivity,
+    getAccountActivities,
+    getAllActivityLogs,
+    update,
+    delete: _delete
+};
+
+async function authenticate({ email, password, ipAddress, browserInfo }) {
+    const account = await db.Account.scope('withHash').findOne({ where: { email } });
+  
+    if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
+      throw 'Email or password is incorrect';
+    }
+  
+    const jwtToken = generateJwtToken(account);
+    const refreshToken = generateRefreshToken(account, ipAddress);
+  
+    await refreshToken.save();
+  
+    try {
+      await logActivity(account.accountId, 'login', ipAddress, browserInfo);
+    } catch (error) {
+      console.error('Error logging activity:', error);
+    }
+  
+    return {
+      ...basicDetails(account),
+      jwtToken,
+      refreshToken: refreshToken.token
+    };
+}
+async function logActivity(accountId, actionType, ipAddress, browserInfo, updateDetails = '') {
+    try {
+      // Create a new log entry in the 'activity_log' table
+      await db.ActivityLog.create({
+        accountId,
+        actionType,
+        actionDetails: `IP Address: ${ipAddress}, Browser Info: ${browserInfo}, Details: ${updateDetails}`,
+        timestamp: new Date()
+      });
+  
+      // Count the number of logs for the user
+      const logCount = await db.ActivityLog.count({ where: { accountId } });
+  
+      if (logCount > 10) {
+        // Find and delete the oldest logs
+        const logsToDelete = await db.ActivityLog.findAll({
+          where: { accountId },
+          order: [['timestamp', 'ASC']],
+          limit: logCount - 10
+        });
+  
+        if (logsToDelete.length > 0) {
+          const logIdsToDelete = logsToDelete.map(log => log.activityLogId);
+  
+          await db.ActivityLog.destroy({
+            where: {
+              activityLogId: {
+                [Op.in]: logIdsToDelete
+              }
+            }
+          });
+          console.log(`Deleted ${logIdsToDelete.length} oldest log(s) for user ${accountId}.`);
+        }
+      }
+    } catch (error) {
+      console.error('Error logging activity:', error);
+      throw error;
+    }
+}
+  // Add this new service function
+async function getAllActivityLogs(filters = {}) {
+  try {
+      let whereClause = {};
+      
+      // Apply filters
+      if (filters.actionType) {
+          whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
+      }
+      
+      if (filters.userId) {
+          whereClause.accountId = filters.userId;
+      }
+      
+      if (filters.startDate || filters.endDate) {
+          const startDate = filters.startDate ? new Date(filters.startDate) : new Date(0);
+          const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
+          whereClause.timestamp = { [Op.between]: [startDate, endDate] };
+      }
+
+      // Get all activity logs with user details
+      const logs = await db.ActivityLog.findAll({
+          where: whereClause,
+          include: [{
+              model: db.Account,
+              attributes: ['email', 'firstName', 'lastName', 'role'],
+              required: true
+          }],
+          order: [['timestamp', 'DESC']]
+      });
+
+      // Format the response
+      return logs.map(log => {
+          const formattedDate = new Intl.DateTimeFormat('en-US', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+          }).format(new Date(log.timestamp));
+
+          return {
+              activityLogId: log.activityLogId,
+              userId: log.accountId,
+              userEmail: log.Account.email,
+              userRole: log.Account.role,
+              userName: `${log.Account.firstName} ${log.Account.lastName}`,
+              actionType: log.actionType,
+              actionDetails: log.actionDetails,
+              timestamp: formattedDate
+          };
+      });
+  } catch (error) {
+      console.error('Error retrieving all activity logs:', error);
+      throw new Error('Error retrieving activity logs');
+  }
+}
+async function getAccountActivities(accountId, filters = {}) {
+  const account = await getAccount(accountId);
+  if (!account) throw new Error('User not found');
+
+  let whereClause = { accountId };
+
+  // Apply optional filters such as action type and timestamp range
+  if (filters.actionType) {
+    whereClause.actionType = { [Op.like]: `%${filters.actionType}%` };
+  }
+  if (filters.startDate || filters.endDate) {
+    const startDate = filters.startDate ? new Date(filters.startDate) : new Date(0);
+    const endDate = filters.endDate ? new Date(filters.endDate) : new Date();
+    whereClause.timestamp = { [Op.between]: [startDate, endDate] };
+  }
+
+  try {
+    const activities = await db.ActivityLog.findAll({ where: whereClause });
+    return activities.map(activity => {
+      const formattedDate = new Intl.DateTimeFormat('en-US', {
+          year: '2-digit',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+      }).format(new Date(activity.timestamp));
+
+      return {
+          activityLogId: activity.activityLogId,
+          accountId: activity.accountId,
+          actionType: activity.actionType,
+          actionDetails: activity.actionDetails,
+          timestamp: formattedDate // Replace raw timestamp with formatted date
+      };
+  });
+  } catch (error) {
+    console.error('Error retrieving activities:', error);
+    throw new Error('Error retrieving activities');
+  }
+}
+async function refreshToken({ token, ipAddress }) { 
+    const refreshToken = await getRefreshToken(token); 
+    const account = await refreshToken.getAccount();
+
+    const newRefreshToken = generateRefreshToken (account, ipAddress); 
+    refreshToken.revoked = Date.now();
+    refreshToken.revokedByIp = ipAddress;
+    refreshToken.replacedByToken = newRefreshToken.token;
+    await refreshToken.save();
+    await newRefreshToken.save();
+    
+    const jwtToken = generateJwtToken(account);
+    
+    return {
+        ...basicDetails (account),
+        jwtToken,
+        refreshToken: newRefreshToken.token
+    };
+}
+async function revokeToken({ token, ipAddress }) { 
+    const refreshToken = await getRefreshToken (token);
+    
+    refreshToken.revoked = Date.now();
+    refreshToken.revokedByIp = ipAddress; 
+    await refreshToken.save();
+}
+async function register(params, origin) {
+    if (await db.Account.findOne({ where: { email: params.email } })) {
+        return await sendAlreadyRegisteredEmail (params.email, origin);
+    }
+    
+    const account = new db.Account (params);
+
+    const isFirstAccount = (await db.Account.count()) === 0; 
+    account.role = isFirstAccount? Role.Admin: Role.User; 
+    account.verificationToken = randomTokenString();
+    
+    account.passwordHash = await hash (params.password);
+    
+    await account.save();
+      
+    const preferencesData = {
+      accountId: account.accountId, // Reference to the newly created user's ID
+      theme: 'light',  // Default theme (you can modify these defaults as needed)
+      notifications: true,  // Default notifications preference
+      language: 'en'   // Default language
+    };
+    
+    // Save the preferences for the user
+    await db.Preferences.create(preferencesData);
+    await sendVerificationEmail (account, origin);
+}
+async function verifyEmail({token}) {
+    const account = await db.Account.findOne({ where: { verificationToken: token} });
+
+    if (!account) throw 'Verification failed';
+
+    account.verified = Date.now();
+    account.verificationToken = null; 
+    await account.save();
+}
+async function forgotPassword({ email }, origin) {
+    const account = await db.Account.findOne({ where: { email } });
+
+    if (!account) return;
+    
+    account.resetToken = randomTokenString();
+    account.resetTokenExpires= new Date(Date.now() + 24*60*60*1000);
+    await account.save();
+
+    await sendPasswordResetEmail (account, origin);
+}
+async function validateResetToken({token}) { 
+    const account = await db.Account.findOne({ 
+        where: {
+            resetToken: token,
+            resetTokenExpires: { [Op.gt]: Date.now() }
+        }
+    });
+
+    if (!account) throw 'Invalid token';
+
+    return account;
+}
+async function resetPassword({ token, password }, ipAddress, browserInfo) {
+    const account = await validateResetToken({ token });
+  
+     // Add password validation if needed
+     if (password.length < 6) {
+      throw 'Password must be at least 6 characters';
+  }
+    account.passwordHash = await hash(password);
+    account.passwordReset = Date.now();
+    account.resetToken = null;
+    account.resetTokenExpires = null; // Clear the expiry
+    await account.save();
+  
+    try {
+      await logActivity(account.accountId, 'password_reset', ipAddress, browserInfo);
+    } catch (error) {
+      console.error('Error logging activity:', error);
+    }
+  
+    return;
+}
+async function getAll() {
+    const accounts = await db.Account.findAll(); 
+    return accounts.map(x => basicDetails(x));
+}
+async function getById(accountId) {
+    const account = await getAccount(accountId); 
+    return basicDetails (account);
+}
+async function create(params) {
+  // Check if the email is already registered
+  const existingAccount = await db.Account.findOne({ where: { email: params.email } });
+  if (existingAccount) {
+      throw `Email "${params.email}" is already registered`;
+  }
+
+  const account = new db.Account(params);
+  account.verified = Date.now();
+  account.passwordHash = await hash(params.password);
+
+  // Save the account
+  await account.save();
+
+  // Create default preferences for the new user
+  await db.Preferences.create({
+      accountId: account.accountId,
+      theme: 'light',
+      notifications: true,
+      language: 'en'
+  });
+
+  // Return the basic details of the created account
+  return basicDetails(account);
+}
+async function update(accountId, params, ipAddress, browserInfo) {
+  const account = await getAccount(accountId);
+  const oldData = account.toJSON(); // Get current user data as a plain object
+  const updatedFields = []; // Declare updatedFields array
+  const nonUserFields = ['ipAddress', 'browserInfo'];
+
+  // Check if any meaningful changes are being made
+  const hasChanges = Object.keys(params).some(key => 
+    !nonUserFields.includes(key) && 
+    params[key] !== undefined && 
+    params[key] !== oldData[key]
+  );
+
+  if (!hasChanges) {
+    return basicDetails(account);
+  }
+
+  if (params.email && account.email !== params.email && await db.Account.findOne({ where: { email: params.email } })) { 
+      throw 'Email "' + params.email + '" is already taken';
+  }
+
+  if (params.password) {
+      params.passwordHash = await hash(params.password);
+  }
+
+  for (const key in params) {
+    if (params.hasOwnProperty(key) && !nonUserFields.includes(key)) {
+        if (oldData[key] !== params[key]) {
+            updatedFields.push(`${key}: ${oldData[key]} -> ${params[key]}`);
+        }
+    }
+  }
+
+  Object.assign(account, params); 
+  account.updated = Date.now(); 
+
+  try {
+      await account.save();
+
+      // Log activity with updated fields
+      const updateDetails = updatedFields.length > 0 
+          ? `Updated fields: ${updatedFields.join(', ')}` 
+          : 'No fields changed';
+
+      await logActivity(account.accountId, 'profile update', ipAddress || 'Unknown IP', browserInfo || 'Unknown Browser', updateDetails);
+  } catch (error) {
+      console.error('Error logging activity:', error);
+  }
+
+  return basicDetails(account);
+}
+async function _delete(accountId) {
+    const account = await getAccount(accountId);
+    await account.destroy();
+}
+async function getAccount (accountId) {
+    const account = await db.Account.findByPk(accountId); 
+    if (!account) throw 'Account not found';
+    return account;
+}
+async function getRefreshToken(token) {
+    const refreshToken = await db.RefreshToken.findOne({ where: {token} });
+    if (!refreshToken || !refreshToken.isActive) throw 'Invalid token'; 
+    return refreshToken;
+}
+async function hash (password) {
+    return await bcrypt.hash (password, 10);
+}
+function generateJwtToken(account) {
+    return jwt.sign({ sub: account.accountId, accountId: account.accountId}, config.secret, { expiresIn: '1h' });
+}
+function generateRefreshToken(account, ipAddress) {
+    return new db.RefreshToken({
+        accountId: account.accountId, // Set the accountId field
+        token: randomTokenString(),
+        expires: new Date(Date.now() + 7*24*60*60*1000), 
+        createdByIp: ipAddress
+    });
+}
+function randomTokenString() {
+    return crypto.randomBytes (40).toString('hex');
+}
+function basicDetails(account) {
+    const { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified } = account; 
+    return { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified };
+}
+async function sendVerificationEmail(account, origin) {
+    let message;
+    if (origin) {
+        const verifyUrl = `${origin}/account/verify-email?token=${account.verificationToken}`; 
+        message = `<p>Please click the below link to verify your email address:</p>;
+                   <p><a href="${verifyUrl}">${verifyUrl}</a></p>`;
+    } else {
+        message = `<p>Please use the below token to verify your email address with the <code>/account/verify-email</code> api route:</p> 
+                   <p><code>${account.verificationToken}</code></p>`;
+    }
+    
+    await sendEmail({
+    to: account.email,
+    subject: 'Sign-up Verification API - Verify Email',
+    html: `<h4>Verify Email</h4>
+          <p>Thanks for registering!</p> 
+          ${message}`
+    });
+}
+async function sendAlreadyRegisteredEmail(email, origin) {
+    let message; 
+    if (origin) {
+        message = `
+        <p>If you don't know your password please visit the <a href="${origin}/account/forgot-password">forgot password</a> page.</p>`; 
+    } else { message = `
+        <p>If you don't know your password you can reset it via the <code>/account/forgot-password</code> api route.</p>`;
+    }
+
+    await sendEmail({
+        to: email,
+        subject: 'Sign-up Verification API - Email Already Registered',
+        html: `<h4>Email Already Registered</h4>
+        <p>Your email <strong>${email}</strong> is already registered.</p> ${message}`
+    });
+}
+async function sendPasswordResetEmail (account, origin) {
+    let message;
+    if (origin) {
+        const resetUrl = `${origin}/account/reset-password?token=${account.resetToken}`;
+        message = `<p>Please click the below link to reset your password, the link will be valid for 1 day:</p>
+                   <p><a href="${resetUrl}">${resetUrl}</a></p>`;
+    } else {
+        message = `<p>Please use the below token to reset your password with the <code>/account/reset-password</code> api route:</p> 
+                   <p><code>${account.resetToken}</code></p>`;
+    }
+    
+    await sendEmail({
+    to: account.email,
+    subject: 'Sign-up Verification API - Reset Password',
+    html: `<h4>Reset Password Email</h4>
+          ${message}`
+    });
+}
+
+================================================================================
+File: _services\adminSupply.service.js
+Size: 1.65 kB
+================================================================================
+
+const db  = require('_helpers/db-handler');
+
+module.exports = {
+    receiveAdminSupplyHandler,
+    releaseSupplyHandler,
+
+    getReceivedSupplyHandler,
+    getReleasedSupplyHandler,
+    getReceivedSupplyByIdHandler,
+
+    updateReceivedSupplyHandler
+};
+
+// Receive Admin Supply Handler
+async function receiveAdminSupplyHandler(params) {
+    const batch = await db.Receive_Admin_Supply.create(params);
+
+    const units = Array(params.supplyQuantity)
+    .fill(null)
+    .map(() => ({
+      receiveAdminSupplyId: batch.id
+    }))
+
+    await db.Admin_Supply.bulkCreate(units);
+
+    return db.Receive_Admin_Supply.findByPk(batch.id, {
+      include: { 
+        model: db.Admin_Supply, 
+        as: 'supplies'
+      }
+    });
+}
+async function getReceivedSupplyHandler() {
+  return supplies = await db.Receive_Admin_Supply.findAll();
+}
+async function getReceivedSupplyByIdHandler(id) {
+  const supplies = await db.Receive_Admin_Supply.findByPk(id)
+
+  if (!supplies) {
+    throw new Error('Invalid supplies ID');
+  }
+
+  return supplies;
+}
+async function updateReceivedSupplyHandler(id, params) {
+  const supplies = await getReceivedSupplyByIdHandler(id);
+  if (!supplies) 
+    throw 'Product not found';
+  
+  Object.assign(supplies, params);
+  return await supplies.save();
+}
+
+// Release Admin Supply Handler
+async function releaseSupplyHandler(params) {
+  const supplies = await new db.Receive_Admin_Supply(params);
+
+  await supplies.save();
+  
+  return supplies;
+}
+async function getReleasedSupplyHandler() {
+  const release = await db.Receive_Admin_Supply.findAll();
+
+  return release;
+}
+
+================================================================================
+File: _services\apparel.service.js
+Size: 4.57 kB
+================================================================================
+
+const db  = require('_helpers/db-handler');
+
+module.exports = {
+  receiveApparelHandler,
+  releaseApparelHandler,
+
+  releaseUnitById
+  };
+
+async function receiveApparelHandler(payload) {
+  // payload must include roomId, apparelName, apparelQuantity, apparelLevel, apparelType, apparelFor, apparelSize, receivedFrom, receivedBy
+  const batch = await db.ReceiveApparel.create({
+    roomId: payload.roomId,
+    receivedFrom: payload.receivedFrom,
+    receivedBy: payload.receivedBy,
+    apparelName: payload.apparelName,
+    apparelLevel: payload.apparelLevel,
+    apparelType: payload.apparelType,
+    apparelFor: payload.apparelFor,
+    apparelSize: payload.apparelSize,
+    apparelQuantity: payload.apparelQuantity
+  });
+
+  // create per-unit Apparel rows
+  if (db.Apparel) {
+    const units = Array(payload.apparelQuantity).fill().map(() => ({
+      receiveApparelId: batch.id,
+      status: 'in_stock'
+    }));
+    await db.Apparel.bulkCreate(units);
+  }
+
+  // update aggregate inventory
+  const [inv] = await db.ApparelInventory.findOrCreate({
+    where: {
+      roomId: payload.roomId,
+      apparelName: payload.apparelName,
+      apparelLevel: payload.apparelLevel,
+      apparelType: payload.apparelType,
+      apparelFor: payload.apparelFor,
+      apparelSize: payload.apparelSize
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  inv.totalQuantity = (inv.totalQuantity || 0) + payload.apparelQuantity;
+  await inv.save();
+
+  return batch;
+}
+async function releaseApparelHandler({ apparelInventoryId, releaseQuantity, releasedBy, claimedBy }) {
+  const inv = await db.ApparelInventory.findByPk(apparelInventoryId);
+  if (!inv) throw new Error('ApparelInventory not found');
+
+  if ((inv.totalQuantity || 0) < releaseQuantity) {
+    const err = new Error('Insufficient quantity');
+    err.status = 400;
+    throw err;
+  }
+
+  const release = await db.ReleaseApparel.create({
+    apparelInventoryId,
+    releasedBy,
+    claimedBy,
+    releaseQuantity
+  });
+
+  inv.totalQuantity = inv.totalQuantity - releaseQuantity;
+  await inv.save();
+
+  // best-effort mark Apparel units as released
+  try {
+    const batches = await db.ReceiveApparel.findAll({
+      where: {
+        roomId: inv.roomId,
+        apparelName: inv.apparelName,
+        apparelLevel: inv.apparelLevel,
+        apparelType: inv.apparelType,
+        apparelFor: inv.apparelFor,
+        apparelSize: inv.apparelSize
+      },
+      attributes: ['id'],
+      order: [['receivedAt', 'ASC']]
+    });
+
+    const batchIds = batches.map(b => b.id);
+    const units = await db.Apparel.findAll({
+      where: { receiveApparelId: batchIds, status: 'in_stock' },
+      limit: releaseQuantity
+    });
+
+    await Promise.all(units.map(u => { u.status = 'released'; return u.save(); }));
+  } catch (err) {
+    console.warn('Warning: per-unit update failed', err);
+  }
+
+  return release;
+}
+
+async function releaseUnitById(unitId, { actorId } = {}) {
+  const db = require('_helpers/db-handler');
+
+  const unit = await db.Apparel.findByPk(unitId);
+  if (!unit) {
+    const err = new Error('Unit not found');
+    err.status = 404;
+    throw err;
+  }
+
+  if (unit.status !== 'in_stock') {
+    const err = new Error('Unit is not in stock or already released');
+    err.status = 400;
+    throw err;
+  }
+
+  // find matching inventory row for this unit (aggregate)
+  const inv = await db.ApparelInventory.findOne({
+    where: {
+      roomId: unit.roomId,
+      apparelName: unit.apparelName,
+      apparelLevel: unit.apparelLevel,
+      apparelType: unit.apparelType,
+      apparelFor: unit.apparelFor,
+      apparelSize: unit.apparelSize
+    }
+  });
+
+  // decrement aggregate if found
+  if (inv) {
+    if ((inv.totalQuantity || 0) < 1) {
+      const err = new Error('Insufficient quantity in inventory');
+      err.status = 400;
+      throw err;
+    }
+    inv.totalQuantity = (inv.totalQuantity || 0) - 1;
+    await inv.save();
+
+    // create a ReleaseApparel row (optional but consistent with batch flow)
+    await db.ReleaseApparel.create({
+      roomId: unit.roomId,
+      apparelInventoryId: inv.apparelInventoryId || inv.id,
+      releasedBy: actorId ? String(actorId) : 'QR-Release',
+      claimedBy: '', // can be empty for QR unit release
+      releaseApparelQuantity: 1,
+      notes: `Released via unit QR (unitId=${unitId})`
+    });
+  }
+
+  // mark unit
+  unit.status = 'released';
+  await unit.save();
+
+  return { ok: true, unitId, inventoryUpdated: !!inv };
+}
+
+================================================================================
+File: _services\item.service.js
+Size: 4.52 kB
+================================================================================
+
+const db        = require('_helpers/db-handler');
+const fs        = require('fs');
+const path      = require('path');
+const QRCode    = require('qrcode');
+
+module.exports = {
+  createItem,
+  getItems,
+  getItemById,
+  assignItem,
+  itemActivation,
+
+  scanItem,
+  updateItemStatus,
+  updateTransaction,
+  generateAndStoreQRCode,
+  getFilteredItems
+};
+
+// Management Handler
+async function createItem(body/* , file */) {
+  const payload = {
+    itemName:     body.itemName,
+    itemCategory: body.itemCategory,
+  };
+  
+  const item = await db.Item.create(payload);
+  if (body.roomId) {
+    await db.RoomInventory.create({
+      roomId: parseInt(body.roomId, 10),
+      itemId: item.id
+    });
+  }
+  return item;
+}
+async function getItems() {
+  return await db.Item.findAll({
+    where: { 
+        activateStatus: 'reactivated' 
+    }
+});
+}
+async function getItemById(id) {
+  const items = await db.Apparel.findByPk(id);
+  if (!items) {
+      throw new Error('Invalid item ID');
+  }
+  return items;
+}
+
+// Status Handler
+async function itemActivation(id) {
+  const item = await getItemById(id);
+  if (!item) throw new Error('Item not found');
+
+  if (item.itemStatus === 'reactivated') {
+    item.itemStatus = 'deactivated';
+  }
+  else if (item.itemStatus === 'deactivated') {
+    item.itemStatus = 'reactivated';
+  }
+  else {
+    throw new Error(`Unexpected status: ${item.itemStatus}`);
+  }
+
+  await item.save();
+  return item.itemStatus;
+}
+async function updateItemStatus(id, newStatus) {
+  const [updated] = await db.Item.update(
+    { itemStatus: newStatus },
+    { where: { id } }
+  );
+  if (!updated) throw new Error('Status update failed');
+}
+async function updateTransaction(id, transactionType) {
+  const [updated] = await db.Item.update(
+    { transactionStatus: transactionType },
+    { where: { id } }
+  );
+  if (!updated) throw new Error('Transaction update failed');
+}
+
+// Scan and Generate QR Handler
+async function scanItem(itemQrCode) {
+  const record = await db.Item.findOne({
+    where: { itemQrCode },
+    attributes: ['id','itemName','itemQrCode','itemStatus']
+  });
+
+  if (!record) {
+    throw new Error(`QR code "${itemQrCode}" not found.`);
+  }
+
+  return record;
+}
+async function generateAndStoreQRCode(params) {
+  const item = await db.Apparel.findByPk(params.id, {
+    include: {
+      model: db.Receive_Apparel,
+      as: 'batch',
+      attributes: [
+        'id', 'apparelName', 
+        'apparelSize', 'apparelLevel', 
+        'apparelFor'
+      ]
+    }
+  });
+
+  if (!item || !item.batch) {
+    throw new Error('Could not load associated Receive_Apparel');
+  }
+  const qrText = [
+    item.id,
+    item.receiveApparelId,
+    item.batch.apparelName,
+    item.batch.apparelSize,
+    item.batch.apparelLevel,
+    item.batch.apparelFor
+  ].join('|');
+
+  const pngBuffer = await QRCode.toBuffer(qrText, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    scale: 4
+  });
+
+  const safe = str => str.toString().replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const filename = [
+    'qr',
+    `item${item.id}`,
+    `batch${item.receiveApparelId}`,
+    safe(item.batch.apparelName),
+    safe(item.batch.apparelSize),
+    safe(item.batch.apparelLevel),
+    safe(item.batch.apparelFor)
+  ].join('-') + '.png';
+
+  const uploadsDir = path.resolve(__dirname, '../uploads/qrcodes');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  const filePath = path.join(uploadsDir, filename);
+
+  await fs.promises.writeFile(filePath, pngBuffer);
+
+  await item.update({ qrCodePath: filename });
+
+  return { pngBuffer, filename };
+} 
+
+// Other Handler
+async function getFilteredItems({ itemCategory, itemStatus, activateStatus, transactionStatus }) {
+  // build where-clause dynamically
+  const where = {};
+  if (itemCategory) where.itemCategory = itemCategory;
+  if (itemStatus) where.itemStatus = itemStatus;
+  if (typeof activateStatus !== 'undefined') {
+    // query params are strings, so we convert 'true'/'false' → boolean
+    where.activateStatus = activateStatus === 'true';
+  }
+  if (transactionStatus) where.transactionStatus = transactionStatus;
+
+  // fetch from DB
+  return await db.Item.findAll({ where });
+}
+async function assignItem({ params, itemId, roomId }) {
+  const entry = await db.RoomInventory.create({
+    addedAt: params.addedAt,
+    roomStatus: params.roomStatus
+  });
+  return entry;
+}
+
+================================================================================
+File: _services\qr.service.js
+Size: 10.32 kB
+================================================================================
+
+const fs      = require('fs');
+const path    = require('path');
+const crypto  = require('crypto');
+const QRCode  = require('qrcode');
+const db      = require('_helpers/db-handler');
+
+const UPLOADS_DIR = path.join(__dirname, '../uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+function filenameFromPayload(stockroomType, payload) {
+  const hash = crypto.createHash('sha256').update(payload).digest('hex').slice(0, 20);
+  return `qr-${stockroomType}-${hash}.png`;
+}
+
+module.exports = {
+  generateBatchQR,
+  generateUnitQR,
+
+  scanItem
+};
+
+async function loadBatchRecord(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  stockroomType = String(stockroomType).toLowerCase();
+
+  // apparel
+  if (stockroomType === 'apparel') {
+    // try apparelInventory by PK
+    if (db.ApparelInventory) {
+      const inv = await db.ApparelInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    // then try receive apparel batch by PK
+    if (db.ReceiveApparel) {
+      const recv = await db.ReceiveApparel.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
+  }
+
+  // adminSupply
+  if (stockroomType === 'supply') {
+    if (db.AdminSupplyInventory) {
+      const inv = await db.AdminSupplyInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    if (db.ReceiveAdminSupply) {
+      const recv = await db.ReceiveAdminSupply.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
+  }
+
+  // generalitem
+  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+    if (db.GenItemInventory) {
+      const inv = await db.GenItemInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    if (db.ReceiveGenItem) {
+      const recv = await db.ReceiveGenItem.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
+  }
+
+  // generic pattern: try <type>Inventory then <type> table
+  const inventoryModel = db[stockroomType + 'Inventory'] || db[stockroomType + '_inventory'];
+  if (inventoryModel) {
+    const inv = await inventoryModel.findByPk(id);
+    if (inv) return inv;
+  }
+  if (db[stockroomType]) {
+    const row = await db[stockroomType].findByPk(id);
+    if (row) return row;
+  }
+  return null;
+}
+async function loadUnitRecord(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  stockroomType = String(stockroomType).toLowerCase();
+
+  if (stockroomType === 'apparel') {
+    if (db.Apparel) {
+      const u = await db.Apparel.findByPk(id);
+      if (u) return u;
+    }
+    // older naming possibilities
+    if (db.ApparelUnit) {
+      const u2 = await db.ApparelUnit.findByPk(id);
+      if (u2) return u2;
+    }
+    return null;
+  }
+
+  if (stockroomType === 'supply') {
+    if (db.AdminSupply) {
+      const u = await db.AdminSupply.findByPk(id);
+      if (u) return u;
+    }
+    return null;
+  }
+
+  if (db[stockroomType]) {
+    const u = await db[stockroomType].findByPk(id);
+    if (u) return u;
+  }
+  return null;
+}
+function buildBatchPayloadObject(stockroomType, batch) {
+  if (stockroomType === 'apparel') {
+    return {
+      id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
+      name:   batch.apparelName       ?? batch.name   ?? null,
+      size:   batch.apparelSize       ?? batch.size   ?? null,
+      level:  batch.apparelLevel      ?? batch.level  ?? null,
+      for:    batch.apparelFor        ?? batch.for    ?? null,
+      qty:    batch.totalQuantity     ?? batch.qty    ?? null
+    };
+  }
+
+  if (stockroomType === 'supply') {
+    return {
+      id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
+      name:       batch.supplyName            ?? batch.name       ?? null,
+      category:   batch.supplyCategory        ?? batch.category   ?? null,
+      qty:        batch.totalQuantity         ?? batch.qty        ?? null
+    };
+  }
+
+  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+    return {
+      id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
+      name:   batch.genItemName       ?? batch.name   ?? null,
+      size:   batch.genItemSize       ?? batch.size   ?? null,
+      type:   batch.genItemType       ?? batch.type   ?? null,
+      qty:    batch.totalQuantity     ?? batch.qty        ?? null
+    };
+  }
+
+  return {
+    id:     batch.id    ?? null,
+    name:   batch.name  ?? batch.title ?? null
+  };
+}
+function buildUnitPayloadObject(stockroomType, unit) {
+  if (stockroomType === 'apparel') {
+    return {
+      unitId:     unit.apparelId          ?? null,
+      batchId:    unit.receiveApparelId   ?? unit.apparelInventoryId ?? null,
+      status:     unit.status             ?? null,
+      roomId:     unit.roomId             ?? null,
+      createdAt:  unit.createdAt          ?? null,
+    };
+  }
+
+  if (stockroomType === 'supply') {
+    return {
+      unitId:     unit.adminSupplyId          ?? null,
+      batchId:    unit.receiveAdminSupplyId   ?? unit.adminSupplyInventoryId ?? null,
+      status:     unit.status                 ?? null,
+      roomId:     unit.roomId                 ?? null,
+      createdAt:  unit.createdAt              ?? null
+    };
+  }
+
+  return {
+    unitId: unit.id   ?? null,
+    name:   unit.name ?? null
+  };
+}
+
+async function writePngFromPayload(stockroomType, payload) {
+  const filename = filenameFromPayload(stockroomType, payload);
+  const absolutePath = path.join(UPLOADS_DIR, filename);
+  await QRCode.toFile(absolutePath, payload, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    scale: 4
+  });
+  const publicPath = `/uploads/qrcodes/${filename}`;
+  return { filename, absolutePath, publicPath };
+}
+
+async function generateBatchQR(argsOrStockroom) {
+  // normalize arguments (keeps backwards compatibility)
+  let stockroomType, inventoryId;
+  if (typeof argsOrStockroom === 'object' && argsOrStockroom !== null && !Array.isArray(argsOrStockroom)) {
+    ({ stockroomType, inventoryId } = argsOrStockroom);
+  } else {
+    stockroomType = arguments[0];
+    inventoryId = arguments[1];
+  }
+
+  if (!stockroomType || !inventoryId) 
+    throw new Error('stockroomType and inventoryId required');
+
+  // load batch record (reuse your existing loader)
+  const batch = await loadBatchRecord(stockroomType, inventoryId);
+  if (!batch) throw new Error(`Batch not found for ${stockroomType} id=${inventoryId}`);
+
+  // build payload object (use your existing builder)
+  const payloadObj = buildBatchPayloadObject(stockroomType, batch);
+  const payload = JSON.stringify(payloadObj);
+
+  // compute deterministic filename & absolute path BEFORE writing
+  const filename = filenameFromPayload(stockroomType, payload);
+  const absolutePath = path.join(UPLOADS_DIR, filename);
+  const publicPath = `/uploads/qrcodes/${filename}`;
+
+  // if file already exists, return info immediately (idempotent)
+  if (fs.existsSync(absolutePath)) {
+    return { filename, absolutePath, publicPath, payload, batch };
+  }
+
+  // otherwise, write new PNG (reuse your existing writePngFromPayload or similar)
+  // If you already have a writePngFromPayload(stockroomType, payload) that writes a file and returns paths,
+  // you can keep using it — but ensure it writes into QRCODES_DIR with the filename above.
+  // Example (adapt to your existing code):
+  const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
+    await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
+
+  // optional: update DB rows with qr path info (if you do that elsewhere)
+  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+
+  return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, batch };
+}
+async function generateUnitQR(argsOrStockroom) {
+  let stockroomType, unitId;
+  if (typeof argsOrStockroom === 'object' && argsOrStockroom !== null && !Array.isArray(argsOrStockroom)) {
+    ({ stockroomType, unitId } = argsOrStockroom);
+  } else {
+    stockroomType = arguments[0];
+    unitId = arguments[1];
+  }
+
+  if (!stockroomType || !unitId) 
+    throw new Error('stockroomType and unitId required');
+
+  const unit = await loadUnitRecord(stockroomType, unitId);
+  if (!unit) throw new Error(`Unit not found for ${stockroomType} id=${unitId}`);
+
+  const payloadObj = buildUnitPayloadObject(stockroomType, unit);
+  const payload = JSON.stringify(payloadObj);
+
+  const filename = filenameFromPayload(stockroomType, payload);
+  const absolutePath = path.join(UPLOADS_DIR, filename);
+  const publicPath = `/uploads/qrcodes/${filename}`;
+
+  if (fs.existsSync(absolutePath)) {
+    return { filename, absolutePath, publicPath, payload, unit };
+  }
+
+  // otherwise create file
+  const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
+    await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
+
+  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+
+  return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, unit };
+}
+
+async function scanItem(qrPayloadText) {
+  if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
+
+  // Attempt exact match against stored payload column (example uses qrFilePath or qrFilePath)
+  const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
+
+  if (!record) {
+    // fallback: try matching by decoded JSON fields (for example unitId)
+    try {
+      const parsed = JSON.parse(qrPayloadText);
+      if (parsed.unitId) {
+        // try to load the unit record from corresponding table
+        const unit = await loadUnitRecord(parsed.itemType || 'apparel', parsed.unitId);
+        if (unit) return { payload: parsed, unit };
+      }
+    } catch (e) { /* not JSON — ignore */ }
+
+    throw { status: 404, message: `QR code not found` };
+  }
+
+  return record;
+}
+
+================================================================================
+File: _services\room.service.js
+Size: 20.36 kB
+================================================================================
+
+const db = require('_helpers/db-handler');
+const qrService = require('_services/qr.service');
+
+module.exports = {
+  // POST -------------------------------------------------------------------------------------
+  createRoomHandler,                  // create new room.
+  ensureIsStockroomHandler,           // will check if the type of a room is stockroom or sub stockroom
+
+  receiveInStockroomHandler,          // recieve in stockroom and it will route to the specific recieve functions depends on its payload.
+  receiveApparelInRoomHandler,        // receive apparel function with its payload.
+  receiveAdminSupplyInRoomHandler,    // receive admin supply function and its payload.
+  receiveGenItemInRoomHandler,        // receive general item function and its payload.
+
+  releaseInStockroomHandler,          // release in stockroom and it will route to the specific recieve functions depends on its payload.
+  releaseApparelInRoomHandler,        // release apparel function with its payload.
+
+  // POST & GET --------------------------------------------------------------------------------
+  generateApparelBatchForRoom,
+  generateAdminSupplyBatchForRoom,
+  generateGenItemBatchForRoom,
+
+  generateApparelUnitForRoom,
+  generateAdminSupplyUnitForRoom,
+  generateGenItemUnitForRoom,
+
+  // GET -------------------------------------------------------------------------------------
+  getRoomsHandler,                    // display all rooms.
+  getRoomByIdHandler,                 // display a specific room.
+
+  getReceiveApparelsByRoomHandler,
+  getReceiveAdminSupplyByRoomHandler,
+  getReceiveGenItemByRoomHandler,
+  
+  getApparelInventoryByRoomHandler,
+  getAdminSupplyInventoryByRoomHandler,
+  getGenItemInventoryByRoomHandler,
+  
+  getApparelUnitsByRoomHandler,
+  getAdminSupplyUnitsByRoomHandler,
+  getGenItemUnitsByRoomHandler,
+  
+  getReleaseApparelsByRoomHandler,
+
+  // PUT -------------------------------------------------------------------------------------
+  updateRoomHandler,                  // update a specific room.
+};
+
+// Room's CRUD Handler
+async function getRoomsHandler() {
+  return await db.Room.findAll({
+    include: [{
+      model: db.Account,
+      attributes: ['firstName', 'lastName']
+    }]
+  });
+}
+async function createRoomHandler(params) {
+  let rooms = await db.Room.findOne({ where: {roomName: params.roomName} });
+
+  if (rooms) {
+    return { 
+      message: 'Room already exists'
+    }
+  } else {
+    rooms = await db.Room.create({
+      roomName: params.roomName,
+      roomFloor: params.roomFloor,
+      roomType: params.roomType,
+      stockroomType: params.stockroomType,
+      roomInCharge: params.roomInCharge
+    });
+    return { 
+      message: 'New room created.', 
+      rooms 
+  };
+  }
+}
+async function getRoomByIdHandler(roomId) {
+  const rooms = await db.Room.findByPk(roomId);
+  if (!rooms) {
+      throw new Error('Invalid room ID');
+  }
+  return rooms;
+}
+async function updateRoomHandler(roomId, params) {
+  const room = await db.Room.findByPk(roomId);
+  if (!room) {
+    const err = new Error('Room not found');
+    err.status = 404;
+    throw err;
+  }
+
+  // allowed fields to update
+  const allowed = ['roomName', 'roomFloor', 'roomType', 'stockroomType', 'roomInCharge'];
+  allowed.forEach(k => { if (params[k] !== undefined) room[k] = params[k]; });
+
+  await room.save();
+  return room;
+}
+
+// Stockroom/Substockroom identifier
+async function ensureIsStockroomHandler(roomId) {
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw new Error(`Room ${roomId} not found`);
+
+  const rt = (room.roomType).toString().toLowerCase();
+  if (rt !== 'stockroom' && rt !== 'substockroom') {
+    const err = new Error(`Room ${roomId} is not a stockroom/substockroom`);
+    err.status = 400;
+    throw err;
+  }
+  //const srt = (room.stockroomType).toString().toLowerCase();
+  if (!room.stockroomType) {
+    const err = new Error(`Can't receive these items in this room.`);
+    err.status = 400;
+    throw err;
+  }
+  return room;
+}
+
+// Receive Handler
+async function receiveInStockroomHandler(roomId, payload) {
+  // ensure room is stockroom/substockroom
+  await ensureIsStockroomHandler(roomId);
+
+  // normalize numeric fields
+  if (payload.apparelQuantity != null) payload.apparelQuantity  = parseInt(payload.apparelQuantity, 10);
+  if (payload.supplyQuantity  != null) payload.supplyQuantity   = parseInt(payload.supplyQuantity,  10);
+  if (payload.genItemQuantity != null) payload.genItemQuantity  = parseInt(payload.genItemQuantity, 10);
+
+  // apparel path
+  if (payload.apparelName && Number.isInteger(payload.apparelQuantity) && payload.apparelQuantity > 0) {
+    return await receiveApparelInRoomHandler(roomId, payload);
+  }
+
+  // admin supply path
+  if (payload.supplyName && Number.isInteger(payload.supplyQuantity) && payload.supplyQuantity > 0) {
+    return await receiveAdminSupplyInRoomHandler(roomId, payload);
+  }
+
+  // general item path
+  if (payload.genItemName && Number.isInteger(payload.genItemQuantity) && payload.genItemQuantity > 0) {
+    return await receiveGenItemInRoomHandler(roomId, payload);
+  }
+
+  const err = new Error('Bad payload: must include either apparelName+apparelQuantity or supplyName+supplyQuantity');
+  err.status = 400;
+  throw err;
+}
+async function receiveApparelInRoomHandler(roomId, payload) {
+  // ensure room is stockroom (will throw if not)
+  await ensureIsStockroomHandler(roomId);
+
+  // 1) create the ReceiveApparel batch row (one row per batch)
+  const batch = await db.ReceiveApparel.create({
+    roomId,
+    receivedFrom:     payload.receivedFrom,
+    receivedBy:       payload.receivedBy,
+    apparelName:      payload.apparelName,
+    apparelLevel:     payload.apparelLevel,
+    apparelType:      payload.apparelType,
+    apparelFor:       payload.apparelFor,
+    apparelSize:      payload.apparelSize,
+    apparelQuantity:  payload.apparelQuantity,
+    notes:            payload.notes || null
+  });
+
+  // 2) create or find the aggregate ApparelInventory BEFORE creating units
+  const [inv] = await db.ApparelInventory.findOrCreate({
+    where: {
+      roomId,
+      apparelName:  payload.apparelName,
+      apparelLevel: payload.apparelLevel,
+      apparelType:  payload.apparelType,
+      apparelFor:   payload.apparelFor,
+      apparelSize:  payload.apparelSize
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  // 3) increment inventory total and save
+  inv.totalQuantity = (inv.totalQuantity || 0) + payload.apparelQuantity;
+  await inv.save();
+
+  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
+  let createdUnits = [];
+  if (db.Apparel) {
+    const apparelUnits = Array(payload.apparelQuantity).fill().map(() => ({
+      receiveApparelId: batch.receiveApparelId,            // keep batch FK
+      apparelInventoryId: inv.apparelInventoryId ?? inv.id, // also point to aggregate inventory row
+      roomId: roomId,
+      status: 'in_stock'
+    }));
+    createdUnits = await db.Apparel.bulkCreate(apparelUnits);
+  }
+
+  // 7) return the batch (with units if you want)
+  return db.ReceiveApparel.findByPk(batch.receiveApparelId, {
+    include: [{ model: db.Apparel }]
+  });
+}
+async function receiveAdminSupplyInRoomHandler(roomId, payload) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batch = await db.ReceiveAdminSupply.create({
+    roomId,
+    receivedFrom: payload.receivedFrom,
+    receivedBy: payload.receivedBy,
+    supplyName: payload.supplyName,
+    supplyQuantity: payload.supplyQuantity,
+    supplyMeasure: payload.supplyMeasure,
+    notes: payload.notes || null
+  });
+
+  // if (db.AdminSupply) {
+  //   const supplyUnits = Array(payload.supplyQuantity).fill().map(() => ({
+  //     receiveAdminSupplyId: batch.receiveAdminSupplyId,
+  //     status: 'in_stock'
+  //     // optionally add itemId if you create Item rows
+  //   }));
+  //   await db.AdminSupply.bulkCreate(supplyUnits);
+  // }
+
+  const [inv] = await db.AdminSupplyInventory.findOrCreate({
+    where: {
+      roomId,
+      supplyName: payload.supplyName,
+      supplyMeasure: payload.supplyMeasure
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  inv.totalQuantity = (inv.totalQuantity || 0) + payload.supplyQuantity;
+  await inv.save();
+
+  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
+  let createdUnits = [];
+  if (db.AdminSupply) {
+    const adminSupplyUnits = Array(payload.supplyQuantity).fill().map(() => ({
+      receiveAdminSupplyId: batch.receiveAdminSupplyId,            // keep batch FK
+      adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, // also point to aggregate inventory row
+      roomId: roomId,
+      status: 'in_stock'
+    }));
+    createdUnits = await db.AdminSupply.bulkCreate(adminSupplyUnits);
+  }
+
+  return db.ReceiveAdminSupply.findByPk(batch.id, {
+    include: [{ model: db.AdminSupply}]
+  });
+}
+async function receiveGenItemInRoomHandler(roomId, payload) {
+  // will throw if not stockroom
+  await ensureIsStockroomHandler(roomId);
+
+  // create batch
+  const batch = await db.ReceiveGenItem.create({
+    roomId,
+    receivedFrom:     payload.receivedFrom,
+    receivedBy:       payload.receivedBy,
+    genItemName:      payload.genItemName,
+    genItemSize:      payload.genItemSize || null,
+    genItemQuantity:  payload.genItemQuantity,
+    genItemType:      payload.genItemType,
+    notes:            payload.notes || null
+  });
+
+  // create per-unit apparel rows (Apparel table): one row per unit received
+  // Only create if you keep per-unit tracking (Apparel model exists)
+  if (db.GenItem) {
+    const genItemUnits = Array(payload.genItemQuantity).fill().map(() => ({
+      receiveGenItemId: batch.receiveGenItemId,
+      roomId: roomId,
+      status: 'in_stock'
+      // optionally add itemId if you create Item rows
+    }));
+    //await db.Apparel.bulkCreate(apparelUnits);
+    const createdUnits = await db.GenItem.bulkCreate(genItemUnits);
+  }
+
+  // update/create aggregate inventory (ApparelInventory)
+  const [inv] = await db.GenItemInventory.findOrCreate({
+    where: {
+      roomId,
+      genItemName:      payload.genItemName,
+      genItemSize:      payload.genItemSize || null,
+      genItemType:      payload.genItemType,
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  inv.totalQuantity = (inv.totalQuantity || 0) + payload.genItemQuantity;
+  await inv.save();
+
+  // return the batch (include apparel units if you like)
+  return db.ReceiveGenItem.findByPk(batch.receiveGenItemId, {
+    include: [{ model: db.GenItem }]
+  });
+}
+
+// Get Received Handler
+async function getReceiveApparelsByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batches = await db.ReceiveApparel.findAll({
+    where: { roomId: roomId },
+    include: [
+      { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
+      { model: db.Apparel, required: false }
+    ],
+    order: [['receivedAt', 'DESC']]
+  });
+
+  return batches;
+}
+async function getApparelUnitsByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const units = await db.Apparel.findAll({
+    where: { roomId: roomId },
+    order: [['apparelId', 'ASC']]
+  });
+
+  return units;
+}
+async function getApparelInventoryByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const inventory = await db.ApparelInventory.findAll({
+    where: { roomId: roomId },
+    order: [['apparelName', 'ASC'], ['apparelLevel', 'ASC']]
+  });
+
+  return inventory;
+}
+
+async function getReceiveAdminSupplyByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batches = await db.ReceiveAdminSupply.findAll({
+    where: { roomId: roomId },
+    include: [
+      { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
+      { model: db.AdminSupply, required: false }
+    ],
+    order: [['receivedAt', 'DESC']]
+  });
+
+  return batches;
+}
+async function getAdminSupplyUnitsByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const units = await db.AdminSupply.findAll({
+    where: { roomId: roomId },
+    order: [['adminSupplyId', 'ASC']]
+  });
+
+  return units;
+}
+async function getAdminSupplyInventoryByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const inventory = await db.AdminSupplyInventory.findAll({
+    where: { roomId: roomId },
+    order: [['supplyName', 'ASC'], ['supplyMeasure', 'ASC']]
+  });
+
+  return inventory;
+}
+
+async function getReceiveGenItemByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batches = await db.ReceiveGenItem.findAll({
+    where: { roomId: roomId },
+    include: [
+      { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
+      { model: db.GenItem, required: false }
+    ],
+    order: [['receivedAt', 'DESC'], ['genItemType', 'DESC']]
+  });
+
+  return batches;
+}
+async function getGenItemUnitsByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const units = await db.GenItem.findAll({
+    where: { roomId: roomId },
+    order: [['genItemId', 'ASC'], ['genItemType', 'ASC']]
+  });
+
+  return units;
+}
+async function getGenItemInventoryByRoomHandler(roomId) {
+
+  await ensureIsStockroomHandler(roomId);
+
+  const inventory = await db.GenItemInventory.findAll({
+    where: { roomId: roomId },
+    order: [['genItemName', 'ASC'], ['genItemType', 'ASC']]
+  });
+
+  return inventory;
+}
+
+// Release Handler
+async function releaseInStockroomHandler(roomId, payload) {
+  // ensure room is stockroom/substockroom
+  await ensureIsStockroomHandler(roomId);
+
+  // normalize numeric fields
+  if (payload.releaseApparelQuantity != null) payload.releaseApparelQuantity = parseInt(payload.releaseApparelQuantity, 10);
+  //if (payload.supplyQuantity != null) payload.supplyQuantity = parseInt(payload.supplyQuantity, 10);
+
+  // apparel path
+  if (payload.apparelInventoryId && Number.isInteger(payload.releaseApparelQuantity) && payload.releaseApparelQuantity > 0) {
+    return await releaseApparelInRoomHandler(roomId, payload);
+  }
+
+  // admin supply path
+  // if (payload.supplyName && Number.isInteger(payload.supplyQuantity) && payload.supplyQuantity > 0) {
+  //   return await receiveAdminSupplyInRoomHandler(roomId, payload);
+  // }
+
+  const err = new Error('Bad payload: must include either apparelName+apparelQuantity or supplyName+supplyQuantity');
+  err.status = 400;
+  throw err;
+}
+async function releaseApparelInRoomHandler(roomId, payload) {
+  // will throw if not stockroom
+  await ensureIsStockroomHandler(roomId);
+
+  // create batch
+  const batch = await db.ReleaseApparel.create({
+    roomId,
+    apparelInventoryId: payload.apparelInventoryId,
+    releasedBy: payload.releasedBy,
+    claimedBy: payload.claimedBy,
+    releaseApparelQuantity: payload.releaseApparelQuantity,
+    notes: payload.notes || null
+  });
+
+  // update/create aggregate inventory (ApparelInventory)
+  const [inv] = await db.ApparelInventory.findOrCreate({
+    where: {
+      roomId,
+      apparelInventoryId: payload.apparelInventoryId,
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  inv.totalQuantity = (inv.totalQuantity || 0) - payload.releaseApparelQuantity;
+  await inv.save();
+
+  // return the batch (include apparel units if you like)
+  return db.ReleaseApparel.findByPk(batch.releaseApparelId);
+}
+
+// Get Released Apparels Handler
+async function getReleaseApparelsByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batches = await db.ReleaseApparel.findAll({
+    where: { roomId: roomId },
+    include: [
+      { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
+      //{ model: db.Apparel, required: false }
+    ],
+    order: [['releasedAt', 'DESC']]
+  });
+
+  return batches;
+}
+
+// Generate QR Code Handler
+async function generateApparelBatchForRoom(roomId, inventoryId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
+
+  // ensure room is stockroom/substockroom (will throw if not)
+  await ensureIsStockroomHandler(roomId);
+
+  const inv = await db.ApparelInventory.findByPk(inventoryId);
+  if (!inv) throw { status: 404, message: 'ApparelInventory not found' };
+  if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
+
+  // Use apparel as stockroomType
+  const result = await qrService.generateBatchQR({ stockroomType: 'apparel', inventoryId });
+  return { inventoryId, ...result };
+}
+async function generateAdminSupplyBatchForRoom(roomId, inventoryId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
+
+  // ensure room is stockroom/substockroom (will throw if not)
+  await ensureIsStockroomHandler(roomId);
+
+  const inv = await db.AdminSupplyInventory.findByPk(inventoryId);
+  if (!inv) throw { status: 404, message: 'AdminSupplyInventory not found' };
+  if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
+
+  // Use apparel as stockroomType
+  const result = await qrService.generateBatchQR({ stockroomType: 'supply', inventoryId });
+  return { inventoryId, ...result };
+}
+async function generateGenItemBatchForRoom(roomId, inventoryId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
+
+  // ensure room is stockroom/substockroom (will throw if not)
+  await ensureIsStockroomHandler(roomId);
+
+  const inv = await db.GenItemInventory.findByPk(inventoryId);
+  if (!inv) throw { status: 404, message: 'GenItemInventory not found' };
+  if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
+
+  // Use apparel as stockroomType
+  const result = await qrService.generateBatchQR({ stockroomType: 'it' || 'maintenance', inventoryId });
+  return { inventoryId, ...result };
+}
+
+async function generateApparelUnitForRoom(roomId, unitId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!unitId) throw { status: 400, message: 'unitId required' };
+
+  await ensureIsStockroomHandler(roomId);
+
+  const unit = await db.Apparel.findByPk(unitId);
+  if (!unit) throw { status: 404, message: 'Apparel unit not found' };
+  if (String(unit.roomId) !== String(roomId)) throw { status: 403, message: 'Unit does not belong to this room' };
+
+  const result = await qrService.generateUnitQR({ stockroomType: 'apparel', unitId });
+  return { unitId, ...result };
+}
+async function generateAdminSupplyUnitForRoom(roomId, unitId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!unitId) throw { status: 400, message: 'unitId required' };
+
+  await ensureIsStockroomHandler(roomId);
+
+  const unit = await db.AdminSupply.findByPk(unitId);
+  if (!unit) throw { status: 404, message: 'AdminSupply unit not found' };
+  if (String(unit.roomId) !== String(roomId)) throw { status: 403, message: 'Unit does not belong to this room' };
+
+  const result = await qrService.generateUnitQR({ stockroomType: 'supply', unitId });
+  return { unitId, ...result };
+}
+async function generateGenItemUnitForRoom(roomId, unitId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  if (!unitId) throw { status: 400, message: 'unitId required' };
+
+  await ensureIsStockroomHandler(roomId);
+
+  const unit = await db.GenItem.findByPk(unitId);
+  if (!unit) throw { status: 404, message: 'GenItem unit not found' };
+  if (String(unit.roomId) !== String(roomId)) throw { status: 403, message: 'Unit does not belong to this room' };
+
+  const result = await qrService.generateUnitQR({ stockroomType: 'it' || 'maintenance', unitId });
+  return { unitId, ...result };
+}

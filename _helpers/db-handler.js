@@ -16,7 +16,6 @@ async function initialize() {
 
 // Initialize models and add them to the exported `db` object
 db.Room             = require('../_models/room.model')(sequelize);
-//db.RoomInventory    = require('../_models/roomInventory.model')(sequelize);
 db.Account          = require('../_models/account.model')(sequelize);
 db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
 db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
@@ -32,6 +31,12 @@ db.AdminSupply              = require('../_models/adminSupply/adminSupply.model'
 db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
 
+// Item models
+db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
+db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
+db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
+db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
+
 // Qr code models
 db.Qr = require('../_models/qr.model')(sequelize);
 
@@ -41,11 +46,13 @@ dbAssociations();
 }  
 
 function dbAssociations() {
-  // RefreshToken <-> Account
+  // ---------------- Account / Auth ----------------
+  // Account -> RefreshToken : store JWT refresh tokens for an account (cascade delete)
   db.Account.hasMany(db.RefreshToken, { onDelete: 'CASCADE' });
   db.RefreshToken.belongsTo(db.Account);
 
-  // Account - Room (owner)
+  // ---------------- Account / Room ----------------
+  // [Label] Account (roomInCharge) -> Room : which account is in charge of a room
   db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge' });
   db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge' });
 
@@ -82,10 +89,19 @@ function dbAssociations() {
   db.Account.hasMany(db.ReceiveApparel, { foreignKey: 'accountId'});
   db.ReceiveApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
 
+  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId'});
+  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId'});
+
   db.Account.hasMany(db.ReleaseApparel, { foreignKey: 'accountId'});
   db.ReleaseApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
 
   db.ReleaseApparel.belongsTo(db.Room, { foreignKey: 'roomId' });
   db.Room.hasMany(db.ReleaseApparel, { foreignKey: 'roomId' });
+
+  db.ReceiveGenItem.hasMany(db.GenItem, { foreignKey: 'receiveGenItemId' });
+  db.GenItem.belongsTo(db.ReceiveGenItem, { foreignKey: 'receiveGenItemId' });
+
+  db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
 
 }

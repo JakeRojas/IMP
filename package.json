@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node ./server.js",
     "start:dev": "nodemon ./server.js",
-    "export:all": "folder2txt --include-all --output allFiles.txt C:/Users/Administrator/Desktop/Inventory Monitoring/IMP"
+    "export:all": "folder2txt --include-all --output backend.txt C:/Users/Administrator/Desktop/Inventory Monitoring/IMP"
   },
   "author": "",
   "license": "ISC",
@@ -23,6 +23,7 @@
     "lodash": "^4.17.21",
     "multer": "^2.0.0",
     "mysql2": "^3.12.0",
+    "ngrok": "^5.0.0-beta.2",
     "nodemailer": "^6.10.0",
     "qrcode": "^1.5.4",
     "rootpath": "^0.1.2",

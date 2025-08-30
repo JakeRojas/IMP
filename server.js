@@ -5,37 +5,11 @@ const bodyParser      = require('body-parser');
 const cookieParser    = require('cookie-parser');
 const cors            = require('cors');
 const errorHandler    = require('_middlewares/error-handler');
-const fileUpload      = require('multer')();
-const fs              = require('fs');  
 const path            = require('path');
-const multer          = require('multer');
 
 // ─── JSON / URL-ENCODED PARSING ───────────────────────────────────────────────
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// ─── AUTO LOAD SERVICE MODULE TO POPULATE REGISTRY ─────────────────────────────────────────────────────
-// const servicesDir = path.join(__dirname, '_services');
-// fs.readdirSync(servicesDir)
-//   .filter(f => f.endsWith('.service.js'))
-//   .forEach(f => require(path.join(servicesDir, f)));
-
-// ─── AUTO LOAD PLUGIN MODULES ───────────────────────────────────────────────
-// const pluginsDir = path.join(__dirname, '_plugins');
-// fs.readdirSync(pluginsDir)
-//   .filter(f => f.endsWith('.plugin.js'))
-//   .forEach(f => require(path.join(pluginsDir, f)));
-
-// ─── MULTER DISK STORAGE ─────────────────────────────────────────────────────
-// const storage = multer.diskStorage({
-//   destination: (req, file, cb) => {
-//     cb(null, path.join(__dirname, '..', 'uploads'));
-//   },
-//   filename: (req, file, cb) => {
-//     cb(null, `${Date.now()}-${file.originalname}`);
-//   }
-// });
-// const upload = multer({ storage });
 
 // ─── BODY-PARSER & COOKIE ───────────────────────────────────────────────────
 app.use(bodyParser.urlencoded({extended: false }));
@@ -47,7 +21,7 @@ const allowedOrigins = [
   'http://localhost:4200',      // duplicated project
   'http://localhost:4000',      // angularBoilerplate
   'http://localhost:3000',      // nextjs frontend
-  'http://192.168.1.14:3000'    // your other device (keep or remove as needed)
+  'http://221.121.99.208:4200'    // your other device (keep or remove as needed)
 ];
 
 app.use(cors({
@@ -62,15 +36,6 @@ app.use(cors({
   },
   credentials: true
 }));
-// app.use(
-//   cors({
-//     origin: [
-//       'http://localhost:3000',
-//       'http://192.168.1.14:3000'
-//     ],
-//     credentials: true,
-//   })
-// );
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

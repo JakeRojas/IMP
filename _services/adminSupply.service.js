@@ -1,5 +1,4 @@
-const db                = require('_helpers/db-handler');
-const { register }      = require('_helpers/registry');
+const db  = require('_helpers/db-handler');
 
 module.exports = {
     receiveAdminSupplyHandler,
@@ -30,7 +29,7 @@ async function receiveAdminSupplyHandler(params) {
         as: 'supplies'
       }
     });
-} /* register('supply', receiveAdminSupplyHandler); */
+}
 async function getReceivedSupplyHandler() {
   return supplies = await db.Receive_Admin_Supply.findAll();
 }
