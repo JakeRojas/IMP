@@ -16,7 +16,8 @@ module.exports = {
   generateBatchQR,
   generateUnitQR,
 
-  scanItem
+  scanItem,
+  updateItemStatus
 };
 
 async function loadBatchRecord(stockroomType, id) {
@@ -150,7 +151,7 @@ function buildUnitPayloadObject(stockroomType, unit) {
     return {
       unitId:     unit.apparelId          ?? null,
       batchId:    unit.receiveApparelId   ?? unit.apparelInventoryId ?? null,
-      status:     unit.status             ?? null,
+      status:     unit.apparelStatus      ?? null,
       roomId:     unit.roomId             ?? null,
       createdAt:  unit.createdAt          ?? null,
     };
@@ -283,4 +284,19 @@ async function scanItem(qrPayloadText) {
   }
 
   return record;
+}
+async function updateItemStatus(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  if (stockroomType === 'apparel') {
+    const updated = await db.Apparel.update(
+      { itemStatus: updated.apparelStatus },
+      { where: { id } }
+    );
+    if (!updated) throw new Error('Status update failed');
+
+    return null;
+  }
+
+  
 }

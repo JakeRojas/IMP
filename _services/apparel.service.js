@@ -4,6 +4,8 @@ module.exports = {
   receiveApparelHandler,
   releaseApparelHandler,
 
+  updateApparelUnitStatusHandler,
+
   releaseUnitById
   };
 
@@ -151,4 +153,15 @@ async function releaseUnitById(unitId, { actorId } = {}) {
   await unit.save();
 
   return { ok: true, unitId, inventoryUpdated: !!inv };
+}
+
+async function updateApparelUnitStatusHandler(apparelId, apparelStatus) {
+  const unit = await db.Apparel.findByPk(apparelId);
+  if (!unit) throw { status: 404, message: `Apparel unit ${apparelId} not found` };
+
+  unit.status = apparelStatus;
+  await unit.save();
+
+  // Optionally eager-load related batch or inventory:
+  return unit;
 }

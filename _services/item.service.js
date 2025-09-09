@@ -1,9 +1,17 @@
-const db        = require('_helpers/db-handler');
 const fs        = require('fs');
 const path      = require('path');
 const QRCode    = require('qrcode');
 
+const db            = require('_helpers/db-handler');
+const qrService     = require('./qr.service');
+//const ActivityLog   = db.ActivityLog;
+
 module.exports = {
+  updateApparelStatus,
+  updateAdminSupplyStatus,
+  updateGenItemStatus,
+
+
   createItem,
   getItems,
   getItemById,
@@ -11,11 +19,38 @@ module.exports = {
   itemActivation,
 
   scanItem,
-  updateItemStatus,
-  updateTransaction,
+  // updateItemStatus,
+  // updateTransaction,
   generateAndStoreQRCode,
   getFilteredItems
 };
+
+async function updateApparelStatus({ roomId, apparelId, status, userId }) {
+  const unit = await db.Apparel.findOne({ where: { roomId, apparelId } });
+  if (!unit) throw { status: 404, message: 'Apparel unit not found' };
+  unit.status = status;
+  await unit.save();
+  //await logChange('Apparel', apparelId, status, userId);
+  return unit;
+}
+
+async function updateAdminSupplyStatus({ roomId, adminSupplyId, status, userId }) {
+  const unit = await db.AdminSupply.findOne({ where: { roomId, adminSupplyId } });
+  if (!unit) throw { status: 404, message: 'AdminSupply unit not found' };
+  unit.status = status;
+  await unit.save();
+  await logChange('AdminSupply', adminSupplyId, status, userId);
+  return unit;
+}
+
+async function updateGenItemStatus({ roomId, genItemId, status, userId }) {
+  const unit = await db.GenItem.findOne({ where: { roomId, genItemId } });
+  if (!unit) throw { status: 404, message: 'GenItem unit not found' };
+  unit.status = status;
+  await unit.save();
+  await logChange('GenItem', genItemId, status, userId);
+  return unit;
+}
 
 // Management Handler
 async function createItem(body/* , file */) {
@@ -65,20 +100,6 @@ async function itemActivation(id) {
 
   await item.save();
   return item.itemStatus;
-}
-async function updateItemStatus(id, newStatus) {
-  const [updated] = await db.Item.update(
-    { itemStatus: newStatus },
-    { where: { id } }
-  );
-  if (!updated) throw new Error('Status update failed');
-}
-async function updateTransaction(id, transactionType) {
-  const [updated] = await db.Item.update(
-    { transactionStatus: transactionType },
-    { where: { id } }
-  );
-  if (!updated) throw new Error('Transaction update failed');
 }
 
 // Scan and Generate QR Handler

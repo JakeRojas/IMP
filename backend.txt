@@ -58,7 +58,7 @@ Size: 626 B
 
 ================================================================================
 File: package.json
-Size: 982 B
+Size: 994 B
 ================================================================================
 
 {
@@ -69,7 +69,7 @@ Size: 982 B
   "scripts": {
     "start": "node ./server.js",
     "start:dev": "nodemon ./server.js",
-    "export:all": "folder2txt --include-all --output backend.txt C:/Users/Administrator/Desktop/Inventory Monitoring/IMP"
+    "export:all": "folder2txt --output backend.txt C:/Users/Administrator/My Desktop/Inventory Monitoring/IMP --exclude node_modules"
   },
   "author": "",
   "license": "ISC",
@@ -1247,7 +1247,7 @@ function getReleasedSupply(req, res, next) {
 
 ================================================================================
 File: _controllers\apparel.controller.js
-Size: 3.37 kB
+Size: 3.98 kB
 ================================================================================
 
 const express   = require('express');
@@ -1266,6 +1266,7 @@ router.get('/',             getReceivedApparel);
 router.get('/:id',          getReceivedApparelById);
 
 router.put('/:id',          updateReceivedApparelSchema, updateReceivedApparel);
+router.put('/unit/:id/status', updateUnitStatusSchema, updateUnitStatus);
 
 module.exports = router;
 
@@ -1331,6 +1332,24 @@ function releaseApparel(req, res, next) {
   apparelService.releaseApparelHandler(req.body)
     .then(release => res.json(release))
     .catch(next);
+}
+
+function updateUnitStatusSchema(req, res, next) {
+  const schema = Joi.object({
+    status: Joi.string().valid('in_stock', 'used', 'damaged', 'misplaced').required()
+  });
+  validateRequest(req, next, schema);
+}
+
+async function updateUnitStatus(req, res, next) {
+  try {
+    const apparelId = parseInt(req.params.id, 10);
+    const { apparelStatus } = req.body;
+    const updated = await apparelService.updateApparelUnitStatusHandler(apparelId, apparelStatus);
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
 }
 
 ================================================================================
@@ -1525,7 +1544,7 @@ const express = require('express');
 const router  = express.Router();
 
 const qrService   = require('_services/qr.service'); 
-const db          = require('../_helpers/db-handler');
+const db          = require('_helpers/db-handler');
 
 router.post('/scan',                                scanItem);
 router.post('/:stockroomType/unit/:unitId/release', releaseUnit);
@@ -1596,7 +1615,7 @@ async function releaseUnit(req, res, next) {
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 21.97 kB
+Size: 17.75 kB
 ================================================================================
 
 const express   = require('express');
@@ -1606,13 +1625,14 @@ const fs        = require('fs');
 const path      = require('path');
 
 const roomService       = require('_services/room.service');
+const itemService       = require('_services/item.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
 router.post('/create-room',                               authorize(Role.SuperAdmin),             createRoomschema,           createRoom);
-router.post('/:roomId/receive/apparel',                   authorize(Role.SuperAdmin, Role.Admin), receiveApparelSchema,       receiveApparel);
+router.post('/:roomId/receive/apparel',                   /* authorize(Role.SuperAdmin, Role.Admin), */ receiveApparelSchema,       receiveApparel);
 router.post('/:roomId/receive/supply',                    authorize(Role.SuperAdmin, Role.Admin), receiveAdminSupplySchema,   receiveAdminSupply);
 router.post('/:roomId/receive/item',                      authorize(Role.SuperAdmin, Role.Admin), receiveGenItemSchema,       receiveGenItem);
 
@@ -1624,15 +1644,19 @@ router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize(Role.SuperAd
 router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyBatchQr);
 router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getGenItemBatchQr);
 
-router.get('/:roomId/qr/apparel/unit/:unitId',            authorize(Role.SuperAdmin, Role.Admin), getApparelUnitQr);
+router.get('/:roomId/qr/apparel/unit/:unitId',            /* authorize(Role.SuperAdmin, Role.Admin), */ getApparelUnitQr);
 router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
 router.get('/',                           authorize(Role.SuperAdmin, Role.Admin), getRooms);
 router.get('/:roomId',                    authorize(), getRoomById);
 
-router.get('/:roomId/receive-apparels',   authorize(Role.SuperAdmin, Role.Admin), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize(Role.SuperAdmin, Role.Admin), getApparelUnits);
+// router.get('/:roomId/apparels/units', /* authorize(), */ getApparelUnits);
+// router.get('/:roomId/admin-supplies/units', /* authorize(), */ getAdminSupplyUnits);
+// router.get('/:roomId/gen-items/units', /* authorize(), */ getGenItemUnits);
+
+router.get('/:roomId/receive-apparels',   /* authorize(Role.SuperAdmin, Role.Admin), */ getReceiveApparels);
+router.get('/:roomId/apparels',           /* authorize(Role.SuperAdmin, Role.Admin), */ getApparelUnits);
 router.get('/:roomId/apparel-inventory',  authorize(Role.SuperAdmin, Role.Admin), getApparelInventory);
 
 router.get('/:roomId/receive-supply',     authorize(Role.SuperAdmin, Role.Admin), getReceiveAdminSupply);
@@ -1647,7 +1671,10 @@ router.get('/:roomId/release-apparels',   authorize(Role.SuperAdmin, Role.Admin)
 
 // PUT -------------------------------------------------------------------------------------
 router.put('/:roomId',             authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema,   updateRoom);
-router.put('/:roomId/item/status', authorize(Role.SuperAdmin, Role.Admin),  updateItemStatus);
+//router.put('/:roomId/item/status', /* authorize(Role.SuperAdmin, Role.Admin), */  updateItemStatus);
+router.put('/:roomId/apparels/:apparelId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateApparelStatus);
+router.put('/:roomId/admin-supplies/:adminSupplyId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateAdminSupplyStatus);
+router.put('/:roomId/gen-items/:genItemId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateGenItemStatus);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -1918,21 +1945,6 @@ async function getApparelBatchQr(req, res, next) {
     next(err);
   }
 }
-// async function getApparelBatchQr(req, res, next) {
-//   try {
-//     const roomId = req.params.roomId;
-//     const inventoryId = req.params.inventoryId;
-
-//     // new buffer service call:
-//     const result = await roomService.generateApparelBatchBufferForRoom(roomId, inventoryId);
-//     if (!result || !result.buffer) return res.status(500).json({ message: 'QR generation failed' });
-
-//     res.type('png').send(result.buffer);
-//   } catch (err) {
-//     if (err && err.status && err.message) return res.status(err.status).json({ message: err.message });
-//     next(err);
-//   }
-// }
 async function getAdminSupplyBatchQr(req, res, next) {
   try {
     const roomId = req.params.roomId;
@@ -2008,173 +2020,41 @@ async function getAdminSupplyUnitQr(req, res, next) {
 }
 
 
-
-
-async function updateItemStatus(req, res, next) {
+async function updateApparelStatus(req, res, next) {
   try {
-    const { id, status } = req.body;
-    if (!id || !status) return res.status(400).json({ message: 'id and status required' });
-    // example service call
-    const updated = await itemService.updateStatus({ id, status, roomId: req.params.roomId, userId: req.user?.id });
-    return res.json({ success: true, item: updated });
+    const updated = await itemService.updateApparelStatus({
+      roomId: req.params.roomId,
+      apparelId: req.params.apparelId,
+      status: req.body.status,
+      //userId: req.user.accountId
+    });
+    res.json(updated);
   } catch (err) { next(err); }
 }
 
+async function updateAdminSupplyStatus(req, res, next) {
+  try {
+    const updated = await itemService.updateAdminSupplyStatus({
+      roomId: req.params.roomId,
+      adminSupplyId: req.params.adminSupplyId,
+      status: req.body.status,
+      userId: req.user.accountId
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
 
-// // Receive Apparel part
-// async function receiveItem(req, res, next) {
-//   // try {
-//   //   const { roomId } = req.params;
-//   //   const result     = await roomService.receiveInStockroom(roomId, req.body);
-//   //   res.status(201).json(result);
-//   // } catch (err) {
-//   //   next(err);
-//   // }
-//   try {
-//     const result = await roomService.receiveInStockroom(req.params.roomId, req.body);
-//     res.status(201).json(result);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getReceivedItems(req, res, next) {
-//   const { roomId } = req.params;
-//   if (!/^\d+$/.test(roomId)) {
-//     return res.status(400).json({ message: 'Invalid roomId' });
-//   }
-//   try {
-//     const items = await roomService.getReceivedItemsByRoom(roomId);
-//     res.json({ items });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// function getReceivedApparel(req, res, next) {
-//   apparelService.getReceivedApparelHandler()
-//       .then(apparel => res.json(apparel))
-//       .catch(next);
-// }
-// ========================================================
-// // Release Apparel part
-// async function releaseApparelFromRoom(req, res, next) {
-//   const roomId = parseInt(req.params.id, 10);
-//   if (!Number.isInteger(roomId)) return next(new Error('Invalid room id'));
-
-//   try {
-//     // delegate all business logic to room service
-//     const result = await roomService.releaseApparelFromRoomHandler(roomId, req.body);
-//     return res.json(result);
-//   } catch (err) {
-//     return next(err);
-//   }
-// }
-// ========================================================
-// // Inventory part
-// async function getInventory(req, res, next) {
-//   try {
-//     const inventory = await roomService.getInventoryByRoom(req.params.roomId);
-//     res.json(inventory);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// // Other features
-// async function getInChargeOptions(req, res, next) {
-//   try {
-//     const users = await roomService.getUsersForDropdown();
-//     res.json(users);
-//   } catch (err) {
-//     next(err);
-//   }
-//   // try {
-//   //   const accounts = await get('getAll')();
-//   //   res.json(accounts);
-//   // } catch (err) { next(err); }
-// }
-// ========================================================
-// async function registerItem(req, res, next) {
-//   try {
-//     const { itemId } = req.body;
-//     const inventory = await roomService.registerItem(req.params.roomId, itemId);
-//     res.status(201).json(inventory);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getRoomItems(req, res, next) {
-//   try {
-//     const items = await roomService.getRoomItems(req.params.roomId);
-//     res.json(items);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function updateItemStatus(req, res, next) {
-//   try {
-//     const { roomId, itemQrCode } = req.params;
-//     const { newStatus } = req.body;
-//     const updatedInventory = await roomService.updateInventoryStatus(
-//       roomId,
-//       itemQrCode,
-//       newStatus
-//     );
-//     return res.json({ inventory: updatedInventory });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getFilteredRooms(req, res, next) {
-//   try {
-//     // read your dropdown filters off query-string
-//     const {
-//       type: roomType
-//     } = req.query;
-
-//     const rooms = await roomService.getFilteredRooms({
-//       roomType,
-//     });
-
-//     res.json(rooms);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getRoomEnumOptions(req, res, next) {
-//   try {
-//     const room = await db.Room.findByPk(req.params.roomId);
-//     if (!room) return res.status(404).json({ options: {} });
-
-//     const modelName = `Receive_${capitalize(room.stockroomType)}`;
-//     const ReceiveModel = db[modelName];
-
-//     if (!ReceiveModel) {
-//       console.warn(`No model found for name: ${modelName}`);
-//       return res.json({ options: {} });
-//     }
-
-//     const options = {};
-    
-//     for (const [field, attr] of Object.entries(ReceiveModel.rawAttributes)) {
-//       if (attr.type instanceof DataTypes.ENUM) {
-//         options[field] = attr.values;
-//         console.log(`  • ${field}: [${attr.values.join(', ')}]`);
-//       }
-//     }
-
-//     return res.json({ options });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
-
+async function updateGenItemStatus(req, res, next) {
+  try {
+    const updated = await itemService.updateGenItemStatus({
+      roomId: req.params.roomId,
+      genItemId: req.params.genItemId,
+      status: req.body.status,
+      userId: req.user.accountId
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
 
 ================================================================================
 File: _helpers\db-handler.js
@@ -2589,7 +2469,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\apparel\apparel.model.js
-Size: 838 B
+Size: 972 B
 ================================================================================
 
 /* 
@@ -2605,7 +2485,11 @@ module.exports = (sequelize) => {
         apparelId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+        status:      { type: DataTypes.ENUM(
+                                'released','damaged',
+                                'lost','good'
+                                ), defaultValue: 'good'
+                            }
     };
 
     const options = {
@@ -3023,7 +2907,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _services\account.service.js
-Size: 34.09 kB
+Size: 16.16 kB
 ================================================================================
 
 const config    = require('config.json'); 
@@ -3569,7 +3453,7 @@ async function getReleasedSupplyHandler() {
 
 ================================================================================
 File: _services\apparel.service.js
-Size: 4.57 kB
+Size: 4.96 kB
 ================================================================================
 
 const db  = require('_helpers/db-handler');
@@ -3577,6 +3461,8 @@ const db  = require('_helpers/db-handler');
 module.exports = {
   receiveApparelHandler,
   releaseApparelHandler,
+
+  updateApparelUnitStatusHandler,
 
   releaseUnitById
   };
@@ -3727,17 +3613,36 @@ async function releaseUnitById(unitId, { actorId } = {}) {
   return { ok: true, unitId, inventoryUpdated: !!inv };
 }
 
+async function updateApparelUnitStatusHandler(apparelId, apparelStatus) {
+  const unit = await db.Apparel.findByPk(apparelId);
+  if (!unit) throw { status: 404, message: `Apparel unit ${apparelId} not found` };
+
+  unit.status = apparelStatus;
+  await unit.save();
+
+  // Optionally eager-load related batch or inventory:
+  return unit;
+}
+
 ================================================================================
 File: _services\item.service.js
-Size: 4.52 kB
+Size: 5.33 kB
 ================================================================================
 
-const db        = require('_helpers/db-handler');
 const fs        = require('fs');
 const path      = require('path');
 const QRCode    = require('qrcode');
 
+const db            = require('_helpers/db-handler');
+const qrService     = require('./qr.service');
+//const ActivityLog   = db.ActivityLog;
+
 module.exports = {
+  updateApparelStatus,
+  updateAdminSupplyStatus,
+  updateGenItemStatus,
+
+
   createItem,
   getItems,
   getItemById,
@@ -3745,11 +3650,38 @@ module.exports = {
   itemActivation,
 
   scanItem,
-  updateItemStatus,
-  updateTransaction,
+  // updateItemStatus,
+  // updateTransaction,
   generateAndStoreQRCode,
   getFilteredItems
 };
+
+async function updateApparelStatus({ roomId, apparelId, status, userId }) {
+  const unit = await db.Apparel.findOne({ where: { roomId, apparelId } });
+  if (!unit) throw { status: 404, message: 'Apparel unit not found' };
+  unit.status = status;
+  await unit.save();
+  //await logChange('Apparel', apparelId, status, userId);
+  return unit;
+}
+
+async function updateAdminSupplyStatus({ roomId, adminSupplyId, status, userId }) {
+  const unit = await db.AdminSupply.findOne({ where: { roomId, adminSupplyId } });
+  if (!unit) throw { status: 404, message: 'AdminSupply unit not found' };
+  unit.status = status;
+  await unit.save();
+  await logChange('AdminSupply', adminSupplyId, status, userId);
+  return unit;
+}
+
+async function updateGenItemStatus({ roomId, genItemId, status, userId }) {
+  const unit = await db.GenItem.findOne({ where: { roomId, genItemId } });
+  if (!unit) throw { status: 404, message: 'GenItem unit not found' };
+  unit.status = status;
+  await unit.save();
+  await logChange('GenItem', genItemId, status, userId);
+  return unit;
+}
 
 // Management Handler
 async function createItem(body/* , file */) {
@@ -3799,20 +3731,6 @@ async function itemActivation(id) {
 
   await item.save();
   return item.itemStatus;
-}
-async function updateItemStatus(id, newStatus) {
-  const [updated] = await db.Item.update(
-    { itemStatus: newStatus },
-    { where: { id } }
-  );
-  if (!updated) throw new Error('Status update failed');
-}
-async function updateTransaction(id, transactionType) {
-  const [updated] = await db.Item.update(
-    { transactionStatus: transactionType },
-    { where: { id } }
-  );
-  if (!updated) throw new Error('Transaction update failed');
 }
 
 // Scan and Generate QR Handler
@@ -3908,7 +3826,7 @@ async function assignItem({ params, itemId, roomId }) {
 
 ================================================================================
 File: _services\qr.service.js
-Size: 10.32 kB
+Size: 10.69 kB
 ================================================================================
 
 const fs      = require('fs');
@@ -3929,7 +3847,8 @@ module.exports = {
   generateBatchQR,
   generateUnitQR,
 
-  scanItem
+  scanItem,
+  updateItemStatus
 };
 
 async function loadBatchRecord(stockroomType, id) {
@@ -4063,7 +3982,7 @@ function buildUnitPayloadObject(stockroomType, unit) {
     return {
       unitId:     unit.apparelId          ?? null,
       batchId:    unit.receiveApparelId   ?? unit.apparelInventoryId ?? null,
-      status:     unit.status             ?? null,
+      status:     unit.apparelStatus      ?? null,
       roomId:     unit.roomId             ?? null,
       createdAt:  unit.createdAt          ?? null,
     };
@@ -4197,10 +4116,25 @@ async function scanItem(qrPayloadText) {
 
   return record;
 }
+async function updateItemStatus(stockroomType, id) {
+  if (!stockroomType || !id) return null;
+
+  if (stockroomType === 'apparel') {
+    const updated = await db.Apparel.update(
+      { itemStatus: updated.apparelStatus },
+      { where: { id } }
+    );
+    if (!updated) throw new Error('Status update failed');
+
+    return null;
+  }
+
+  
+}
 
 ================================================================================
 File: _services\room.service.js
-Size: 20.36 kB
+Size: 20.43 kB
 ================================================================================
 
 const db = require('_helpers/db-handler');
@@ -4245,6 +4179,10 @@ module.exports = {
   getGenItemUnitsByRoomHandler,
   
   getReleaseApparelsByRoomHandler,
+
+  // getApparelUnits,
+  // getAdminSupplyUnits,
+  // getGenItemUnits,
 
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.

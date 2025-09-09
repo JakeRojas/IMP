@@ -14,6 +14,7 @@ router.get('/',             getReceivedApparel);
 router.get('/:id',          getReceivedApparelById);
 
 router.put('/:id',          updateReceivedApparelSchema, updateReceivedApparel);
+router.put('/unit/:id/status', updateUnitStatusSchema, updateUnitStatus);
 
 module.exports = router;
 
@@ -79,4 +80,22 @@ function releaseApparel(req, res, next) {
   apparelService.releaseApparelHandler(req.body)
     .then(release => res.json(release))
     .catch(next);
+}
+
+function updateUnitStatusSchema(req, res, next) {
+  const schema = Joi.object({
+    status: Joi.string().valid('in_stock', 'used', 'damaged', 'misplaced').required()
+  });
+  validateRequest(req, next, schema);
+}
+
+async function updateUnitStatus(req, res, next) {
+  try {
+    const apparelId = parseInt(req.params.id, 10);
+    const { apparelStatus } = req.body;
+    const updated = await apparelService.updateApparelUnitStatusHandler(apparelId, apparelStatus);
+    res.json(updated);
+  } catch (err) {
+    next(err);
+  }
 }

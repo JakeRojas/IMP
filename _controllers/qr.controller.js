@@ -3,7 +3,7 @@ const express = require('express');
 const router  = express.Router();
 
 const qrService   = require('_services/qr.service'); 
-const db          = require('../_helpers/db-handler');
+const db          = require('_helpers/db-handler');
 
 router.post('/scan',                                scanItem);
 router.post('/:stockroomType/unit/:unitId/release', releaseUnit);

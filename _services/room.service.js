@@ -41,6 +41,10 @@ module.exports = {
   
   getReleaseApparelsByRoomHandler,
 
+  // getApparelUnits,
+  // getAdminSupplyUnits,
+  // getGenItemUnits,
+
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.
 };

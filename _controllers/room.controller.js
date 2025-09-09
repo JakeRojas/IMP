@@ -5,13 +5,14 @@ const fs        = require('fs');
 const path      = require('path');
 
 const roomService       = require('_services/room.service');
+const itemService       = require('_services/item.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
 router.post('/create-room',                               authorize(Role.SuperAdmin),             createRoomschema,           createRoom);
-router.post('/:roomId/receive/apparel',                   authorize(Role.SuperAdmin, Role.Admin), receiveApparelSchema,       receiveApparel);
+router.post('/:roomId/receive/apparel',                   /* authorize(Role.SuperAdmin, Role.Admin), */ receiveApparelSchema,       receiveApparel);
 router.post('/:roomId/receive/supply',                    authorize(Role.SuperAdmin, Role.Admin), receiveAdminSupplySchema,   receiveAdminSupply);
 router.post('/:roomId/receive/item',                      authorize(Role.SuperAdmin, Role.Admin), receiveGenItemSchema,       receiveGenItem);
 
@@ -23,15 +24,19 @@ router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize(Role.SuperAd
 router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyBatchQr);
 router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin), getGenItemBatchQr);
 
-router.get('/:roomId/qr/apparel/unit/:unitId',            authorize(Role.SuperAdmin, Role.Admin), getApparelUnitQr);
+router.get('/:roomId/qr/apparel/unit/:unitId',            /* authorize(Role.SuperAdmin, Role.Admin), */ getApparelUnitQr);
 router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize(Role.SuperAdmin, Role.Admin), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
 router.get('/',                           authorize(Role.SuperAdmin, Role.Admin), getRooms);
 router.get('/:roomId',                    authorize(), getRoomById);
 
-router.get('/:roomId/receive-apparels',   authorize(Role.SuperAdmin, Role.Admin), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize(Role.SuperAdmin, Role.Admin), getApparelUnits);
+// router.get('/:roomId/apparels/units', /* authorize(), */ getApparelUnits);
+// router.get('/:roomId/admin-supplies/units', /* authorize(), */ getAdminSupplyUnits);
+// router.get('/:roomId/gen-items/units', /* authorize(), */ getGenItemUnits);
+
+router.get('/:roomId/receive-apparels',   /* authorize(Role.SuperAdmin, Role.Admin), */ getReceiveApparels);
+router.get('/:roomId/apparels',           /* authorize(Role.SuperAdmin, Role.Admin), */ getApparelUnits);
 router.get('/:roomId/apparel-inventory',  authorize(Role.SuperAdmin, Role.Admin), getApparelInventory);
 
 router.get('/:roomId/receive-supply',     authorize(Role.SuperAdmin, Role.Admin), getReceiveAdminSupply);
@@ -46,7 +51,10 @@ router.get('/:roomId/release-apparels',   authorize(Role.SuperAdmin, Role.Admin)
 
 // PUT -------------------------------------------------------------------------------------
 router.put('/:roomId',             authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema,   updateRoom);
-router.put('/:roomId/item/status', authorize(Role.SuperAdmin, Role.Admin),  updateItemStatus);
+//router.put('/:roomId/item/status', /* authorize(Role.SuperAdmin, Role.Admin), */  updateItemStatus);
+router.put('/:roomId/apparels/:apparelId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateApparelStatus);
+router.put('/:roomId/admin-supplies/:adminSupplyId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateAdminSupplyStatus);
+router.put('/:roomId/gen-items/:genItemId/status', /* authorize(Role.SuperAdmin, Role.Admin), */ updateGenItemStatus);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -317,21 +325,6 @@ async function getApparelBatchQr(req, res, next) {
     next(err);
   }
 }
-// async function getApparelBatchQr(req, res, next) {
-//   try {
-//     const roomId = req.params.roomId;
-//     const inventoryId = req.params.inventoryId;
-
-//     // new buffer service call:
-//     const result = await roomService.generateApparelBatchBufferForRoom(roomId, inventoryId);
-//     if (!result || !result.buffer) return res.status(500).json({ message: 'QR generation failed' });
-
-//     res.type('png').send(result.buffer);
-//   } catch (err) {
-//     if (err && err.status && err.message) return res.status(err.status).json({ message: err.message });
-//     next(err);
-//   }
-// }
 async function getAdminSupplyBatchQr(req, res, next) {
   try {
     const roomId = req.params.roomId;
@@ -407,169 +400,38 @@ async function getAdminSupplyUnitQr(req, res, next) {
 }
 
 
-
-
-async function updateItemStatus(req, res, next) {
+async function updateApparelStatus(req, res, next) {
   try {
-    const { id, status } = req.body;
-    if (!id || !status) return res.status(400).json({ message: 'id and status required' });
-    // example service call
-    const updated = await itemService.updateStatus({ id, status, roomId: req.params.roomId, userId: req.user?.id });
-    return res.json({ success: true, item: updated });
+    const updated = await itemService.updateApparelStatus({
+      roomId: req.params.roomId,
+      apparelId: req.params.apparelId,
+      status: req.body.status,
+      //userId: req.user.accountId
+    });
+    res.json(updated);
   } catch (err) { next(err); }
 }
 
+async function updateAdminSupplyStatus(req, res, next) {
+  try {
+    const updated = await itemService.updateAdminSupplyStatus({
+      roomId: req.params.roomId,
+      adminSupplyId: req.params.adminSupplyId,
+      status: req.body.status,
+      userId: req.user.accountId
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
 
-// // Receive Apparel part
-// async function receiveItem(req, res, next) {
-//   // try {
-//   //   const { roomId } = req.params;
-//   //   const result     = await roomService.receiveInStockroom(roomId, req.body);
-//   //   res.status(201).json(result);
-//   // } catch (err) {
-//   //   next(err);
-//   // }
-//   try {
-//     const result = await roomService.receiveInStockroom(req.params.roomId, req.body);
-//     res.status(201).json(result);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getReceivedItems(req, res, next) {
-//   const { roomId } = req.params;
-//   if (!/^\d+$/.test(roomId)) {
-//     return res.status(400).json({ message: 'Invalid roomId' });
-//   }
-//   try {
-//     const items = await roomService.getReceivedItemsByRoom(roomId);
-//     res.json({ items });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// function getReceivedApparel(req, res, next) {
-//   apparelService.getReceivedApparelHandler()
-//       .then(apparel => res.json(apparel))
-//       .catch(next);
-// }
-// ========================================================
-// // Release Apparel part
-// async function releaseApparelFromRoom(req, res, next) {
-//   const roomId = parseInt(req.params.id, 10);
-//   if (!Number.isInteger(roomId)) return next(new Error('Invalid room id'));
-
-//   try {
-//     // delegate all business logic to room service
-//     const result = await roomService.releaseApparelFromRoomHandler(roomId, req.body);
-//     return res.json(result);
-//   } catch (err) {
-//     return next(err);
-//   }
-// }
-// ========================================================
-// // Inventory part
-// async function getInventory(req, res, next) {
-//   try {
-//     const inventory = await roomService.getInventoryByRoom(req.params.roomId);
-//     res.json(inventory);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// // Other features
-// async function getInChargeOptions(req, res, next) {
-//   try {
-//     const users = await roomService.getUsersForDropdown();
-//     res.json(users);
-//   } catch (err) {
-//     next(err);
-//   }
-//   // try {
-//   //   const accounts = await get('getAll')();
-//   //   res.json(accounts);
-//   // } catch (err) { next(err); }
-// }
-// ========================================================
-// async function registerItem(req, res, next) {
-//   try {
-//     const { itemId } = req.body;
-//     const inventory = await roomService.registerItem(req.params.roomId, itemId);
-//     res.status(201).json(inventory);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getRoomItems(req, res, next) {
-//   try {
-//     const items = await roomService.getRoomItems(req.params.roomId);
-//     res.json(items);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function updateItemStatus(req, res, next) {
-//   try {
-//     const { roomId, itemQrCode } = req.params;
-//     const { newStatus } = req.body;
-//     const updatedInventory = await roomService.updateInventoryStatus(
-//       roomId,
-//       itemQrCode,
-//       newStatus
-//     );
-//     return res.json({ inventory: updatedInventory });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getFilteredRooms(req, res, next) {
-//   try {
-//     // read your dropdown filters off query-string
-//     const {
-//       type: roomType
-//     } = req.query;
-
-//     const rooms = await roomService.getFilteredRooms({
-//       roomType,
-//     });
-
-//     res.json(rooms);
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-// ========================================================
-// async function getRoomEnumOptions(req, res, next) {
-//   try {
-//     const room = await db.Room.findByPk(req.params.roomId);
-//     if (!room) return res.status(404).json({ options: {} });
-
-//     const modelName = `Receive_${capitalize(room.stockroomType)}`;
-//     const ReceiveModel = db[modelName];
-
-//     if (!ReceiveModel) {
-//       console.warn(`No model found for name: ${modelName}`);
-//       return res.json({ options: {} });
-//     }
-
-//     const options = {};
-    
-//     for (const [field, attr] of Object.entries(ReceiveModel.rawAttributes)) {
-//       if (attr.type instanceof DataTypes.ENUM) {
-//         options[field] = attr.values;
-//         console.log(`  • ${field}: [${attr.values.join(', ')}]`);
-//       }
-//     }
-
-//     return res.json({ options });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
-
+async function updateGenItemStatus(req, res, next) {
+  try {
+    const updated = await itemService.updateGenItemStatus({
+      roomId: req.params.roomId,
+      genItemId: req.params.genItemId,
+      status: req.body.status,
+      userId: req.user.accountId
+    });
+    res.json(updated);
+  } catch (err) { next(err); }
+}
