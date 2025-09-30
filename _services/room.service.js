@@ -13,6 +13,8 @@ module.exports = {
 
   releaseInStockroomHandler,          // release in stockroom and it will route to the specific recieve functions depends on its payload.
   releaseApparelInRoomHandler,        // release apparel function with its payload.
+  releaseAdminSupplyInRoomHandler,
+  releaseGenItemInRoomHandler,
 
   // POST & GET --------------------------------------------------------------------------------
   generateApparelBatchForRoom,
@@ -40,10 +42,8 @@ module.exports = {
   getGenItemUnitsByRoomHandler,
   
   getReleaseApparelsByRoomHandler,
-
-  // getApparelUnits,
-  // getAdminSupplyUnits,
-  // getGenItemUnits,
+  getReleasedBatchAdminSupplyByRoomHandler,
+  getReleasedGenItemByRoomHandler,
 
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.
@@ -193,7 +193,7 @@ async function receiveApparelInRoomHandler(roomId, payload) {
       receiveApparelId: batch.receiveApparelId,            // keep batch FK
       apparelInventoryId: inv.apparelInventoryId ?? inv.id, // also point to aggregate inventory row
       roomId: roomId,
-      status: 'in_stock'
+      status: 'good'
     }));
     createdUnits = await db.Apparel.bulkCreate(apparelUnits);
   }
@@ -249,7 +249,7 @@ async function receiveAdminSupplyInRoomHandler(roomId, payload) {
     createdUnits = await db.AdminSupply.bulkCreate(adminSupplyUnits);
   }
 
-  return db.ReceiveAdminSupply.findByPk(batch.id, {
+  return db.ReceiveAdminSupply.findByPk(batch.receiveAdminSupplyId, {
     include: [{ model: db.AdminSupply}]
   });
 }
@@ -397,7 +397,7 @@ async function getGenItemUnitsByRoomHandler(roomId) {
 
   const units = await db.GenItem.findAll({
     where: { roomId: roomId },
-    order: [['genItemId', 'ASC'], ['genItemType', 'ASC']]
+    order: [['genItemId', 'ASC']/* , ['genItemType', 'ASC'] */]
   });
 
   return units;
@@ -429,42 +429,156 @@ async function releaseInStockroomHandler(roomId, payload) {
   }
 
   // admin supply path
-  // if (payload.supplyName && Number.isInteger(payload.supplyQuantity) && payload.supplyQuantity > 0) {
-  //   return await receiveAdminSupplyInRoomHandler(roomId, payload);
-  // }
+  if (payload.adminSupplyInventoryId && Number.isInteger(payload.releaseAdminSupplyQuantity) && payload.releaseAdminSupplyQuantity > 0) {
+    return await releaseAdminSupplyInRoomHandler(roomId, payload);
+  }
 
-  const err = new Error('Bad payload: must include either apparelName+apparelQuantity or supplyName+supplyQuantity');
+  // general item path
+  if (payload.genItemInventoryId && Number.isInteger(payload.releaseItemQuantity) && payload.releaseItemQuantity > 0) {
+    return await releaseGenItemInRoomHandler(roomId, payload);
+  }
+
+  const err = new Error('Bad payload: must include either name or quantity');
   err.status = 400;
   throw err;
 }
 async function releaseApparelInRoomHandler(roomId, payload) {
-  // will throw if not stockroom
   await ensureIsStockroomHandler(roomId);
 
-  // create batch
-  const batch = await db.ReleaseApparel.create({
-    roomId,
-    apparelInventoryId: payload.apparelInventoryId,
-    releasedBy: payload.releasedBy,
-    claimedBy: payload.claimedBy,
-    releaseApparelQuantity: payload.releaseApparelQuantity,
-    notes: payload.notes || null
-  });
+  // require numeric quantity
+  const qty = Number(payload.releaseApparelQuantity || 0);
+  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
-  // update/create aggregate inventory (ApparelInventory)
-  const [inv] = await db.ApparelInventory.findOrCreate({
-    where: {
+  const sequelize = db.sequelize || null;
+  const t = sequelize ? await sequelize.transaction() : null;
+
+  try {
+    // find or create the aggregate inventory within transaction
+    const [inv] = await db.ApparelInventory.findOrCreate({
+      where: {
+        roomId,
+        apparelInventoryId: payload.apparelInventoryId,
+      },
+      defaults: { totalQuantity: 0, status: 'out_of_stock' },
+      transaction: t
+    });
+
+    const available = inv.totalQuantity || 0;
+    if (available < qty) {
+      // not enough stock -> do not create release, signal error
+      if (t) await t.rollback();
+      throw { status: 400, message: `Not enough stock to release (${available} available)` };
+    }
+
+    // create batch
+    const batch = await db.ReleaseApparel.create({
       roomId,
       apparelInventoryId: payload.apparelInventoryId,
-    },
-    defaults: { totalQuantity: 0 }
-  });
+      releasedBy: payload.releasedBy,
+      claimedBy: payload.claimedBy,
+      releaseApparelQuantity: qty,
+      notes: payload.notes || null
+    }, { transaction: t });
 
-  inv.totalQuantity = (inv.totalQuantity || 0) - payload.releaseApparelQuantity;
-  await inv.save();
+    // deduct and update status using helper
+    await updateInventory(inv, -qty, { transaction: t });
 
-  // return the batch (include apparel units if you like)
-  return db.ReleaseApparel.findByPk(batch.releaseApparelId);
+    if (t) await t.commit();
+
+    return db.ReleaseApparel.findByPk(batch.releaseApparelId);
+  } catch (e) {
+    if (t) await t.rollback();
+    throw e;
+  }
+}
+
+async function releaseAdminSupplyInRoomHandler(roomId, payload) {
+  await ensureIsStockroomHandler(roomId);
+
+  const qty = Number(payload.releaseAdminSupplyQuantity || 0);
+  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
+
+  const sequelize = db.sequelize || null;
+  const t = sequelize ? await sequelize.transaction() : null;
+
+  try {
+    const [inv] = await db.AdminSupplyInventory.findOrCreate({
+      where: {
+        roomId,
+        adminSupplyInventoryId: payload.adminSupplyInventoryId,
+      },
+      defaults: { totalQuantity: 0, status: 'out_of_stock' },
+      transaction: t
+    });
+
+    const available = inv.totalQuantity || 0;
+    if (available < qty) {
+      if (t) await t.rollback();
+      throw { status: 400, message: `Not enough stock to release (${available} available)` };
+    }
+
+    const batch = await db.ReleaseAdminSupply.create({
+      roomId,
+      adminSupplyInventoryId: payload.adminSupplyInventoryId,
+      releasedBy: payload.releasedBy,
+      claimedBy: payload.claimedBy,
+      releaseAdminSupplyQuantity: qty,
+      notes: payload.notes || null
+    }, { transaction: t });
+
+    await updateInventory(inv, -qty, { transaction: t });
+
+    if (t) await t.commit();
+    return db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+  } catch (e) {
+    if (t) await t.rollback();
+    throw e;
+  }
+}
+
+async function releaseGenItemInRoomHandler(roomId, payload) {
+  await ensureIsStockroomHandler(roomId);
+
+  const qty = Number(payload.releaseItemQuantity || 0);
+  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
+
+  const sequelize = db.sequelize || null;
+  const t = sequelize ? await sequelize.transaction() : null;
+
+  try {
+    const [inv] = await db.GenItemInventory.findOrCreate({
+      where: {
+        roomId,
+        genItemInventoryId: payload.genItemInventoryId,
+      },
+      defaults: { totalQuantity: 0, status: 'out_of_stock' },
+      transaction: t
+    });
+
+    const available = inv.totalQuantity || 0;
+    if (available < qty) {
+      if (t) await t.rollback();
+      throw { status: 400, message: `Not enough stock to release (${available} available)` };
+    }
+
+    const batch = await db.ReleaseGenItem.create({
+      roomId,
+      genItemInventoryId: payload.genItemInventoryId,
+      releasedBy: payload.releasedBy,
+      claimedBy: payload.claimedBy,
+      releaseItemQuantity: qty,
+      genItemType: payload.genItemType,
+      notes: payload.notes || null
+    }, { transaction: t });
+
+    await updateInventory(inv, -qty, { transaction: t });
+
+    if (t) await t.commit();
+    return db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+  } catch (e) {
+    if (t) await t.rollback();
+    throw e;
+  }
 }
 
 // Get Released Apparels Handler
@@ -481,6 +595,32 @@ async function getReleaseApparelsByRoomHandler(roomId) {
   });
 
   return batches;
+}
+async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  if (db.ReleaseAdminSupply) {
+    return await db.ReleaseAdminSupply.findAll({
+      where: { roomId },
+      //include: [{ model: db.AdminSupply, required: false }],
+      order: [['releasedAt', 'DESC']]
+    });
+  }
+
+  // fallback: return empty array
+  return [];
+}
+async function getReleasedGenItemByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  if (db.ReleaseGenItem) {
+    return await db.ReleaseGenItem.findAll({
+      where: { roomId },
+      //include: [{ model: db.GenItem, required: false }],
+      order: [['releasedAt', 'DESC']]
+    });
+  }
+  return [];
 }
 
 // Generate QR Code Handler
@@ -568,4 +708,50 @@ async function generateGenItemUnitForRoom(roomId, unitId) {
 
   const result = await qrService.generateUnitQR({ stockroomType: 'it' || 'maintenance', unitId });
   return { unitId, ...result };
+}
+
+// small helper: compute status based on remaining qty
+function computeInventoryStatus(remaining) {
+  // user's desired rules:
+  // <= 1 => out_of_stock; >1 && <10 => low_stock; >=10 => high_stock
+  if (remaining <= 1) return 'out_of_stock';
+  if (remaining < 10) return 'low_stock';
+  return 'high_stock';
+}
+
+// updateInventory() — keep single place to change totals and status
+async function updateInventory(inv, qtyChange /* positive to add, negative to subtract */, opts = {}) {
+  if (!inv) return;
+  const transaction = opts.transaction;
+
+  // support different quantity column names across your models
+  if (typeof inv.totalQuantity !== 'undefined') {
+    inv.totalQuantity = (inv.totalQuantity || 0) + qtyChange;
+    // ensure not negative
+    if (inv.totalQuantity < 0) inv.totalQuantity = 0;
+    // set status if model has the column
+    if (typeof inv.status !== 'undefined') {
+      inv.status = computeInventoryStatus(inv.totalQuantity);
+    }
+    await inv.save({ transaction });
+    return;
+  }
+
+  // fallbacks if you used different names (supplyQuantity / quantity)
+  if (typeof inv.supplyQuantity !== 'undefined') {
+    inv.supplyQuantity = (inv.supplyQuantity || 0) + qtyChange;
+    if (inv.supplyQuantity < 0) inv.supplyQuantity = 0;
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.supplyQuantity);
+    await inv.save({ transaction });
+    return;
+  }
+  if (typeof inv.quantity !== 'undefined') {
+    inv.quantity = (inv.quantity || 0) + qtyChange;
+    if (inv.quantity < 0) inv.quantity = 0;
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.quantity);
+    await inv.save({ transaction });
+    return;
+  }
+
+  throw { status: 500, message: 'Inventory does not have known quantity field' };
 }

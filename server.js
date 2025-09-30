@@ -42,10 +42,13 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ─── API ROUTES ────────────────────────────────────────────────
 app.use('/rooms',       require('./_controllers/room.controller'));
 app.use('/accounts',    require('./_controllers/account.controller'));
-app.use('/items',       require('./_controllers/item.controller'));
-app.use('/apparels',    require('./_controllers/apparel.controller'));
-app.use('/supplies',    require('./_controllers/adminSupply.controller'));
+//app.use('/items',       require('./_controllers/item.controller'));
+//app.use('/apparels',    require('./_controllers/apparel.controller'));
+//app.use('/supplies',    require('./_controllers/adminSupply.controller'));
 app.use('/qr',          require('./_controllers/qr.controller'));
+app.use('/req-stock',   require('./_controllers/request.stock.controller'));
+app.use('/req-item',    require('./_controllers/request.item.controller'));
+app.use('/transfers',   require('./_controllers/transfer.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
 app.use('/api-docs',    require('./_helpers/swagger'));

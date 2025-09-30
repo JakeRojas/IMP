@@ -8,23 +8,24 @@ const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 const accountService    = require('_services/account.service');
 
+router.post('/register',                registerSchema, register);
 router.post('/authenticate',            authenticateSchema, authenticate);
-router.post('/refresh-token',           authorize(), refreshToken);
+router.post('/refresh-token',           refreshToken);
 router.post('/revoke-token',            authorize(), revokeTokenSchema, revokeToken); 
-router.post('/register',                authorize(Role.SuperAdmin), registerSchema, register);
 router.post('/verify-email',            verifyEmailSchema, verifyEmail);
 router.post('/forgot-password',         forgotPasswordSchema, forgotPassword);
 router.post('/validate-reset-token',    validateResetTokenSchema, validateResetToken);
 router.post('/reset-password',          resetPasswordSchema, resetPassword);
 
-router.post('/:id/activity',            authorize(), getActivities);
+router.post('/:accountId/activity',     authorize(), getActivities);
 router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivityLogs);
 
 router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
 router.get('/',                         authorize (Role.SuperAdmin), getAll);
-router.get('/:id',                      authorize(), getById);
-router.put('/:id',                      authorize(), updateSchema, update);
-router.delete('/:id',                   authorize(Role.SuperAdmin), _delete);
+router.get('/:accountId',               authorize(), getById);
+router.put('/:accountId',               authorize(Role.SuperAdmin), updateSchema, update);
+
+router.delete('/:accountId',            authorize(Role.SuperAdmin), _delete);
 
 module.exports = router;
 
@@ -44,6 +45,10 @@ try {
 
     // accountService.authenticate returns { ...basicDetails(account), jwtToken, refreshToken: token }
     const account = await accountService.authenticate({ email, password, ipAddress, browserInfo });
+
+    if (account.status === 'deactivated') {
+      return res.status(403).json({ message: 'Account is deactivated. Contact administrator.' });
+    }
 
     // set jwt cookie (if you want a jwt cookie) — keep same options as before
     res.cookie('token', account.jwtToken, {
@@ -88,16 +93,47 @@ function getAllActivityLogs(req, res, next) {
         }))
         .catch(next);
 }
-function refreshToken (req, res, next) {
-    const token = req.cookies.refreshToken;
-    const ipAddress = req.ip;
-    accountService.refreshToken({ token, ipAddress })
-        .then(({refreshToken, ...account }) => {
-            setTokenCookie(res, refreshToken);
-            res.json(account);
-        })
-        .catch(next);
-}
+async function refreshToken(req, res, next) {
+    try {
+      // try common locations for the refresh token
+      const token =
+        (req.cookies && req.cookies.refreshToken) ||
+        req.body?.token ||
+        req.get('x-refresh-token') ||
+        req.headers['x-refresh-token'];
+  
+      // No token -> not logged in (choose 204 to avoid console noise)
+      if (!token) {
+        return res.status(204).end(); // or res.status(401).json({ message: 'No refresh token' });
+      }
+  
+      // call service — wrap in try so service errors are handled
+      let accountPayload;
+      try {
+        accountPayload = await accountService.refreshToken({ token, ipAddress: req.ip });
+      } catch (serviceErr) {
+        // service-level failure (invalid token / DB error). Distinguish if possible:
+        if (serviceErr && serviceErr.message && serviceErr.message.toLowerCase().includes('invalid')) {
+          return res.status(401).json({ message: 'Invalid or expired refresh token' });
+        }
+        // unexpected service error: log and forward
+        console.error('refreshToken service error:', serviceErr);
+        return res.status(500).json({ message: 'Internal error while refreshing token' });
+      }
+  
+      // No payload => treat as unauthorized
+      if (!accountPayload) {
+        return res.status(401).json({ message: 'Invalid or expired refresh token' });
+      }
+  
+      // success: return payload (tokens/account)
+      return res.json(accountPayload);
+    } catch (err) {
+      console.error('refreshToken handler unexpected error:', err);
+      // fallback: don't expose internal errors
+      return res.status(500).json({ message: 'Unexpected server error' });
+    }
+  }
 function revokeTokenSchema(req, res, next) { 
     const schema = Joi.object({
         token: Joi.string().empty('')
@@ -185,19 +221,14 @@ function resetPassword(req, res, next) {
         res.json({ message: 'Password reset successful, you can now login' });
       })
       .catch(next);
-  }
+}
 function getAll(req, res, next) {
     accountService.getAll()
-        .then (accounts => res.json (accounts))
+        .then (account => res.json (account))
         .catch(next);
 }
 function getById(req, res, next) {
-    //Check if the user is trying to access their own account or is anSuperadmin
-    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
-        return res.status(403).json({ message: 'Access to other user\'s data is forbidden' });
-    }
-    
-    accountService.getById(req.params.id)
+    accountService.getById(req.params.accountId)
         .then(account => account ? res.json(account) : res.sendStatus(404)) 
         .catch(next);
 }
@@ -209,7 +240,8 @@ function createSchema (req, res, next) {
         email: Joi.string().email().required(),
         password: Joi.string().min(6).required(), 
         confirmPassword: Joi.string().valid(Joi.ref('password')).required(),
-        role: Joi.string().valid(Role. SuperAdmin, Role.Admin, Role.User).required()
+        role: Joi.string().valid(Role. SuperAdmin, Role.Admin, Role.User, Role.StockroomAdmin, Role.Teacher).required(),
+        status: Joi.string().valid('active','deactivated').optional(),
     });
     validateRequest(req, next, schema);
 }
@@ -219,35 +251,24 @@ function create(req, res, next) {
     .catch(next);
 }
 function updateSchema(req, res, next) { 
-    const schemaRules = {
+    const schema = Joi.object({
         title: Joi.string().empty(''), 
         firstName: Joi.string().empty(''), 
         lastName: Joi.string().empty(''),
         email: Joi.string().email().empty(''),
         password: Joi.string().min(6).empty(''),
-        confirmPassword: Joi.string().valid(Joi.ref('password')).empty('')
-    }
-
-    if (req.user.role === Role.SuperAdmin) {
-        schemaRules.role = Joi.string().valid (Role.SuperAdmin, Role.User, Role.Staff).empty('');
-    }
-
-    const schema = Joi.object(schemaRules).with('password', 'confirmPassword'); 
+        confirmPassword: Joi.string().valid(Joi.ref('password')).empty(''),
+        status: Joi.string().valid('active', 'deactivated').empty(''),
+        role: Joi.string().valid(Role. SuperAdmin, Role.Admin, Role.User, Role.StockroomAdmin, Role.Teacher).empty('')
+    });
     validateRequest(req, next, schema);
 }
 function update(req, res, next) {
-    //Check authorization
-    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
-      return res.status(401).json({
-        success: false,
-        message: 'Unauthorized - You can only update your own account unless you are anSuperadmin'
-      });
-    }
   
     const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
   
-    accountService.update(req.params.id, req.body, ipAddress, browserInfo)
+    accountService.update(req.params.accountId, req.body, ipAddress, browserInfo)
       .then(account => {
         res.json({
           success: true,
@@ -256,16 +277,19 @@ function update(req, res, next) {
         });
       })
       .catch(next);
-  }
-function _delete(req, res, next) {
-    if (Number(req.params.id) !== req.user.id && req.user.role !== Role.Admin) {
-        return res.status(401).json({ message: 'Unauthorized' });
+}
+async function _delete(req, res, next) {
+    try {
+      const accountId = parseInt(req.params.accountId || req.params.accountId, 10);
+      if (Number.isNaN(accountId)) return res.status(400).json({ message: 'Invalid id' });
+  
+      // soft delete
+      await accountService.update(accountId, { status: 'deactivated' });
+      res.json({ message: 'Account deactivated' });
+    } catch (err) {
+      next(err);
     }
-    
-    accountService.delete(req.params.id)
-        .then(() =>res.json({ message: 'Account deleted successfully' })) 
-        .catch(next);
-} 
+}
 function setTokenCookie(res, token) {
   const cookieOptions = {
     httpOnly: true,

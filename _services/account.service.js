@@ -24,7 +24,7 @@ module.exports = {
     getAccountActivities,
     getAllActivityLogs,
     update,
-    delete: _delete
+    delete: _delete,
 };
 
 async function authenticate({ email, password, ipAddress, browserInfo }) {
@@ -33,6 +33,10 @@ async function authenticate({ email, password, ipAddress, browserInfo }) {
     if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
       throw 'Email or password is incorrect';
     }
+
+    // if (!user.isActive) {
+    //   return res.status(401).json({ message: 'Account is deactivated. Please contact an administrator.' });
+    // }
   
     const jwtToken = generateJwtToken(account);
     const refreshToken = generateRefreshToken(account, ipAddress);
@@ -223,22 +227,12 @@ async function register(params, origin) {
     const account = new db.Account (params);
 
     const isFirstAccount = (await db.Account.count()) === 0; 
-    account.role = isFirstAccount? Role.Admin: Role.User; 
+    account.role = isFirstAccount? Role.SuperAdmin: Role.Admin; 
     account.verificationToken = randomTokenString();
     
     account.passwordHash = await hash (params.password);
     
     await account.save();
-      
-    const preferencesData = {
-      accountId: account.accountId, // Reference to the newly created user's ID
-      theme: 'light',  // Default theme (you can modify these defaults as needed)
-      notifications: true,  // Default notifications preference
-      language: 'en'   // Default language
-    };
-    
-    // Save the preferences for the user
-    await db.Preferences.create(preferencesData);
     await sendVerificationEmail (account, origin);
 }
 async function verifyEmail({token}) {
@@ -295,12 +289,16 @@ async function resetPassword({ token, password }, ipAddress, browserInfo) {
     return;
 }
 async function getAll() {
-    const accounts = await db.Account.findAll(); 
-    return accounts.map(x => basicDetails(x));
+
+    const account =  await db.Account.findAll({
+      attributes: ['accountId', 'title', 'email', 'firstName', 'lastName', 'email', 'role', 'status']
+    });
+
+    return account;
 }
 async function getById(accountId) {
-    const account = await getAccount(accountId); 
-    return basicDetails (account);
+    const account = await db.Account.findByPk(accountId);
+    return account;
 }
 async function create(params) {
   // Check if the email is already registered
@@ -315,17 +313,7 @@ async function create(params) {
 
   // Save the account
   await account.save();
-
-  // Create default preferences for the new user
-  await db.Preferences.create({
-      accountId: account.accountId,
-      theme: 'light',
-      notifications: true,
-      language: 'en'
-  });
-
-  // Return the basic details of the created account
-  return basicDetails(account);
+  return account;
 }
 async function update(accountId, params, ipAddress, browserInfo) {
   const account = await getAccount(accountId);
@@ -380,7 +368,7 @@ async function update(accountId, params, ipAddress, browserInfo) {
 }
 async function _delete(accountId) {
     const account = await getAccount(accountId);
-    await account.destroy();
+    await account.status === 'deactivated';
 }
 async function getAccount (accountId) {
     const account = await db.Account.findByPk(accountId); 

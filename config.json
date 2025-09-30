@@ -12,8 +12,8 @@
         "host": "smtp.ethereal.email", 
         "port": 587,
         "auth": {
-            "user":"fern34@ethereal.email",
-            "pass":"K283jn7kdcbq4tMXUn"
+            "user":"samir.mohr@ethereal.email",
+            "pass":"DybCr9vj2zAZtFeqcN"
         }
     }
 }

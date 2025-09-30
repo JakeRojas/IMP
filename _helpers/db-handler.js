@@ -29,6 +29,7 @@ db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(seq
 // Admin Supply models
 db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
 db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
+db.ReleaseAdminSupply      = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
 db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
 
 // Item models
@@ -39,6 +40,13 @@ db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(seq
 
 // Qr code models
 db.Qr = require('../_models/qr.model')(sequelize);
+
+// Request models
+db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
+db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
+
+// Transfer models
+db.Transfer = require('../_models/transfer.model')(sequelize);
 
 dbAssociations();
 
@@ -89,6 +97,9 @@ function dbAssociations() {
   db.Account.hasMany(db.ReceiveApparel, { foreignKey: 'accountId'});
   db.ReceiveApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
 
+  db.Account.hasMany(db.ReceiveAdminSupply, { foreignKey: 'accountId'});
+  db.ReceiveAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
+
   db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId'});
   db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId'});
 
@@ -103,5 +114,64 @@ function dbAssociations() {
 
   db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
   db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
+
+
+
+  // ---------------- STOCK REQUEST associations ----------------
+  // StockRequest -> Account (who requested)
+  db.Account.hasMany(db.StockRequest, { foreignKey: 'acccountId' });
+  db.StockRequest.belongsTo(db.Account, { foreignKey: 'acccountId' });
+
+  // StockRequest -> Room (which room/stockroom requested it)
+  db.Room.hasMany(db.StockRequest, { foreignKey: 'requesterRoomId' });
+  db.StockRequest.belongsTo(db.Room, { foreignKey: 'requesterRoomId' });
+
+  // Polymorphic-like associations for itemId (no DB constraints so itemId may refer to any of these)
+  // These use `constraints: false` because itemId can point to different models depending on itemType.
+  // You can include all three when querying and check which one is non-null, or conditionally include based on itemType.
+  db.StockRequest.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.ApparelInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
+
+  db.StockRequest.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.AdminSupplyInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
+
+  db.StockRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.GenItemInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
+
+
+
+
+  // ---------- ITEM REQUEST associations ----------
+  db.Account.hasMany(db.ItemRequest, { foreignKey: 'accountId' });
+  db.ItemRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
+
+  db.Room.hasMany(db.ItemRequest, { foreignKey: 'requesterRoomId' });
+  db.ItemRequest.belongsTo(db.Room, { foreignKey: 'requesterRoomId' });
+
+  // Polymorphic-ish itemId (no FK constraints since itemId may map to different tables)
+  db.ItemRequest.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.ApparelInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
+
+  db.ItemRequest.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.AdminSupplyInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
+
+  db.ItemRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.GenItemInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
+
+
+
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy' });
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy' });    // who accepted transfer
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy' });   // who initiated return
+
+  // Transfer <> Room (rooms)
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId' });
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId' });
+
+  // Convenience (polymorphic) relations to inventory aggregates.
+  // NOTE: we set constraints: false because itemId can point to different tables
+  db.Transfer.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.Transfer.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.Transfer.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
 
 }

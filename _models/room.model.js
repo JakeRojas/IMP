@@ -7,13 +7,11 @@ module.exports = (sequelize) => {
     roomFloor:      { type: DataTypes.STRING,   allowNull: false },
     roomType:       { type: DataTypes.ENUM(
                         'stockroom', 'subStockroom', 
-                        'office', 'classroom', 'comfortroom', 
-                        'openarea', 'unknownroom'
+                        'office', 'classroom', 'openarea'
                         ), 
-                      allowNull: false, defaultValue: 'unknownroom' },
+                      allowNull: false, defaultValue: 'classroom' },
     stockroomType:  { type: DataTypes.ENUM(
-                        'apparel', 'supply', 'it', 
-                        'maintenance', 'unknownType' 
+                        'apparel', 'supply', 'general'
                         ), 
                       allowNull: true },
     roomInCharge:   { type: DataTypes.INTEGER,  allowNull: false }
