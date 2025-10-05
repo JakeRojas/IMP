@@ -10,6 +10,12 @@ function authorize(roles = []) {
     if (typeof roles === 'string') {
         roles = [roles];
     }
+    // if (typeof roles === 'string') {
+    //     roles = [roles];
+    //   } else if (!Array.isArray(roles)) {
+    //     // If roles is falsy (undefined/null) or not array/string, convert to empty array
+    //     roles = [];
+    //   }
 
     return [
         // 1) Authenticate JWT token and attach decoded token to request as req.auth

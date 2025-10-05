@@ -3,7 +3,7 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     stockRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    acccountId: { type: DataTypes.INTEGER, allowNull: false }, // keep same spelling as you provided; change to accountId if desired
+    accountId: { type: DataTypes.INTEGER, allowNull: false }, // keep same spelling as you provided; change to accountId if desired
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true }, // id of apparel/admin supply/gen item unit or inventory row
     itemType: { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },

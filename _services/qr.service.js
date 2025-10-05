@@ -110,40 +110,86 @@ async function loadUnitRecord(stockroomType, id) {
   }
   return null;
 }
+// function buildBatchPayloadObject(stockroomType, batch) {
+//   if (stockroomType === 'apparel') {
+//     return {
+//       id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
+//       name:   batch.apparelName       ?? batch.name   ?? null,
+//       size:   batch.apparelSize       ?? batch.size   ?? null,
+//       level:  batch.apparelLevel      ?? batch.level  ?? null,
+//       for:    batch.apparelFor        ?? batch.for    ?? null,
+//       qty:    batch.totalQuantity     ?? batch.qty    ?? null
+//     };
+//   }
+
+//   if (stockroomType === 'supply') {
+//     return {
+//       id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
+//       name:       batch.supplyName            ?? batch.name       ?? null,
+//       category:   batch.supplyCategory        ?? batch.category   ?? null,
+//       qty:        batch.totalQuantity         ?? batch.qty        ?? null
+//     };
+//   }
+
+//   if (stockroomType === 'it' || stockroomType === 'maintenance') {
+//     return {
+//       id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
+//       name:   batch.genItemName       ?? batch.name   ?? null,
+//       size:   batch.genItemSize       ?? batch.size   ?? null,
+//       type:   batch.genItemType       ?? batch.type   ?? null,
+//       qty:    batch.totalQuantity     ?? batch.qty        ?? null
+//     };
+//   }
+
+//   return {
+//     id:     batch.id    ?? null,
+//     name:   batch.name  ?? batch.title ?? null
+//   };
+// }
 function buildBatchPayloadObject(stockroomType, batch) {
+  stockroomType = String(stockroomType || '').toLowerCase();
+
+  // For batch-level QR we only include identifying info (id, name, type, roomId, etc.)
+  // Do NOT include qty — that makes the payload change whenever qty changes.
   if (stockroomType === 'apparel') {
     return {
+      stockroomType: 'apparel',
       id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
       name:   batch.apparelName       ?? batch.name   ?? null,
       size:   batch.apparelSize       ?? batch.size   ?? null,
       level:  batch.apparelLevel      ?? batch.level  ?? null,
       for:    batch.apparelFor        ?? batch.for    ?? null,
-      qty:    batch.totalQuantity     ?? batch.qty    ?? null
+      roomId: batch.roomId ?? null
     };
   }
 
   if (stockroomType === 'supply') {
     return {
+      stockroomType: 'supply',
       id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
       name:       batch.supplyName            ?? batch.name       ?? null,
       category:   batch.supplyCategory        ?? batch.category   ?? null,
-      qty:        batch.totalQuantity         ?? batch.qty        ?? null
+      roomId:     batch.roomId ?? null
     };
   }
 
-  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+  if (stockroomType === 'it' || stockroomType === 'maintenance' || stockroomType === 'genitem') {
     return {
+      stockroomType: stockroomType,
       id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
       name:   batch.genItemName       ?? batch.name   ?? null,
       size:   batch.genItemSize       ?? batch.size   ?? null,
       type:   batch.genItemType       ?? batch.type   ?? null,
-      qty:    batch.totalQuantity     ?? batch.qty        ?? null
+      roomId: batch.roomId ?? null
     };
   }
 
+  // generic fallback
   return {
+    stockroomType: stockroomType,
     id:     batch.id    ?? null,
-    name:   batch.name  ?? batch.title ?? null
+    name:   batch.name  ?? batch.title ?? null,
+    roomId: batch.roomId ?? null
   };
 }
 function buildUnitPayloadObject(stockroomType, unit) {

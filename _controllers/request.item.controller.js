@@ -9,19 +9,19 @@ const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
 
 // create request (teacher or room in-charge)
-router.post('/', authorize(Role.SuperAdmin, Role.Admin), createSchema, createRequest);
+router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSchema, createRequest);
 
 // list & get
-router.get('/', authorize(Role.SuperAdmin, Role.Admin), listRequests);
-router.get('/:id', authorize(Role.SuperAdmin, Role.Admin), getRequestById);
+router.get('/',     authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
+router.get('/:id',  authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
 
 // stockroom accept/decline (stockroom admins)
-router.post('/:id/accept', authorize(Role.SuperAdmin, Role.Admin), acceptRequest);
-router.post('/:id/decline', authorize(Role.SuperAdmin, Role.Admin), declineRequest);
-router.post('/:id/release', authorize(Role.SuperAdmin, Role.Admin), releaseRequest);
+router.post('/:id/accept',  authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
+router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin]), declineRequest);
+router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin]), releaseRequest);
 
 // requester fulfills an accepted request
-router.post('/:id/fulfill', authorize(Role.SuperAdmin, Role.Admin), fulfillRequest);
+router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), fulfillRequest);
 
 module.exports = router;
 
@@ -32,7 +32,7 @@ function createSchema(req, res, next) {
     itemId: Joi.number().integer().allow(null),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).optional()
+    note: Joi.string().max(500).allow('', null).optional(),
   });
   validateRequest(req, next, schema);
 }

@@ -9,8 +9,8 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ acccountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
-  if (!acccountId) throw { status: 400, message: 'acccountId is required' };
+async function createStockRequest({ accountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
+  if (!accountId) throw { status: 400, message: 'acccountId is required' };
   if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
@@ -24,7 +24,7 @@ async function createStockRequest({ acccountId, requesterRoomId = null, itemId =
   }
 
   const req = await db.StockRequest.create({
-    acccountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
+    accountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
   });
 
   return req;

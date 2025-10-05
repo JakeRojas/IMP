@@ -1,61 +1,35 @@
-// _controllers/stockRequest.controller.js
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
+const router  = express.Router();
+const Joi     = require('joi');
 
 const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
-const stockService = require('_services/request.stock.service');
+const authorize       = require('_middlewares/authorize');
+const Role            = require('_helpers/role');
+const stockService    = require('_services/request.stock.service');
 
-// create a stock request (stockroom in-charge)
-router.post('/', authorize(Role.SuperAdmin, Role.Admin), createSchema, createStockRequestHandler);
+router.post('/',  authorize([Role.SuperAdmin, Role.StockroomAdmin]),              createSchema, createStockRequestHandler);
+router.get('/',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]),  listRequests);
 
-// list (admins or stockroom users)
-router.get('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), listRequests);
-router.get('/:stockRequestId', authorize(Role.SuperAdmin, Role.Admin), getRequestById);
+router.get('/:stockRequestId',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRequestById);
 
-// approve / disapprove (administration: SuperAdmin or Admin)
-router.post('/:id/approve', authorize(Role.SuperAdmin, Role.Admin), approveRequest);
-router.post('/:id/disapprove', authorize(Role.SuperAdmin, Role.Admin), disapproveRequest);
-
-// fulfill (stockroom in-charge fulfills an approved request)
-router.post('/:id/fulfill', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), fulfillRequest);
+router.post('/:id/approve',     authorize([Role.SuperAdmin, Role.Admin]),           approveRequest);
+router.post('/:id/disapprove',  authorize([Role.SuperAdmin, Role.Admin]),           disapproveRequest);
+router.post('/:id/fulfill',     authorize([Role.SuperAdmin, Role.StockroomAdmin]),  fulfillRequest);
 
 module.exports = router;
 
-/* Schemas */
 function createSchema(req, res, next) {
   const schema = Joi.object({
-    acccountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
+    accountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
     requesterRoomId: Joi.number().integer().optional(),
     itemId: Joi.number().integer().optional(),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).optional()
+    note: Joi.string().max(500).allow('', null).optional(),
   });
   validateRequest(req, next, schema);
 }
 
-/* Handlers */
-// async function createRequest(req, res, next) {
-//   // try {
-//   //   const payload = req.body;
-//   //   // prefer authenticated account if available
-//   //   if (req.user && req.user.accountId) payload.acccountId = payload.acccountId || req.user.accountId;
-//   //   const created = await stockService.createStockRequest(payload);
-//   //   res.status(201).json({ success: true, data: created });
-//   // } catch (err) { next(err); }
-//   try {
-//     console.log('POST /req-stock body:', req.body, 'user:', req.user);
-//     const created = await service.createStockRequest(req.body);
-//     res.json({ data: created });
-//   } catch (err) {
-//     console.error('Error creating stock request:', err);
-//     // return friendly message and status
-//     res.status(err.status || 500).json({ message: err.message || 'Server error', details: err });
-//   }
-// }
 async function createStockRequestHandler(req, res) {
   try {
     console.log('POST /req-stock body:', req.body, 'user:', req.user && { id: req.user.accountId || req.user.id, role: req.user.role });

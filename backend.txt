@@ -112,7 +112,7 @@ Inventory Management Project
 
 ================================================================================
 File: server.js
-Size: 3.8 kB
+Size: 3.58 kB
 ================================================================================
 
 require('rootpath')();
@@ -159,9 +159,6 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 // ─── API ROUTES ────────────────────────────────────────────────
 app.use('/rooms',       require('./_controllers/room.controller'));
 app.use('/accounts',    require('./_controllers/account.controller'));
-//app.use('/items',       require('./_controllers/item.controller'));
-//app.use('/apparels',    require('./_controllers/apparel.controller'));
-//app.use('/supplies',    require('./_controllers/adminSupply.controller'));
 app.use('/qr',          require('./_controllers/qr.controller'));
 app.use('/req-stock',   require('./_controllers/request.stock.controller'));
 app.use('/req-item',    require('./_controllers/request.item.controller'));
@@ -1258,7 +1255,7 @@ async function releaseUnit(req, res, next) {
 
 ================================================================================
 File: _controllers\request.item.controller.js
-Size: 3.69 kB
+Size: 3.83 kB
 ================================================================================
 
 // _controllers/itemRequest.controller.js
@@ -1272,19 +1269,19 @@ const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
 
 // create request (teacher or room in-charge)
-router.post('/', authorize(Role.SuperAdmin, Role.Admin), createSchema, createRequest);
+router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSchema, createRequest);
 
 // list & get
-router.get('/', authorize(Role.SuperAdmin, Role.Admin), listRequests);
-router.get('/:id', authorize(Role.SuperAdmin, Role.Admin), getRequestById);
+router.get('/',     authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
+router.get('/:id',  authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
 
 // stockroom accept/decline (stockroom admins)
-router.post('/:id/accept', authorize(Role.SuperAdmin, Role.Admin), acceptRequest);
-router.post('/:id/decline', authorize(Role.SuperAdmin, Role.Admin), declineRequest);
-router.post('/:id/release', authorize(Role.SuperAdmin, Role.Admin), releaseRequest);
+router.post('/:id/accept',  authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
+router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin]), declineRequest);
+router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin]), releaseRequest);
 
 // requester fulfills an accepted request
-router.post('/:id/fulfill', authorize(Role.SuperAdmin, Role.Admin), fulfillRequest);
+router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), fulfillRequest);
 
 module.exports = router;
 
@@ -1362,44 +1359,37 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\request.stock.controller.js
-Size: 4.97 kB
+Size: 3.91 kB
 ================================================================================
 
-// _controllers/stockRequest.controller.js
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
+const router  = express.Router();
+const Joi     = require('joi');
 
 const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
-const stockService = require('_services/request.stock.service');
+const authorize       = require('_middlewares/authorize');
+const Role            = require('_helpers/role');
+const stockService    = require('_services/request.stock.service');
 
-// create a stock request (stockroom in-charge)
-router.post('/', authorize(Role.SuperAdmin, Role.Admin), createSchema, createStockRequestHandler);
+router.post('/',  authorize([Role.SuperAdmin, Role.StockroomAdmin]),              createSchema, createStockRequestHandler);
+router.get('/',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]),  listRequests);
 
-// list (admins or stockroom users)
-router.get('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), listRequests);
-router.get('/:stockRequestId', authorize(Role.SuperAdmin, Role.Admin), getRequestById);
+router.get('/:stockRequestId',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRequestById);
 
-// approve / disapprove (administration: SuperAdmin or Admin)
-router.post('/:id/approve', authorize(Role.SuperAdmin, Role.Admin), approveRequest);
-router.post('/:id/disapprove', authorize(Role.SuperAdmin, Role.Admin), disapproveRequest);
-
-// fulfill (stockroom in-charge fulfills an approved request)
-router.post('/:id/fulfill', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), fulfillRequest);
+router.post('/:id/approve',     authorize([Role.SuperAdmin, Role.Admin]),           approveRequest);
+router.post('/:id/disapprove',  authorize([Role.SuperAdmin, Role.Admin]),           disapproveRequest);
+router.post('/:id/fulfill',     authorize([Role.SuperAdmin, Role.StockroomAdmin]),  fulfillRequest);
 
 module.exports = router;
 
-/* Schemas */
 function createSchema(req, res, next) {
   const schema = Joi.object({
-    acccountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
+    accountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
     requesterRoomId: Joi.number().integer().optional(),
     itemId: Joi.number().integer().optional(),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).optional()
+    note: Joi.string().max(500).allow('', null).optional(),
   });
   validateRequest(req, next, schema);
 }
@@ -1465,7 +1455,7 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 19.73 kB
+Size: 18.1 kB
 ================================================================================
 
 const express   = require('express');
@@ -1475,55 +1465,50 @@ const fs        = require('fs');
 const path      = require('path');
 
 const roomService       = require('_services/room.service');
-const itemService       = require('_services/item.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
-router.post('/create-room',               authorize(Role.SuperAdmin),             createRoomschema,           createRoom);
-router.post('/:roomId/receive/apparel',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveApparelSchema,       receiveApparel);
-router.post('/:roomId/receive/supply',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveAdminSupplySchema,   receiveAdminSupply);
-router.post('/:roomId/receive/item',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveGenItemSchema,       receiveGenItem);
+router.post('/create-room',               authorize(Role.SuperAdmin), createRoomschema, createRoom);
+router.post('/:roomId/receive/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveApparelSchema,      receiveApparel);
+router.post('/:roomId/receive/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema,  receiveAdminSupply);
+router.post('/:roomId/receive/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema,      receiveGenItem);
 
-router.post('/:roomId/release/apparel',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseApparel);
-router.post('/:roomId/release/supply',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseAdminSupply);
-router.post('/:roomId/release/item',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseGenItem);
-router.post('/:roomId/release',           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseInStockroom);
+router.post('/:roomId/release/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseApparel);
+router.post('/:roomId/release/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseAdminSupply);
+router.post('/:roomId/release/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseGenItem);
+router.post('/:roomId/release',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseInStockroom);
 
 // GET & POST ------------------------------------------------------------------------------
-router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelBatchQr);
-router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyBatchQr);
-router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemBatchQr);
+router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelBatchQr);
+router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyBatchQr);
+router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemBatchQr);
 
-router.get('/:roomId/qr/apparel/unit/:unitId',            authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelUnitQr);
-router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyUnitQr);
+router.get('/:roomId/qr/apparel/unit/:unitId',            authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnitQr);
+router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
-router.get('/',                           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getRooms);
-router.get('/:roomId',                    authorize(), getRoomById);
+router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRooms);
+router.get('/:roomId',  authorize(), getRoomById);
 // Apparel
-router.get('/:roomId/receive-apparels',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelUnits);
-router.get('/:roomId/apparel-inventory',  authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelInventory);
-router.get('/:roomId/release-apparels',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleaseApparels);
+router.get('/:roomId/receive-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveApparels);
+router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnits);
+router.get('/:roomId/apparel-inventory',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelInventory);
+router.get('/:roomId/release-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleaseApparels);
 // Admin Supply
-router.get('/:roomId/receive-supply',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveAdminSupply);
-router.get('/:roomId/supply',             authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyUnits);
-router.get('/:roomId/supply-inventory',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyInventory);
-router.get('/:roomId/release-supply',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleasedBatchAdminSupply);
+router.get('/:roomId/receive-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveAdminSupply);
+router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnits);
+router.get('/:roomId/supply-inventory',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyInventory);
+router.get('/:roomId/release-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedBatchAdminSupply);
 // General Items
-router.get('/:roomId/receive-items',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveGenItem);
-router.get('/:roomId/items',              authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemUnits);
-router.get('/:roomId/items-inventory',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemInventory);
-router.get('/:roomId/release-items',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleasedGenItems);
+router.get('/:roomId/receive-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveGenItem);
+router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemUnits);
+router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemInventory);
+router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
 // PUT -------------------------------------------------------------------------------------
-router.put('/:roomId',             authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema,   updateRoom);
-//router.put('/:roomId/item/status', authorize(Role.SuperAdmin, Role.Admin),  updateItemStatus);
-router.put('/:roomId/apparels/:apparelId/status', authorize(Role.SuperAdmin, Role.Admin), updateApparelStatus);
-router.put('/:roomId/admin-supplies/:adminSupplyId/status', authorize(Role.SuperAdmin, Role.Admin), updateAdminSupplyStatus);
-router.put('/:roomId/gen-items/:genItemId/status', authorize(Role.SuperAdmin, Role.Admin), updateGenItemStatus);
+router.put('/:roomId',  authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema, updateRoom);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -1548,8 +1533,8 @@ function createRoomschema(req, res, next) {
   const schema = Joi.object({
       roomName: Joi.string().required().min(1).max(30),
       roomFloor: Joi.string().required().min(1).max(5),
-      roomType: Joi.string().valid('stockroom','subStockroom','office','classroom','comfortroom','openarea','unknownroom').required(),
-      stockroomType: Joi.string().valid('apparel','supply','it','maintenance','unknownType').allow(null).optional(),
+      roomType: Joi.string().valid('stockroom','subStockroom','office','classroom', 'openarea').required(),
+      stockroomType: Joi.string().valid('apparel','supply','general').allow(null).optional(),
       roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
@@ -1558,8 +1543,8 @@ function updateRoomSchema(req, res, next) {
   const schema = Joi.object({
     roomName: Joi.string().min(1).max(30).empty(),
     roomFloor: Joi.string().min(1).max(5).empty(),
-    roomType: Joi.string().valid('stockroom','subStockroom','office','classroom').empty(''),
-    stockroomType: Joi.string().valid('apparel','supply','it','maintenance','unknownType').allow(null).empty(),
+    roomType: Joi.string().valid('stockroom','subStockroom','office','classroom', 'openarea').empty(''),
+    stockroomType: Joi.string().valid('apparel','supply','general').allow(null).empty(),
     roomInCharge: Joi.number().integer().min(0).empty()
   });
   validateRequest(req, next, schema);
@@ -1900,43 +1885,6 @@ async function getAdminSupplyUnitQr(req, res, next) {
   }
 }
 
-
-async function updateApparelStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateApparelStatus({
-      roomId: req.params.roomId,
-      apparelId: req.params.apparelId,
-      status: req.body.status,
-      //userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
-}
-
-async function updateAdminSupplyStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateAdminSupplyStatus({
-      roomId: req.params.roomId,
-      adminSupplyId: req.params.adminSupplyId,
-      status: req.body.status,
-      userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
-}
-
-async function updateGenItemStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateGenItemStatus({
-      roomId: req.params.roomId,
-      genItemId: req.params.genItemId,
-      status: req.body.status,
-      userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
-}
-
 ================================================================================
 File: _controllers\transfer.controller.js
 Size: 3.37 kB
@@ -2219,15 +2167,15 @@ function dbAssociations() {
 
 ================================================================================
 File: _helpers\role.js
-Size: 155 B
+Size: 156 B
 ================================================================================
 
 module.exports = {
     SuperAdmin: 'superAdmin',
     Admin: 'admin',
-    User: 'user',
     StockroomAdmin: 'stockroomAdmin',
-    Teacher: 'teacher'
+    Teacher: 'teacher',
+    User: 'user',
 }
 
 ================================================================================
@@ -2291,7 +2239,7 @@ module.exports = router;
 
 ================================================================================
 File: _middlewares\authorize.js
-Size: 2.69 kB
+Size: 2.93 kB
 ================================================================================
 
 const { expressjwt: jwt }   = require('express-jwt');
@@ -2746,7 +2694,6 @@ module.exports = (sequelize) => {
     return sequelize.define('ReleaseApparel', attributes, options);
 };
 
-
 ================================================================================
 File: _models\genItem\genItem.model.js
 Size: 832 B
@@ -2986,7 +2933,7 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     stockRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    acccountId: { type: DataTypes.INTEGER, allowNull: false }, // keep same spelling as you provided; change to accountId if desired
+    accountId: { type: DataTypes.INTEGER, allowNull: false }, // keep same spelling as you provided; change to accountId if desired
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true }, // id of apparel/admin supply/gen item unit or inventory row
     itemType: { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
@@ -3007,7 +2954,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\room.model.js
-Size: 930 B
+Size: 890 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3019,12 +2966,11 @@ module.exports = (sequelize) => {
     roomFloor:      { type: DataTypes.STRING,   allowNull: false },
     roomType:       { type: DataTypes.ENUM(
                         'stockroom', 'subStockroom', 
-                        'office', 'classroom'
+                        'office', 'classroom', 'openarea'
                         ), 
                       allowNull: false, defaultValue: 'classroom' },
     stockroomType:  { type: DataTypes.ENUM(
-                        'apparel', 'supply', 'it', 
-                        'maintenance', 'unknownType' 
+                        'apparel', 'supply', 'general'
                         ), 
                       allowNull: true },
     roomInCharge:   { type: DataTypes.INTEGER,  allowNull: false }
@@ -3850,8 +3796,8 @@ Size: 15.55 kB
 
 // _services/itemRequest.service.js
 const db = require('_helpers/db-handler');
-const apparelService = require('_services/apparel.service');
-const adminSupplyService = require('_services/adminSupply.service');
+//const apparelService = require('_services/apparel.service');
+//const adminSupplyService = require('_services/adminSupply.service');
 const Role = require('_helpers/role');
 
 module.exports = {
@@ -4118,8 +4064,8 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ acccountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
-  if (!acccountId) throw { status: 400, message: 'acccountId is required' };
+async function createStockRequest({ accountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
+  if (!accountId) throw { status: 400, message: 'acccountId is required' };
   if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
@@ -4133,7 +4079,7 @@ async function createStockRequest({ acccountId, requesterRoomId = null, itemId =
   }
 
   const req = await db.StockRequest.create({
-    acccountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
+    accountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
   });
 
   return req;

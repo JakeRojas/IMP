@@ -1,7 +1,7 @@
 // _services/itemRequest.service.js
 const db = require('_helpers/db-handler');
-const apparelService = require('_services/apparel.service');
-const adminSupplyService = require('_services/adminSupply.service');
+//const apparelService = require('_services/apparel.service');
+//const adminSupplyService = require('_services/adminSupply.service');
 const Role = require('_helpers/role');
 
 module.exports = {

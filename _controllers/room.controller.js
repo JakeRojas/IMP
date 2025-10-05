@@ -5,55 +5,50 @@ const fs        = require('fs');
 const path      = require('path');
 
 const roomService       = require('_services/room.service');
-const itemService       = require('_services/item.service');
 const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
-router.post('/create-room',               authorize(Role.SuperAdmin),             createRoomschema,           createRoom);
-router.post('/:roomId/receive/apparel',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveApparelSchema,       receiveApparel);
-router.post('/:roomId/receive/supply',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveAdminSupplySchema,   receiveAdminSupply);
-router.post('/:roomId/receive/item',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), receiveGenItemSchema,       receiveGenItem);
+router.post('/create-room',               authorize(Role.SuperAdmin), createRoomschema, createRoom);
+router.post('/:roomId/receive/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveApparelSchema,      receiveApparel);
+router.post('/:roomId/receive/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema,  receiveAdminSupply);
+router.post('/:roomId/receive/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema,      receiveGenItem);
 
-router.post('/:roomId/release/apparel',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseApparel);
-router.post('/:roomId/release/supply',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseAdminSupply);
-router.post('/:roomId/release/item',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseGenItem);
-router.post('/:roomId/release',           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), releaseInStockroom);
+router.post('/:roomId/release/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseApparel);
+router.post('/:roomId/release/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseAdminSupply);
+router.post('/:roomId/release/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseGenItem);
+router.post('/:roomId/release',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseInStockroom);
 
 // GET & POST ------------------------------------------------------------------------------
-router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelBatchQr);
-router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyBatchQr);
-router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemBatchQr);
+router.get('/:roomId/qr/apparel/batch/:inventoryId',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelBatchQr);
+router.get('/:roomId/qr/admin-supply/batch/:inventoryId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyBatchQr);
+router.get('/:roomId/qr/general-item/batch/:inventoryId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemBatchQr);
 
-router.get('/:roomId/qr/apparel/unit/:unitId',            authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelUnitQr);
-router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyUnitQr);
+router.get('/:roomId/qr/apparel/unit/:unitId',            authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnitQr);
+router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
-router.get('/',                           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getRooms);
-router.get('/:roomId',                    authorize(), getRoomById);
+router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRooms);
+router.get('/:roomId',  authorize(), getRoomById);
 // Apparel
-router.get('/:roomId/receive-apparels',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelUnits);
-router.get('/:roomId/apparel-inventory',  authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getApparelInventory);
-router.get('/:roomId/release-apparels',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleaseApparels);
+router.get('/:roomId/receive-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveApparels);
+router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnits);
+router.get('/:roomId/apparel-inventory',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelInventory);
+router.get('/:roomId/release-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleaseApparels);
 // Admin Supply
-router.get('/:roomId/receive-supply',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveAdminSupply);
-router.get('/:roomId/supply',             authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyUnits);
-router.get('/:roomId/supply-inventory',   authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getAdminSupplyInventory);
-router.get('/:roomId/release-supply',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleasedBatchAdminSupply);
+router.get('/:roomId/receive-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveAdminSupply);
+router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnits);
+router.get('/:roomId/supply-inventory',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyInventory);
+router.get('/:roomId/release-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedBatchAdminSupply);
 // General Items
-router.get('/:roomId/receive-items',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReceiveGenItem);
-router.get('/:roomId/items',              authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemUnits);
-router.get('/:roomId/items-inventory',    authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getGenItemInventory);
-router.get('/:roomId/release-items',      authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin), getReleasedGenItems);
+router.get('/:roomId/receive-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveGenItem);
+router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemUnits);
+router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemInventory);
+router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
 // PUT -------------------------------------------------------------------------------------
-router.put('/:roomId',             authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema,   updateRoom);
-//router.put('/:roomId/item/status', authorize(Role.SuperAdmin, Role.Admin),  updateItemStatus);
-router.put('/:roomId/apparels/:apparelId/status', authorize(Role.SuperAdmin, Role.Admin), updateApparelStatus);
-router.put('/:roomId/admin-supplies/:adminSupplyId/status', authorize(Role.SuperAdmin, Role.Admin), updateAdminSupplyStatus);
-router.put('/:roomId/gen-items/:genItemId/status', authorize(Role.SuperAdmin, Role.Admin), updateGenItemStatus);
+router.put('/:roomId',  authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema, updateRoom);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -428,41 +423,4 @@ async function getAdminSupplyUnitQr(req, res, next) {
       return res.status(err.status).json({ message: err.message });
     next(err);
   }
-}
-
-
-async function updateApparelStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateApparelStatus({
-      roomId: req.params.roomId,
-      apparelId: req.params.apparelId,
-      status: req.body.status,
-      //userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
-}
-
-async function updateAdminSupplyStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateAdminSupplyStatus({
-      roomId: req.params.roomId,
-      adminSupplyId: req.params.adminSupplyId,
-      status: req.body.status,
-      userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
-}
-
-async function updateGenItemStatus(req, res, next) {
-  try {
-    const updated = await itemService.updateGenItemStatus({
-      roomId: req.params.roomId,
-      genItemId: req.params.genItemId,
-      status: req.body.status,
-      userId: req.user.accountId
-    });
-    res.json(updated);
-  } catch (err) { next(err); }
 }

@@ -7,6 +7,7 @@ const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 const accountService    = require('_services/account.service');
+const db                = require('_helpers/db-handler');
 
 router.post('/register',                registerSchema, register);
 router.post('/authenticate',            authenticateSchema, authenticate);
@@ -19,6 +20,7 @@ router.post('/reset-password',          resetPasswordSchema, resetPassword);
 
 router.post('/:accountId/activity',     authorize(), getActivities);
 router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivityLogs);
+router.get('/exists',                   existsAccount);
 
 router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
 router.get('/',                         authorize (Role.SuperAdmin), getAll);
@@ -140,19 +142,45 @@ function revokeTokenSchema(req, res, next) {
     });
     validateRequest(req, next, schema);
 }
-function revokeToken (req, res, next) {
-    const token = req.body.token || req.cookies.refreshToken; 
-    const ipAddress = req.ip;
+// function revokeToken (req, res, next) {
+//     const token = req.body.token || req.cookies.refreshToken; 
+//     const ipAddress = req.ip;
 
-    if (!token) return res.status(400).json({ message: 'Token is required' });
+//     if (!token) return res.status(400).json({ message: 'Token is required' });
     
-    if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
-        return res.status(401).json({ message: 'Unauthorized' });
-    }
+//     if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
+//         return res.status(401).json({ message: 'Unauthorized' });
+//     }
 
-    accountService.revokeToken({token, ipAddress })
-        .then(() =>res.json({ message: 'Token revoked' }))
-        .catch(next);
+//     accountService.revokeToken({token, ipAddress })
+//         .then(() =>res.json({ message: 'Token revoked' }))
+//         .catch(next);
+// }
+async function revokeToken (req, res, next) {
+    try {
+        const token = req.body.token || req.cookies.refreshToken;
+        const ipAddress = req.ip;
+
+        if (!token) return res.status(400).json({ message: 'Token is required' });
+
+        // Find refresh token (validate it)
+        const refreshToken = await db.RefreshToken.findOne({ where: { token } });
+        if (!refreshToken || !refreshToken.isActive) {
+            // Keep response consistent with service errors
+            return res.status(400).json({ message: 'Invalid token' });
+        }
+
+        // Ensure token belongs to caller or caller is SuperAdmin
+        if (refreshToken.accountId !== req.user.accountId && req.user.role !== Role.SuperAdmin) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        // Revoke via service (keeps single place for revoke logic)
+        await accountService.revokeToken({ token, ipAddress });
+        return res.json({ message: 'Token revoked' });
+    } catch (err) {
+        next(err);
+    }
 }
 function registerSchema(req, res, next) {
     const schema = Joi.object({
@@ -170,6 +198,16 @@ function register(req, res, next) {
         .then(() => res.json({ message: 'Registration successful, please check your email for verification instructions' })) 
         .catch(next);
 }
+async function existsAccount(req, res, next) {
+    try {
+      const total = await db.Account.count();
+      const exists = (total && total > 0);
+      return res.json({ exists });
+    } catch (err) {
+      console.error('accounts.exists error:', err && err.stack ? err.stack : err);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
+  }
 function verifyEmailSchema(req, res, next) {
     const schema = Joi.object({
         token: Joi.string().required()
