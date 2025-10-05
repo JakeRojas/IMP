@@ -1,8 +1,5 @@
 node_modules
 uploads
-
-config.json
-
+config
 notes.md
-
 env
