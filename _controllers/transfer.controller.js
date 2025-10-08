@@ -1,45 +1,38 @@
 // _controllers/transfer.controller.js
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
+const router  = express.Router();
+const Joi     = require('joi');
 
 const transferService = require('_services/transfer.service');
 const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
+const authorize       = require('_middlewares/authorize');
+const Role            = require('_helpers/role');
 
-// create transfer (teacher/admin/room-in-charge)
 router.post('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), createSchema, createTransfer);
 
-// list & get
-router.get('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), listTransfers);
-router.get('/:id', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), getById);
+router.get('/',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), listTransfers);
+router.get('/:id',  authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), getById);
 
-// accept by receiving room (confirm receipt)
-router.post('/:id/accept', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptTransfer);
-
-// receiver initiates return
-router.post('/:id/return', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), returnTransfer);
-
-// original sender accepts returned
+router.post('/:id/accept',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptTransfer);
+router.post('/:id/return',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), returnTransfer);
 router.post('/:id/accept-return', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptReturned);
 
 module.exports = router;
 
-/* Schemas */
+// Schemas
 function createSchema(req, res, next) {
   const schema = Joi.object({
     fromRoomId: Joi.number().integer().required(),
     toRoomId: Joi.number().integer().required(),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
-    itemId: Joi.number().integer().required(), // inventory aggregate id
+    itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).optional()
   });
   validateRequest(req, next, schema);
 }
 
-/* Handlers */
+// Handlers
 async function createTransfer(req, res, next) {
   try {
     const payload = req.body;
@@ -48,7 +41,6 @@ async function createTransfer(req, res, next) {
     res.status(201).json({ success: true, data: created });
   } catch (err) { next(err); }
 }
-
 async function listTransfers(req, res, next) {
   try {
     const where = {};
@@ -57,14 +49,12 @@ async function listTransfers(req, res, next) {
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 }
-
 async function getById(req, res, next) {
   try {
     const tr = await transferService.getById(parseInt(req.params.id, 10));
     res.json({ success: true, data: tr });
   } catch (err) { next(err); }
 }
-
 async function acceptTransfer(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -72,7 +62,6 @@ async function acceptTransfer(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function returnTransfer(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -80,7 +69,6 @@ async function returnTransfer(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function acceptReturned(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);

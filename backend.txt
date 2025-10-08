@@ -58,7 +58,7 @@ Size: 626 B
 
 ================================================================================
 File: package.json
-Size: 994 B
+Size: 1.02 kB
 ================================================================================
 
 {
@@ -88,6 +88,7 @@ Size: 994 B
     "mysql2": "^3.12.0",
     "ngrok": "^5.0.0-beta.2",
     "nodemailer": "^6.10.0",
+    "pdfkit": "^0.17.2",
     "qrcode": "^1.5.4",
     "rootpath": "^0.1.2",
     "sequelize": "^6.37.5",
@@ -869,7 +870,7 @@ components:
 
 ================================================================================
 File: _controllers\account.controller.js
-Size: 11.78 kB
+Size: 12.82 kB
 ================================================================================
 
 // main functions of account controller
@@ -881,6 +882,7 @@ const validateRequest   = require('_middlewares/validate-request');
 const authorize         = require('_middlewares/authorize');
 const Role              = require('_helpers/role');
 const accountService    = require('_services/account.service');
+const db                = require('_helpers/db-handler');
 
 router.post('/register',                registerSchema, register);
 router.post('/authenticate',            authenticateSchema, authenticate);
@@ -893,6 +895,7 @@ router.post('/reset-password',          resetPasswordSchema, resetPassword);
 
 router.post('/:accountId/activity',     authorize(), getActivities);
 router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivityLogs);
+router.get('/exists',                   existsAccount);
 
 router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
 router.get('/',                         authorize (Role.SuperAdmin), getAll);
@@ -1007,26 +1010,38 @@ async function refreshToken(req, res, next) {
       // fallback: don't expose internal errors
       return res.status(500).json({ message: 'Unexpected server error' });
     }
-  }
+}
 function revokeTokenSchema(req, res, next) { 
     const schema = Joi.object({
         token: Joi.string().empty('')
     });
     validateRequest(req, next, schema);
 }
-function revokeToken (req, res, next) {
-    const token = req.body.token || req.cookies.refreshToken; 
-    const ipAddress = req.ip;
+async function revokeToken (req, res, next) {
+    try {
+        const token = req.body.token || req.cookies.refreshToken;
+        const ipAddress = req.ip;
 
-    if (!token) return res.status(400).json({ message: 'Token is required' });
-    
-    if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
-        return res.status(401).json({ message: 'Unauthorized' });
+        if (!token) return res.status(400).json({ message: 'Token is required' });
+
+        // Find refresh token (validate it)
+        const refreshToken = await db.RefreshToken.findOne({ where: { token } });
+        if (!refreshToken || !refreshToken.isActive) {
+            // Keep response consistent with service errors
+            return res.status(400).json({ message: 'Invalid token' });
+        }
+
+        // Ensure token belongs to caller or caller is SuperAdmin
+        if (refreshToken.accountId !== req.user.accountId && req.user.role !== Role.SuperAdmin) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        // Revoke via service (keeps single place for revoke logic)
+        await accountService.revokeToken({ token, ipAddress });
+        return res.json({ message: 'Token revoked' });
+    } catch (err) {
+        next(err);
     }
-
-    accountService.revokeToken({token, ipAddress })
-        .then(() =>res.json({ message: 'Token revoked' }))
-        .catch(next);
 }
 function registerSchema(req, res, next) {
     const schema = Joi.object({
@@ -1043,6 +1058,16 @@ function register(req, res, next) {
     accountService.register(req.body, req.get('origin'))
         .then(() => res.json({ message: 'Registration successful, please check your email for verification instructions' })) 
         .catch(next);
+}
+async function existsAccount(req, res, next) {
+    try {
+      const total = await db.Account.count();
+      const exists = (total && total > 0);
+      return res.json({ exists });
+    } catch (err) {
+      console.error('accounts.exists error:', err && err.stack ? err.stack : err);
+      return res.status(500).json({ message: 'Internal server error' });
+    }
 }
 function verifyEmailSchema(req, res, next) {
     const schema = Joi.object({
@@ -1176,12 +1201,13 @@ function setTokenCookie(res, token) {
 
 ================================================================================
 File: _controllers\qr.controller.js
-Size: 3.04 kB
+Size: 8.88 kB
 ================================================================================
 
-const fs      = require('fs');
-const express = require('express');
-const router  = express.Router();
+const PDFDocument = require('pdfkit');
+const fs          = require('fs');
+const express     = require('express');
+const router      = express.Router();
 
 const qrService   = require('_services/qr.service'); 
 const db          = require('_helpers/db-handler');
@@ -1189,26 +1215,29 @@ const db          = require('_helpers/db-handler');
 router.post('/scan',                                scanItem);
 router.post('/:stockroomType/unit/:unitId/release', releaseUnit);
 
-router.get('/:stockroomType/:inventoryId/qrcode', qrGeneratorBatch);
+router.get('/:stockroomType/:inventoryId/qrcode', getBatchQr);
 router.get('/:stockroomType/unit/:unitId/qrcode', qrGeneratorUnit);
+
+router.get('/:stockroomType/room/:roomId/pdf-all', generateAllPdf);
 
 module.exports = router;
 
-async function qrGeneratorBatch(req, res, next) {
+async function getBatchQr(req, res, next) {
   try {
-    const stockroomType = req.params.stockroomType; 
-    const inventoryId = parseInt(req.params.inventoryId, 10);
-    if (!stockroomType || Number.isNaN(inventoryId)) return res.status(400).json({ message: 'Invalid params' });
+    const stockroomType = String(req.params.stockroomType || '').toLowerCase();
+    const inventoryId = Number(req.params.inventoryId);
+    const out = await qrService.generateBatchQR({ stockroomType, inventoryId });
+    const pngPath = out && (out.absolutePath || out.path || out.filepath);
+    if (!pngPath || !fs.existsSync(pngPath)) return res.status(404).json({ message: 'QR not found' });
 
-    const { filename, absolutePath } = await qrService.generateBatchQR({ stockroomType, inventoryId });
-    const buffer = await fs.promises.readFile(absolutePath);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.type('png').send(buffer);
-  } catch (err) { next(err); }
+    res.sendFile(pngPath);
+  } catch (err) {
+    next(err);
+  }
 }
 async function qrGeneratorUnit(req, res, next) {
   try {
-    const stockroomType = req.params.stockroomType;   // 'apparel' or 'adminSupply'
+    const stockroomType = req.params.stockroomType; 
     const unitId = parseInt(req.params.unitId, 10);
     if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
 
@@ -1218,17 +1247,15 @@ async function qrGeneratorUnit(req, res, next) {
     res.type('png').send(buffer);
   } catch (err) { next(err); }
 }
-
 async function scanItem(req, res, next) {
   try {
     const { qrId } = req.body;
-    const item = await itemService.scanItem(qrId);
+    const item = await qrService.scanItem(qrId);
     return res.json({ item });
   } catch (err) {
     next(err);
   }
 }
-
 async function releaseUnit(req, res, next) {
   try {
     const stockroomType = req.params.stockroomType;
@@ -1252,52 +1279,187 @@ async function releaseUnit(req, res, next) {
     }
   } catch (err) { next(err); }
 }
+async function generateAllPdf(req, res, next) {
+  try {
+    const stockroomType = String(req.params.stockroomType || '').toLowerCase();
+    const roomId = parseInt(req.params.roomId, 10);
+    if (!stockroomType || Number.isNaN(roomId)) return res.status(400).json({ message: 'Invalid params' });
+
+    // Load inventory for the room/type (adapt model names to your project if needed)
+    let inventory = [];
+    if (stockroomType === 'apparel') {
+      inventory = await db.ApparelInventory.findAll({ where: { roomId } });
+    } else if (stockroomType === 'supply') {
+      inventory = await db.AdminSupplyInventory.findAll({ where: { roomId } });
+    } else if (stockroomType === 'genitem' || stockroomType === 'it' || stockroomType === 'maintenance') {
+      inventory = await db.GenItemInventory.findAll({ where: { roomId } });
+    } else {
+      const modelName = stockroomType + 'Inventory';
+      if (db[modelName]) inventory = await db[modelName].findAll({ where: { roomId } });
+    }
+
+    if (!inventory || inventory.length === 0) {
+      return res.status(404).json({ message: 'No inventory found for this room/type' });
+    }
+
+    // Helper to safely read candidate fields (also checks dataValues for Sequelize instances)
+    function tryFields(obj, ...keys) {
+      if (!obj) return null;
+      for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+        if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
+      }
+      return null;
+    }
+
+    // Build array of items with image path and label (sku). Keep invId for fallback or later use.
+    const qrItems = [];
+    for (let idx = 0; idx < inventory.length; idx++) {
+      const inv = inventory[idx];
+      const invId = tryFields(inv,
+        'receiveApparelId', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'id'
+      );
+
+      const out = await qrService.generateBatchQR({ stockroomType, inventoryId: invId });
+      const pngPath = out && (out.absolutePath || out.path || out.filepath);
+
+      const labelCandidate = tryFields(inv,
+        'sku', 'code', 'itemCode', 'apparelSku', 'adminSupplyCode', 'genItemSku',
+        'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName',
+        'description', 'serialNumber'
+      );
+
+      // Final label fallback order:
+      // 1) labelCandidate (preferred)
+      // 2) invId (if present)
+      // 3) "Item #<index+1>" as last resort to avoid 'undefined'
+      const label = labelCandidate !== null && labelCandidate !== undefined
+        ? String(labelCandidate)
+        : (invId !== undefined && invId !== null ? String(invId) : `Item #${idx + 1}`);
+
+      if (pngPath) {
+        qrItems.push({ imgPath: pngPath, label, invId });
+      } else {
+        // optionally include items without PNG (they will show "QR missing" placeholders)
+        qrItems.push({ imgPath: null, label, invId });
+      }
+    }
+
+    if (!qrItems.length) {
+      return res.status(404).json({ message: 'No QR images generated' });
+    }
+
+    // Prepare PDF response
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="qrcodes-${stockroomType}-room-${roomId}.pdf"`);
+
+    const doc = new PDFDocument({ autoFirstPage: false, size: 'LETTER', margin: 0 });
+    doc.pipe(res);
+
+    // Layout constants
+    const POINTS_PER_INCH = 72;
+    const PAGE_WIDTH = 8.5 * POINTS_PER_INCH; // 612
+    const PAGE_HEIGHT = 11 * POINTS_PER_INCH; // 792
+    const MARGIN = 0.5 * POINTS_PER_INCH;     // half inch margin (36pt)
+    const QR_SIDE = 1 * POINTS_PER_INCH;     // 1 inch QR (72pt)
+    const LABEL_HEIGHT = 12;                 // room for label under QR (12pt)
+    const CELL_HEIGHT = QR_SIDE + LABEL_HEIGHT;
+
+    const usableWidth = PAGE_WIDTH - 2 * MARGIN;
+    const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
+
+    // how many fit horizontally / vertically
+    const cols = Math.max(1, Math.floor(usableWidth / QR_SIDE));
+    const rows = Math.max(1, Math.floor(usableHeight / CELL_HEIGHT));
+    const perPage = cols * rows;
+
+    // distribute leftover space as gaps
+    const gapX = (usableWidth - cols * QR_SIDE) / (cols + 1);
+    const gapY = (usableHeight - rows * CELL_HEIGHT) / (rows + 1);
+    const hGap = Math.max(0, gapX);
+    const vGap = Math.max(0, gapY);
+
+    // font defaults
+    doc.font('Helvetica');
+
+    for (let i = 0; i < qrItems.length; i++) {
+      const indexInPage = i % perPage;
+      if (indexInPage === 0) {
+        doc.addPage({ size: 'LETTER', margin: 0 });
+      }
+
+      const col = indexInPage % cols;
+      const row = Math.floor(indexInPage / cols);
+
+      const x = MARGIN + hGap + col * (QR_SIDE + hGap);
+      const y = MARGIN + vGap + row * (CELL_HEIGHT + vGap);
+
+      const { imgPath, label } = qrItems[i];
+
+      if (imgPath && fs.existsSync(imgPath)) {
+        try {
+          doc.image(imgPath, x, y, { width: QR_SIDE, height: QR_SIDE, align: 'center', valign: 'center' });
+        } catch (imgErr) {
+          doc.fontSize(8).text('QR image load error', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
+        }
+      } else {
+        doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
+      }
+
+      // draw SKU label under the QR
+      const labelY = y + QR_SIDE + 4; // small gap between QR and label
+      doc.fontSize(10);
+      doc.text(label, x, labelY, { width: QR_SIDE, align: 'center' });
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error('generateAllPdf error:', err && err.stack ? err.stack : err);
+    return res.status(500).json({ message: 'Internal server error while generating PDF' });
+  }
+}
 
 ================================================================================
 File: _controllers\request.item.controller.js
-Size: 3.83 kB
+Size: 3.72 kB
 ================================================================================
 
 // _controllers/itemRequest.controller.js
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
+const router  = express.Router();
+const Joi     = require('joi');
 
-const itemRequestService = require('_services/request.item.service');
-const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
+const itemRequestService  = require('_services/request.item.service');
+const validateRequest     = require('_middlewares/validate-request');
+const authorize           = require('_middlewares/authorize');
+const Role                = require('_helpers/role');
 
-// create request (teacher or room in-charge)
 router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSchema, createRequest);
 
-// list & get
 router.get('/',     authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
 router.get('/:id',  authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
 
-// stockroom accept/decline (stockroom admins)
 router.post('/:id/accept',  authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
 router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin]), declineRequest);
 router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin]), releaseRequest);
 
-// requester fulfills an accepted request
 router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), fulfillRequest);
 
 module.exports = router;
 
-/* Schemas */
+// Schemas
 function createSchema(req, res, next) {
   const schema = Joi.object({
     requesterRoomId: Joi.number().integer().optional(),
     itemId: Joi.number().integer().allow(null),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).optional()
+    note: Joi.string().max(500).allow('', null).optional(),
   });
   validateRequest(req, next, schema);
 }
 
-/* Handlers */
+// Handlers
 async function createRequest(req, res, next) {
   try {
     const payload = req.body;
@@ -1306,7 +1468,6 @@ async function createRequest(req, res, next) {
     res.status(201).json({ success: true, data: created });
   } catch (err) { next(err); }
 }
-
 async function listRequests(req, res, next) {
   try {
     const where = {};
@@ -1316,21 +1477,18 @@ async function listRequests(req, res, next) {
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 }
-
 async function getRequestById(req, res, next) {
   try {
     const r = await itemRequestService.getItemRequestById(parseInt(req.params.id, 10));
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function acceptRequest(req, res, next) {
   try {
     const r = await itemRequestService.acceptItemRequest(parseInt(req.params.id, 10), req.user.accountId);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function declineRequest(req, res, next) {
   try {
     const reason = req.body.reason || null;
@@ -1338,7 +1496,6 @@ async function declineRequest(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function releaseRequest(req, res, next) {
   try {
     const releaserId = req.user && req.user.accountId;
@@ -1348,7 +1505,6 @@ async function releaseRequest(req, res, next) {
     res.json({ success: true, data: result });
   } catch (err) { next(err); }
 }
-
 async function fulfillRequest(req, res, next) {
   try {
     const r = await itemRequestService.fulfillItemRequest(parseInt(req.params.id, 10), req.user.accountId);
@@ -1359,7 +1515,7 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\request.stock.controller.js
-Size: 3.91 kB
+Size: 3.9 kB
 ================================================================================
 
 const express = require('express');
@@ -1393,7 +1549,6 @@ function createSchema(req, res, next) {
   });
   validateRequest(req, next, schema);
 }
-
 async function createStockRequestHandler(req, res) {
   try {
     console.log('POST /req-stock body:', req.body, 'user:', req.user && { id: req.user.accountId || req.user.id, role: req.user.role });
@@ -1409,7 +1564,6 @@ async function createStockRequestHandler(req, res) {
     return res.status(status).json({ message, details: process.env.NODE_ENV === 'development' ? (err && err.stack ? err.stack : err) : undefined });
   }
 }
-
 async function listRequests(req, res, next) {
   try {
     const where = {};
@@ -1419,7 +1573,6 @@ async function listRequests(req, res, next) {
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 }
-
 async function getRequestById(req, res, next) {
   try {
     const stockRequestId = parseInt(req.params.stockRequestId, 10);
@@ -1427,7 +1580,6 @@ async function getRequestById(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function approveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1435,7 +1587,6 @@ async function approveRequest(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function disapproveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1444,7 +1595,6 @@ async function disapproveRequest(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function fulfillRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1455,7 +1605,7 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 18.1 kB
+Size: 18.68 kB
 ================================================================================
 
 const express   = require('express');
@@ -1694,9 +1844,25 @@ async function releaseInStockroom(req, res, next) {
 async function releaseApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
+
+    // Normalize same as releaseInStockroom: accept releaseQuantity alias
+    if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
+      req.body.releaseApparelQuantity = req.body.releaseQuantity;
+    }
+
+    // Provide defaults for claimedBy/releasedBy so DB non-null constraints don't fail
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
     const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
     res.status(201).json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 async function releaseAdminSupply(req, res, next) {
   try {
@@ -1704,7 +1870,8 @@ async function releaseAdminSupply(req, res, next) {
     const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body);
     res.status(201).json(result);
   } catch (err) { next(err); }
-}async function releaseGenItem(req, res, next) {
+}
+async function releaseGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
     const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body);
@@ -1887,51 +2054,44 @@ async function getAdminSupplyUnitQr(req, res, next) {
 
 ================================================================================
 File: _controllers\transfer.controller.js
-Size: 3.37 kB
+Size: 3.19 kB
 ================================================================================
 
 // _controllers/transfer.controller.js
 const express = require('express');
-const router = express.Router();
-const Joi = require('joi');
+const router  = express.Router();
+const Joi     = require('joi');
 
 const transferService = require('_services/transfer.service');
 const validateRequest = require('_middlewares/validate-request');
-const authorize = require('_middlewares/authorize');
-const Role = require('_helpers/role');
+const authorize       = require('_middlewares/authorize');
+const Role            = require('_helpers/role');
 
-// create transfer (teacher/admin/room-in-charge)
 router.post('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), createSchema, createTransfer);
 
-// list & get
-router.get('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), listTransfers);
-router.get('/:id', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), getById);
+router.get('/',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), listTransfers);
+router.get('/:id',  authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), getById);
 
-// accept by receiving room (confirm receipt)
-router.post('/:id/accept', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptTransfer);
-
-// receiver initiates return
-router.post('/:id/return', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), returnTransfer);
-
-// original sender accepts returned
+router.post('/:id/accept',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptTransfer);
+router.post('/:id/return',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), returnTransfer);
 router.post('/:id/accept-return', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptReturned);
 
 module.exports = router;
 
-/* Schemas */
+// Schemas
 function createSchema(req, res, next) {
   const schema = Joi.object({
     fromRoomId: Joi.number().integer().required(),
     toRoomId: Joi.number().integer().required(),
     itemType: Joi.string().valid('apparel','supply','genItem').required(),
-    itemId: Joi.number().integer().required(), // inventory aggregate id
+    itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).optional()
   });
   validateRequest(req, next, schema);
 }
 
-/* Handlers */
+// Handlers
 async function createTransfer(req, res, next) {
   try {
     const payload = req.body;
@@ -1940,7 +2100,6 @@ async function createTransfer(req, res, next) {
     res.status(201).json({ success: true, data: created });
   } catch (err) { next(err); }
 }
-
 async function listTransfers(req, res, next) {
   try {
     const where = {};
@@ -1949,14 +2108,12 @@ async function listTransfers(req, res, next) {
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 }
-
 async function getById(req, res, next) {
   try {
     const tr = await transferService.getById(parseInt(req.params.id, 10));
     res.json({ success: true, data: tr });
   } catch (err) { next(err); }
 }
-
 async function acceptTransfer(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1964,7 +2121,6 @@ async function acceptTransfer(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function returnTransfer(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1972,7 +2128,6 @@ async function returnTransfer(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function acceptReturned(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -1984,7 +2139,7 @@ async function acceptReturned(req, res, next) {
 
 ================================================================================
 File: _helpers\db-handler.js
-Size: 9.15 kB
+Size: 8.66 kB
 ================================================================================
 
 const config            = require('config.json');
@@ -2115,9 +2270,6 @@ function dbAssociations() {
   db.Room.hasMany(db.StockRequest, { foreignKey: 'requesterRoomId' });
   db.StockRequest.belongsTo(db.Room, { foreignKey: 'requesterRoomId' });
 
-  // Polymorphic-like associations for itemId (no DB constraints so itemId may refer to any of these)
-  // These use `constraints: false` because itemId can point to different models depending on itemType.
-  // You can include all three when querying and check which one is non-null, or conditionally include based on itemType.
   db.StockRequest.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.ApparelInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
 
@@ -2126,9 +2278,6 @@ function dbAssociations() {
 
   db.StockRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
-
-
-
 
   // ---------- ITEM REQUEST associations ----------
   db.Account.hasMany(db.ItemRequest, { foreignKey: 'accountId' });
@@ -2147,8 +2296,6 @@ function dbAssociations() {
   db.ItemRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
 
-
-
   db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy' });
   db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy' });    // who accepted transfer
   db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy' });   // who initiated return
@@ -2157,12 +2304,9 @@ function dbAssociations() {
   db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId' });
   db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId' });
 
-  // Convenience (polymorphic) relations to inventory aggregates.
-  // NOTE: we set constraints: false because itemId can point to different tables
   db.Transfer.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
-
 }
 
 ================================================================================
@@ -2180,7 +2324,7 @@ module.exports = {
 
 ================================================================================
 File: _helpers\send-email.js
-Size: 1.75 kB
+Size: 1.14 kB
 ================================================================================
 
 const nodemailer    = require('nodemailer');
@@ -2188,18 +2332,11 @@ const config        = require('config.json');
 
 module.exports = sendEmail;
 
-// async function sendEmail({ to, subject, html, from = config.emailFrom }) {
-//     const transporter = nodemailer.createTransport(config.smtpOptions);
-//     await transporter.sendMail({ from, to, subject, html});
-// }
-
 async function sendEmail({ to, subject, html, from = config.emailFrom }) {
     let transporter;
-    // If config.smtpOptions looks usable, use it
     if (config.smtpOptions && config.smtpOptions.auth && config.smtpOptions.auth.user && config.smtpOptions.auth.pass) {
       transporter = nodemailer.createTransport(config.smtpOptions);
     } else {
-      // Fallback: create a test account on the fly (Ethereal)
       const testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
@@ -2239,7 +2376,7 @@ module.exports = router;
 
 ================================================================================
 File: _middlewares\authorize.js
-Size: 2.93 kB
+Size: 1.29 kB
 ================================================================================
 
 const { expressjwt: jwt }   = require('express-jwt');
@@ -2249,17 +2386,14 @@ const Role                  = require('_helpers/role');
 
 module.exports = authorize;
 
-// main
 function authorize(roles = []) {
     if (typeof roles === 'string') {
         roles = [roles];
     }
 
     return [
-        // 1) Authenticate JWT token and attach decoded token to request as req.auth
         jwt({ secret, algorithms: ['HS256'], requestProperty: 'auth' }),
 
-        // 2) Authorize based on user role
         async (req, res, next) => {
             try {
                 const account = await db.Account.findByPk(req.auth.accountId);
@@ -2267,12 +2401,10 @@ function authorize(roles = []) {
                     return res.status(401).json({ message: 'Account no longer exists' });
                 }
 
-                // Disallow if role not in allowed list
                 if (roles.length && !roles.includes(account.role)) {
                     return res.status(403).json({ message: 'Forbidden: insufficient permissions' });
                 }
 
-                // Attach essential user details to req.user
                 req.user = { accountId: account.accountId, email: account.email, role: account.role };
                 next();
             } catch (error) {
@@ -2285,7 +2417,7 @@ function authorize(roles = []) {
 
 ================================================================================
 File: _middlewares\error-handler.js
-Size: 717 B
+Size: 561 B
 ================================================================================
 
 //main
@@ -2297,8 +2429,6 @@ function errorHandler(err, req, res, next) {
             const is404 = err.toLowerCase().endsWith('not found');
             const statusCode = is404 ? 404 : 400;
             return res.status(statusCode).json({ message: err });
-        // case err.message && err.message.toLowerCase().includes('deactivated'):
-        //     return res.status(403).json({ message: 'deactivated' });
         case err.name === 'UnauthorizedError':
             return res.status(401).json({ message: 'Unauthorized error-handler' });
         default:
@@ -2380,7 +2510,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\activitylog.model.js
-Size: 806 B
+Size: 673 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -2391,8 +2521,6 @@ function model(sequelize) {
     const attributes = {
         activityLogId:  { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         accountId:      { type: DataTypes.INTEGER,  allowNull: false },
-        // entity: { type: DataTypes.STRING, allowNull: true },
-        // entityId: { type: DataTypes.INTEGER, allowNull: true },
         actionType:     { type: DataTypes.STRING,   allowNull: false },
         actionDetails:  { type: DataTypes.TEXT,     allowNull: true },
         timestamp:      { type: DataTypes.DATE,     defaultValue: DataTypes.NOW },
@@ -2562,7 +2690,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\apparel\apparelInventory.model.js
-Size: 2.11 kB
+Size: 2.2 kB
 ================================================================================
 
 /* 
@@ -2597,7 +2725,8 @@ module.exports = (sequelize) => {
                             allowNull: false  
                         },
     totalQuantity:      { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
-    status:             { type: DataTypes.ENUM('out_of_stock','low_stock','high_stock'), allowNull: false, defaultValue: 'out_of_stock' }
+    status:             { type: DataTypes.ENUM('out_of_stock','low_stock','high_stock'), allowNull: false, defaultValue: 'out_of_stock' },
+    qrStatus:            { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
     };
 
     const options = {
@@ -2892,7 +3021,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\request\item.request.model.js
-Size: 1.31 kB
+Size: 1.18 kB
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -2900,9 +3029,9 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     itemRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    accountId:     { type: DataTypes.INTEGER, allowNull: false }, // requester (teacher / room-in-charge)
-    requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true }, // optional: which room made the request
-    itemId:        { type: DataTypes.INTEGER, allowNull: true }, // polymorphic id -> inventory id or unit id
+    accountId:     { type: DataTypes.INTEGER, allowNull: false },
+    requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true },
+    itemId:        { type: DataTypes.INTEGER, allowNull: true },
     itemType:      { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity:      { type: DataTypes.INTEGER, defaultValue: 1 },
     status:        {
@@ -2925,7 +3054,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\request\stock.request.model.js
-Size: 1.86 kB
+Size: 890 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -2933,9 +3062,9 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     stockRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    accountId: { type: DataTypes.INTEGER, allowNull: false }, // keep same spelling as you provided; change to accountId if desired
+    accountId: { type: DataTypes.INTEGER, allowNull: false },
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
-    itemId: { type: DataTypes.INTEGER, allowNull: true }, // id of apparel/admin supply/gen item unit or inventory row
+    itemId: { type: DataTypes.INTEGER, allowNull: true },
     itemType: { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity: { type: DataTypes.INTEGER, defaultValue: 1 },
     status: { 
@@ -2981,7 +3110,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\transfer.model.js
-Size: 1.47 kB
+Size: 1.29 kB
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -2993,9 +3122,9 @@ function model(sequelize) {
         transferId:      { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     fromRoomId:      { type: DataTypes.INTEGER, allowNull: false },
     toRoomId:        { type: DataTypes.INTEGER, allowNull: false },
-    createdBy:       { type: DataTypes.INTEGER, allowNull: false }, // accountId who initiated
-    itemType:        { type: DataTypes.STRING, allowNull: false }, // 'apparel'|'supply'|'genItem'
-    itemId:          { type: DataTypes.INTEGER, allowNull: true },  // inventoryId or null
+    createdBy:       { type: DataTypes.INTEGER, allowNull: false },
+    itemType:        { type: DataTypes.STRING, allowNull: false },
+    itemId:          { type: DataTypes.INTEGER, allowNull: true },
     quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
 
     status:          { type: DataTypes.STRING, allowNull: false, defaultValue: 'in_transfer' },
@@ -3007,7 +3136,6 @@ function model(sequelize) {
 
     note:            { type: DataTypes.TEXT, allowNull: true },
 
-    //createdAt:       { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     updatedAt:       { type: DataTypes.DATE, allowNull: true }
     };
 
@@ -3021,7 +3149,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _services\account.service.js
-Size: 15.73 kB
+Size: 15.55 kB
 ================================================================================
 
 const config    = require('config.json'); 
@@ -3120,7 +3248,6 @@ async function logActivity(accountId, actionType, ipAddress, browserInfo, update
       throw error;
     }
 }
-  // Add this new service function
 async function getAllActivityLogs(filters = {}) {
   try {
       let whereClause = {};
@@ -3211,7 +3338,7 @@ async function getAccountActivities(accountId, filters = {}) {
           accountId: activity.accountId,
           actionType: activity.actionType,
           actionDetails: activity.actionDetails,
-          timestamp: formattedDate // Replace raw timestamp with formatted date
+          timestamp: formattedDate
       };
   });
   } catch (error) {
@@ -3343,8 +3470,8 @@ async function create(params) {
 }
 async function update(accountId, params, ipAddress, browserInfo) {
   const account = await getAccount(accountId);
-  const oldData = account.toJSON(); // Get current user data as a plain object
-  const updatedFields = []; // Declare updatedFields array
+  const oldData = account.toJSON();
+  const updatedFields = [];
   const nonUserFields = ['ipAddress', 'browserInfo'];
 
   // Check if any meaningful changes are being made
@@ -3414,7 +3541,7 @@ function generateJwtToken(account) {
 }
 function generateRefreshToken(account, ipAddress) {
     return new db.RefreshToken({
-        accountId: account.accountId, // Set the accountId field
+        accountId: account.accountId,
         token: randomTokenString(),
         expires: new Date(Date.now() + 7*24*60*60*1000), 
         createdByIp: ipAddress
@@ -3483,7 +3610,7 @@ async function sendPasswordResetEmail (account, origin) {
 
 ================================================================================
 File: _services\qr.service.js
-Size: 10.69 kB
+Size: 12.58 kB
 ================================================================================
 
 const fs      = require('fs');
@@ -3505,9 +3632,19 @@ module.exports = {
   generateUnitQR,
 
   scanItem,
-  updateItemStatus
+  updateItemStatus,
+
+  markInventoryQrGenerated
 };
 
+function pickFirst(obj, ...keys) {
+  if (!obj) return null;
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+    if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
+  }
+  return null;
+}
 async function loadBatchRecord(stockroomType, id) {
   if (!stockroomType || !id) return null;
 
@@ -3599,39 +3736,39 @@ async function loadUnitRecord(stockroomType, id) {
   return null;
 }
 function buildBatchPayloadObject(stockroomType, batch) {
-  if (stockroomType === 'apparel') {
-    return {
-      id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
-      name:   batch.apparelName       ?? batch.name   ?? null,
-      size:   batch.apparelSize       ?? batch.size   ?? null,
-      level:  batch.apparelLevel      ?? batch.level  ?? null,
-      for:    batch.apparelFor        ?? batch.for    ?? null,
-      qty:    batch.totalQuantity     ?? batch.qty    ?? null
-    };
-  }
+  if (!batch) return { stockroomType };
 
-  if (stockroomType === 'supply') {
-    return {
-      id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
-      name:       batch.supplyName            ?? batch.name       ?? null,
-      category:   batch.supplyCategory        ?? batch.category   ?? null,
-      qty:        batch.totalQuantity         ?? batch.qty        ?? null
-    };
-  }
+  // Common fields we want in every QR
+  const id = pickFirst(batch,
+    // inventory primary keys in different patterns
+    'id', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId',
+    'receiveApparelId', 'receiveAdminSupplyId', 'receiveGenItemId'
+  );
 
-  if (stockroomType === 'it' || stockroomType === 'maintenance') {
-    return {
-      id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
-      name:   batch.genItemName       ?? batch.name   ?? null,
-      size:   batch.genItemSize       ?? batch.size   ?? null,
-      type:   batch.genItemType       ?? batch.type   ?? null,
-      qty:    batch.totalQuantity     ?? batch.qty        ?? null
-    };
-  }
+  const name = pickFirst(batch,
+    'sku', 'code', 'itemCode', 'apparelSku', 'adminSupplyCode', 'genItemSku',
+    'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName', 'description'
+  );
+
+  // Status (inventory-level)
+  const status = pickFirst(batch, 'status', 'itemStatus', 'apparelStatus', 'adminSupplyStatus');
+
+  // totalQuantity fallbacks
+  const totalQuantity = pickFirst(batch,
+    'totalQuantity', 'quantity', 'qty',
+    'apparelQuantity', 'supplyQuantity', 'genItemQuantity',
+    'remainingQuantity', 'availableQuantity'
+  );
+
+  const roomId = pickFirst(batch, 'roomId', 'room_id');
 
   return {
-    id:     batch.id    ?? null,
-    name:   batch.name  ?? batch.title ?? null
+    stockroomType: stockroomType || null,
+    inventoryId: id ?? null,
+    name: name ?? null,
+    status: status ?? null,
+    totalQuantity: (totalQuantity !== null && totalQuantity !== undefined) ? Number(totalQuantity) : null,
+    roomId: roomId ?? null
   };
 }
 function buildUnitPayloadObject(stockroomType, unit) {
@@ -3704,10 +3841,6 @@ async function generateBatchQR(argsOrStockroom) {
     return { filename, absolutePath, publicPath, payload, batch };
   }
 
-  // otherwise, write new PNG (reuse your existing writePngFromPayload or similar)
-  // If you already have a writePngFromPayload(stockroomType, payload) that writes a file and returns paths,
-  // you can keep using it — but ensure it writes into QRCODES_DIR with the filename above.
-  // Example (adapt to your existing code):
   const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
@@ -3754,25 +3887,44 @@ async function generateUnitQR(argsOrStockroom) {
 async function scanItem(qrPayloadText) {
   if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
 
-  // Attempt exact match against stored payload column (example uses qrFilePath or qrFilePath)
-  const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
-
-  if (!record) {
-    // fallback: try matching by decoded JSON fields (for example unitId)
-    try {
-      const parsed = JSON.parse(qrPayloadText);
-      if (parsed.unitId) {
-        // try to load the unit record from corresponding table
-        const unit = await loadUnitRecord(parsed.itemType || 'apparel', parsed.unitId);
-        if (unit) return { payload: parsed, unit };
-      }
-    } catch (e) { /* not JSON — ignore */ }
-
-    throw { status: 404, message: `QR code not found` };
+  // Try exact match (if you stored payload or file path in a Qr table)
+  if (db.Qr) {
+    const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
+    if (record) return { qrRecord: record };
   }
 
-  return record;
+  // Try JSON decode (most of our generated QRs are JSON payloads)
+  try {
+    const parsed = JSON.parse(qrPayloadText);
+
+    // If parsed contains inventoryId -> try to load inventory row
+    if (parsed.inventoryId || parsed.id) {
+      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
+      const inventoryId = parsed.inventoryId || parsed.id;
+
+      const inv = await loadBatchRecord(itemType, Number(inventoryId));
+      if (inv) {
+        // build a clean response: include parsed payload and the loaded inventory row (for frontend usage)
+        return { payload: parsed, inventory: inv };
+      }
+    }
+
+    // If parsed contains unitId -> try to load unit row
+    if (parsed.unitId) {
+      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
+      const unit = await loadUnitRecord(itemType, Number(parsed.unitId));
+      if (unit) return { payload: parsed, unit };
+    }
+
+    // otherwise return the parsed payload for the frontend to handle (no db row found)
+    return { payload: parsed };
+  } catch (e) {
+    // not JSON — the payload is a plain string (maybe an old style code)
+    // Try match on QR table again by code fields (if you have them), else 404
+    throw { status: 404, message: 'QR code not found' };
+  }
 }
+
 async function updateItemStatus(stockroomType, id) {
   if (!stockroomType || !id) return null;
 
@@ -3785,19 +3937,42 @@ async function updateItemStatus(stockroomType, id) {
 
     return null;
   }
+}
+async function markInventoryQrGenerated(stockroomType, inventoryId) {
+  try {
+    if (!inventoryId) return;
 
-  
+    stockroomType = String(stockroomType || '').toLowerCase();
+
+    if (stockroomType === 'apparel' && db.ApparelInventory) {
+      await db.ApparelInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+    if (stockroomType === 'supply' && db.AdminSupplyInventory) {
+      await db.AdminSupplyInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+    if ((stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') && db.GenItemInventory) {
+      await db.GenItemInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+
+    const modelName = `${stockroomType.charAt(0).toUpperCase()}${stockroomType.slice(1)}Inventory`;
+    if (db[modelName]) {
+      await db[modelName].update({ qrStatus: true }, { where: { id: inventoryId } });
+    }
+  } catch (err) {
+    console.warn('markInventoryQrGenerated warning:', err && err.message ? err.message : err);
+  }
 }
 
 ================================================================================
 File: _services\request.item.service.js
-Size: 15.55 kB
+Size: 9.38 kB
 ================================================================================
 
 // _services/itemRequest.service.js
 const db = require('_helpers/db-handler');
-//const apparelService = require('_services/apparel.service');
-//const adminSupplyService = require('_services/adminSupply.service');
 const Role = require('_helpers/role');
 
 module.exports = {
@@ -3821,17 +3996,14 @@ async function createItemRequest({ accountId, requesterRoomId = null, itemId = n
 
   return req;
 }
-
 async function listItemRequests({ where = {}, limit = 100, offset = 0 } = {}) {
   return await db.ItemRequest.findAll({ where, order: [['itemRequestId','DESC']], limit, offset });
 }
-
 async function getItemRequestById(id) {
   const r = await db.ItemRequest.findByPk(id);
   if (!r) throw { status: 404, message: 'ItemRequest not found' };
   return r;
 }
-
 async function acceptItemRequest(id, acceptorAccountId) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
@@ -3842,8 +4014,6 @@ async function acceptItemRequest(id, acceptorAccountId) {
   await req.save();
   return req;
 }
-
-// stockroom declines (optionally because out of stock)
 async function declineItemRequest(id, declinerAccountId, reason = null) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be declined' };
@@ -3852,7 +4022,6 @@ async function declineItemRequest(id, declinerAccountId, reason = null) {
   await req.save();
   return req;
 }
-
 async function releaseItemRequest(id, releaserAccountId) {
   const req = await getItemRequestById(id);
   if (req.status !== 'accepted') throw { status: 400, message: 'Only accepted requests can be released' };
@@ -3944,7 +4113,6 @@ async function resolveInventory(req, opts = {}) {
 
   return null;
 }
-
 async function createReleaseForType(req, inv, qty, requesterName, releaserAccountId, opts = {}) {
   // opts can contain { transaction }
   const tx = opts.transaction ? { transaction: opts.transaction } : {};
@@ -4035,10 +4203,8 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
   throw { status: 500, message: 'Unsupported itemType for release' };
 }
-
 async function fulfillItemRequest(id, fulfillerAccountId) {
   const req = await getItemRequestById(id);
-  // only allow fulfill when previously released by stockroom
   if (req.status !== 'released') throw { status: 400, message: 'Only released requests can be fulfilled by the requester' };
 
   req.status = 'fulfilled';
@@ -4050,7 +4216,7 @@ async function fulfillItemRequest(id, fulfillerAccountId) {
 
 ================================================================================
 File: _services\request.stock.service.js
-Size: 13.83 kB
+Size: 13.4 kB
 ================================================================================
 
 const db = require('_helpers/db-handler');
@@ -4069,7 +4235,6 @@ async function createStockRequest({ accountId, requesterRoomId = null, itemId = 
   if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
-  // optional existence check: try to find an inventory or unit
   if (itemId) {
     const model = getInventoryModel(itemType);
     if (model) {
@@ -4084,7 +4249,6 @@ async function createStockRequest({ accountId, requesterRoomId = null, itemId = 
 
   return req;
 }
-
 async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
   return await db.StockRequest.findAll({
     where,
@@ -4093,12 +4257,10 @@ async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
     offset
   });
 }
-
 async function getStockRequestById(stockRequestId) {
   const r = await db.StockRequest.findByPk(stockRequestId);
   if (!r) throw { status: 404, message: 'StockRequest not found' };
 
-  // attach requested item details (inventory OR unit + resolved inventory)
   try {
     const requestedItem = await _loadRequestedItem(r.itemId, r.itemType);
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', requestedItem);
@@ -4112,8 +4274,6 @@ async function getStockRequestById(stockRequestId) {
 
   return r;
 }
-
-
 async function approveStockRequest(id, approverAccountId = null) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
@@ -4122,7 +4282,6 @@ async function approveStockRequest(id, approverAccountId = null) {
   await req.save();
   return req;
 }
-
 async function disapproveStockRequest(id, adminAccountId = null, reason = null) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be disapproved' };
@@ -4131,7 +4290,6 @@ async function disapproveStockRequest(id, adminAccountId = null, reason = null) 
   await req.save();
   return req;
 }
-
 async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
   const req = await db.StockRequest.findByPk(stockRequestId);
   if (!req) throw { status: 404, message: 'StockRequest not found' };
@@ -4210,9 +4368,7 @@ async function findInventoryAndType(id) {
 
   return null;
 }
-
 async function resolveInventoryFromUnit(found) {
-  // If we only have a unit, load its inventory FK (common field names used in your project)
   try {
     if (found.type === 'apparel' && found.unit.apparelInventoryId) {
       return await db.ApparelInventory.findByPk(found.unit.apparelInventoryId);
@@ -4228,16 +4384,12 @@ async function resolveInventoryFromUnit(found) {
   }
   return null;
 }
-
 function getUnitStatusForType(type) {
-  // Apparel model enum: 'released','damaged','lost','good' -> use 'good'
-  // AdminSupply and GenItem use free-form STRING default 'in_stock' -> use 'in_stock'
   if (type === 'apparel') return 'good';
   if (type === 'supply') return 'in_stock';
   if (type === 'genitem') return 'in_stock';
   return 'in_stock';
 }
-
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
   // Returns created batch row. Creates per-unit rows if unit model exists.
   if (found.type === 'apparel') {
@@ -4326,7 +4478,6 @@ if (db.Apparel && qty > 0) {
 
   throw { status: 500, message: 'Unsupported inventory type' };
 }
-
 async function updateInventory(inv, qty) {
   // update the aggregate totalQuantity field (safe against different column names)
   if (!inv) return;
@@ -4349,7 +4500,6 @@ async function updateInventory(inv, qty) {
   // If none of the expected fields are present, throw so caller can mark failed_request.
   throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
-
 function getInventoryModel(itemType) {
   // your models use: ApparelInventory, AdminSupplyInventory, GenItemInventory (see _models)
   if (itemType === 'apparel') return db.ApparelInventory || null;
@@ -4357,8 +4507,6 @@ function getInventoryModel(itemType) {
   if (itemType === 'genItem') return db.GenItemInventory || null;
   return null;
 }
-
-
 
 async function _loadRequestedItem(itemId, itemTypeRaw) {
   if (!itemId) return null;
@@ -4380,7 +4528,6 @@ async function _loadRequestedItem(itemId, itemTypeRaw) {
   // 3) fallback: try all unit models (best-effort)
   return await _tryLoadAnyUnit(itemId);
 }
-
 async function _tryLoadUnitByType(itemId, typeNorm) {
   try {
     if (typeNorm.includes('apparel')) {
@@ -4414,7 +4561,6 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
   }
   return null;
 }
-
 async function _tryLoadAnyUnit(itemId) {
   // Apparel
   if (db.Apparel) {
@@ -4448,10 +4594,10 @@ async function _tryLoadAnyUnit(itemId) {
 
 ================================================================================
 File: _services\room.service.js
-Size: 26.82 kB
+Size: 26.01 kB
 ================================================================================
 
-const db = require('_helpers/db-handler');
+const db        = require('_helpers/db-handler');
 const qrService = require('_services/qr.service');
 
 module.exports = {
@@ -4841,7 +4987,7 @@ async function getGenItemUnitsByRoomHandler(roomId) {
 
   const units = await db.GenItem.findAll({
     where: { roomId: roomId },
-    order: [['genItemId', 'ASC']/* , ['genItemType', 'ASC'] */]
+    order: [['genItemId', 'ASC']]
   });
 
   return units;
@@ -4935,7 +5081,6 @@ async function releaseApparelInRoomHandler(roomId, payload) {
     throw e;
   }
 }
-
 async function releaseAdminSupplyInRoomHandler(roomId, payload) {
   await ensureIsStockroomHandler(roomId);
 
@@ -4979,7 +5124,6 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload) {
     throw e;
   }
 }
-
 async function releaseGenItemInRoomHandler(roomId, payload) {
   await ensureIsStockroomHandler(roomId);
 
@@ -5033,7 +5177,6 @@ async function getReleaseApparelsByRoomHandler(roomId) {
     where: { roomId: roomId },
     include: [
       { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
-      //{ model: db.Apparel, required: false }
     ],
     order: [['releasedAt', 'DESC']]
   });
@@ -5046,7 +5189,6 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
   if (db.ReleaseAdminSupply) {
     return await db.ReleaseAdminSupply.findAll({
       where: { roomId },
-      //include: [{ model: db.AdminSupply, required: false }],
       order: [['releasedAt', 'DESC']]
     });
   }
@@ -5060,7 +5202,6 @@ async function getReleasedGenItemByRoomHandler(roomId) {
   if (db.ReleaseGenItem) {
     return await db.ReleaseGenItem.findAll({
       where: { roomId },
-      //include: [{ model: db.GenItem, required: false }],
       order: [['releasedAt', 'DESC']]
     });
   }
@@ -5154,17 +5295,12 @@ async function generateGenItemUnitForRoom(roomId, unitId) {
   return { unitId, ...result };
 }
 
-// small helper: compute status based on remaining qty
 function computeInventoryStatus(remaining) {
-  // user's desired rules:
-  // <= 1 => out_of_stock; >1 && <10 => low_stock; >=10 => high_stock
   if (remaining <= 1) return 'out_of_stock';
   if (remaining < 10) return 'low_stock';
   return 'high_stock';
 }
-
-// updateInventory() — keep single place to change totals and status
-async function updateInventory(inv, qtyChange /* positive to add, negative to subtract */, opts = {}) {
+async function updateInventory(inv, qtyChang, opts = {}) {
   if (!inv) return;
   const transaction = opts.transaction;
 
@@ -5202,7 +5338,7 @@ async function updateInventory(inv, qtyChange /* positive to add, negative to su
 
 ================================================================================
 File: _services\transfer.service.js
-Size: 4.65 kB
+Size: 3.81 kB
 ================================================================================
 
 // _services/transfer.service.js
@@ -5218,14 +5354,6 @@ module.exports = {
   listTransfers
 };
 
-/* -----------------------
-  Public methods
-   - createTransfer(payload)
-   - acceptTransfer(id, acceptorAccountId)
-   - returnTransfer(id, returnerAccountId)
-   - acceptReturned(id, accepterAccountId)
--------------------------*/
-
 async function createTransfer({ fromRoomId, toRoomId, createdBy, itemType, itemId = null, quantity = 1, note = null }) {
   if (!fromRoomId || !toRoomId || !createdBy) throw { status: 400, message: 'Missing required fields' };
   if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
@@ -5238,16 +5366,12 @@ async function createTransfer({ fromRoomId, toRoomId, createdBy, itemType, itemI
 
   return transfer;
 }
-
 async function acceptTransfer(transferId, accepterId) {
   const transfer = await db.Transfer.findByPk(transferId);
   await transfer.update({ status: 'transfer_accepted', acceptedBy: accepterId });
 
-  // then update inventory, create logs, etc.
-  // No transactions so if an inventory update fails, transfer remains accepted.
   return transfer;
 }
-
 async function returnTransfer(transferId, returnerAccountId) {
   const tr = await db.Transfer.findByPk(transferId);
   if (!tr) throw { status: 404, message: 'Transfer not found' };
@@ -5259,33 +5383,18 @@ async function returnTransfer(transferId, returnerAccountId) {
   await tr.save();
   return tr;
 }
-
 async function acceptReturned(transferId, accepterId) {
   const transfer = await db.Transfer.findByPk(transferId);
   await transfer.update({ status: 'return_accepted', acceptedBy: accepterId });
 
   return transfer;
 }
-
-/* ---------------------------
-  small helpers used above
-   - inventoryModelFor(itemType)
-   - findOrCreateMatchingInventory(model, exampleInv, roomId, opts)
-----------------------------*/
-
 function inventoryModelFor(itemType) {
   if (itemType === 'apparel') return db.ApparelInventory;
   if (itemType === 'supply') return db.AdminSupplyInventory;
   if (itemType === 'genItem') return db.GenItemInventory;
   return null;
 }
-
-/**
- * findOrCreateMatchingInventory:
- * - matches on common columns (apparelName/apparelLevel/apparelType/apparelFor/apparelSize for apparel)
- * - for admin supply: supplyName + supplyMeasure
- * - for gen item: genItemName + genItemType + genItemSize
- */
 async function findOrCreateMatchingInventory(model, exampleInv, roomId, opts = {}) {
   const transaction = opts.transaction;
   // apparel

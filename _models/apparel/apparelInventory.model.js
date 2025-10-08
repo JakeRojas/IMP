@@ -30,7 +30,8 @@ module.exports = (sequelize) => {
                             allowNull: false  
                         },
     totalQuantity:      { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
-    status:             { type: DataTypes.ENUM('out_of_stock','low_stock','high_stock'), allowNull: false, defaultValue: 'out_of_stock' }
+    status:             { type: DataTypes.ENUM('out_of_stock','low_stock','high_stock'), allowNull: false, defaultValue: 'out_of_stock' },
+    qrStatus:            { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
     };
 
     const options = {

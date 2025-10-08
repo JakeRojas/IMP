@@ -234,9 +234,25 @@ async function releaseInStockroom(req, res, next) {
 async function releaseApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
+
+    // Normalize same as releaseInStockroom: accept releaseQuantity alias
+    if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
+      req.body.releaseApparelQuantity = req.body.releaseQuantity;
+    }
+
+    // Provide defaults for claimedBy/releasedBy so DB non-null constraints don't fail
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
     const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
     res.status(201).json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 async function releaseAdminSupply(req, res, next) {
   try {
@@ -244,7 +260,8 @@ async function releaseAdminSupply(req, res, next) {
     const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body);
     res.status(201).json(result);
   } catch (err) { next(err); }
-}async function releaseGenItem(req, res, next) {
+}
+async function releaseGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
     const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body);

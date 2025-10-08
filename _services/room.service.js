@@ -1,4 +1,4 @@
-const db = require('_helpers/db-handler');
+const db        = require('_helpers/db-handler');
 const qrService = require('_services/qr.service');
 
 module.exports = {
@@ -216,15 +216,6 @@ async function receiveAdminSupplyInRoomHandler(roomId, payload) {
     notes: payload.notes || null
   });
 
-  // if (db.AdminSupply) {
-  //   const supplyUnits = Array(payload.supplyQuantity).fill().map(() => ({
-  //     receiveAdminSupplyId: batch.receiveAdminSupplyId,
-  //     status: 'in_stock'
-  //     // optionally add itemId if you create Item rows
-  //   }));
-  //   await db.AdminSupply.bulkCreate(supplyUnits);
-  // }
-
   const [inv] = await db.AdminSupplyInventory.findOrCreate({
     where: {
       roomId,
@@ -397,7 +388,7 @@ async function getGenItemUnitsByRoomHandler(roomId) {
 
   const units = await db.GenItem.findAll({
     where: { roomId: roomId },
-    order: [['genItemId', 'ASC']/* , ['genItemType', 'ASC'] */]
+    order: [['genItemId', 'ASC']]
   });
 
   return units;
@@ -491,7 +482,6 @@ async function releaseApparelInRoomHandler(roomId, payload) {
     throw e;
   }
 }
-
 async function releaseAdminSupplyInRoomHandler(roomId, payload) {
   await ensureIsStockroomHandler(roomId);
 
@@ -535,7 +525,6 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload) {
     throw e;
   }
 }
-
 async function releaseGenItemInRoomHandler(roomId, payload) {
   await ensureIsStockroomHandler(roomId);
 
@@ -589,7 +578,6 @@ async function getReleaseApparelsByRoomHandler(roomId) {
     where: { roomId: roomId },
     include: [
       { model: db.Account, attributes: ['accountId','firstName','lastName'], required: false },
-      //{ model: db.Apparel, required: false }
     ],
     order: [['releasedAt', 'DESC']]
   });
@@ -602,7 +590,6 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
   if (db.ReleaseAdminSupply) {
     return await db.ReleaseAdminSupply.findAll({
       where: { roomId },
-      //include: [{ model: db.AdminSupply, required: false }],
       order: [['releasedAt', 'DESC']]
     });
   }
@@ -616,7 +603,6 @@ async function getReleasedGenItemByRoomHandler(roomId) {
   if (db.ReleaseGenItem) {
     return await db.ReleaseGenItem.findAll({
       where: { roomId },
-      //include: [{ model: db.GenItem, required: false }],
       order: [['releasedAt', 'DESC']]
     });
   }
@@ -710,17 +696,12 @@ async function generateGenItemUnitForRoom(roomId, unitId) {
   return { unitId, ...result };
 }
 
-// small helper: compute status based on remaining qty
 function computeInventoryStatus(remaining) {
-  // user's desired rules:
-  // <= 1 => out_of_stock; >1 && <10 => low_stock; >=10 => high_stock
   if (remaining <= 1) return 'out_of_stock';
   if (remaining < 10) return 'low_stock';
   return 'high_stock';
 }
-
-// updateInventory() — keep single place to change totals and status
-async function updateInventory(inv, qtyChange /* positive to add, negative to subtract */, opts = {}) {
+async function updateInventory(inv, qtyChang, opts = {}) {
   if (!inv) return;
   const transaction = opts.transaction;
 

@@ -135,27 +135,13 @@ async function refreshToken(req, res, next) {
       // fallback: don't expose internal errors
       return res.status(500).json({ message: 'Unexpected server error' });
     }
-  }
+}
 function revokeTokenSchema(req, res, next) { 
     const schema = Joi.object({
         token: Joi.string().empty('')
     });
     validateRequest(req, next, schema);
 }
-// function revokeToken (req, res, next) {
-//     const token = req.body.token || req.cookies.refreshToken; 
-//     const ipAddress = req.ip;
-
-//     if (!token) return res.status(400).json({ message: 'Token is required' });
-    
-//     if (!req.user.ownsToken (token) && req.user.role !== Role.SuperAdmin) {
-//         return res.status(401).json({ message: 'Unauthorized' });
-//     }
-
-//     accountService.revokeToken({token, ipAddress })
-//         .then(() =>res.json({ message: 'Token revoked' }))
-//         .catch(next);
-// }
 async function revokeToken (req, res, next) {
     try {
         const token = req.body.token || req.cookies.refreshToken;
@@ -207,7 +193,7 @@ async function existsAccount(req, res, next) {
       console.error('accounts.exists error:', err && err.stack ? err.stack : err);
       return res.status(500).json({ message: 'Internal server error' });
     }
-  }
+}
 function verifyEmailSchema(req, res, next) {
     const schema = Joi.object({
         token: Joi.string().required()

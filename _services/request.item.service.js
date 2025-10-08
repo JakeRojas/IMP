@@ -1,7 +1,5 @@
 // _services/itemRequest.service.js
 const db = require('_helpers/db-handler');
-//const apparelService = require('_services/apparel.service');
-//const adminSupplyService = require('_services/adminSupply.service');
 const Role = require('_helpers/role');
 
 module.exports = {
@@ -25,27 +23,14 @@ async function createItemRequest({ accountId, requesterRoomId = null, itemId = n
 
   return req;
 }
-
 async function listItemRequests({ where = {}, limit = 100, offset = 0 } = {}) {
   return await db.ItemRequest.findAll({ where, order: [['itemRequestId','DESC']], limit, offset });
 }
-
 async function getItemRequestById(id) {
   const r = await db.ItemRequest.findByPk(id);
   if (!r) throw { status: 404, message: 'ItemRequest not found' };
   return r;
 }
-
-// stockroom accepts the request
-// async function acceptItemRequest(id, acceptorAccountId) {
-//   const req = await getItemRequestById(id);
-//   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
-//   req.status = 'accepted';
-//   req.acceptedBy = acceptorAccountId || null;
-//   req.acceptedAt = new Date();
-//   await req.save();
-//   return req;
-// }
 async function acceptItemRequest(id, acceptorAccountId) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
@@ -56,8 +41,6 @@ async function acceptItemRequest(id, acceptorAccountId) {
   await req.save();
   return req;
 }
-
-// stockroom declines (optionally because out of stock)
 async function declineItemRequest(id, declinerAccountId, reason = null) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be declined' };
@@ -66,7 +49,6 @@ async function declineItemRequest(id, declinerAccountId, reason = null) {
   await req.save();
   return req;
 }
-
 async function releaseItemRequest(id, releaserAccountId) {
   const req = await getItemRequestById(id);
   if (req.status !== 'accepted') throw { status: 400, message: 'Only accepted requests can be released' };
@@ -158,7 +140,6 @@ async function resolveInventory(req, opts = {}) {
 
   return null;
 }
-
 async function createReleaseForType(req, inv, qty, requesterName, releaserAccountId, opts = {}) {
   // opts can contain { transaction }
   const tx = opts.transaction ? { transaction: opts.transaction } : {};
@@ -249,131 +230,8 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
   throw { status: 500, message: 'Unsupported itemType for release' };
 }
-
-// teacher (requester) fulfills an accepted request: decrement inventory & create Release rows
-// async function fulfillItemRequest(id, fulfillerAccountId) {
-//   const req = await getItemRequestById(id);
-//   if (req.status !== 'accepted') throw { status: 400, message: 'Only accepted requests can be fulfilled' };
-
-//   const qty = parseInt(req.quantity || 0, 10);
-//   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid quantity' };
-
-//   // find the inventory aggregate row (prefer inventory tables)
-//   let inv = null;
-//   if (req.itemType === 'apparel') {
-//     inv = await db.ApparelInventory.findByPk(req.itemId);
-//   } else if (req.itemType === 'supply') {
-//     inv = await db.AdminSupplyInventory.findByPk(req.itemId);
-//   } else if (req.itemType === 'genItem') {
-//     inv = await db.GenItemInventory.findByPk(req.itemId);
-//   }
-
-//   if (!inv) {
-//     // try unit lookup fallback (if itemId referenced a unit)
-//     if (req.itemType === 'apparel') {
-//       const unit = await db.Apparel.findByPk(req.itemId);
-//       if (unit) inv = await db.ApparelInventory.findByPk(unit.apparelInventoryId);
-//     } else if (req.itemType === 'supply') {
-//       const unit = await db.AdminSupply.findByPk(req.itemId);
-//       if (unit) inv = await db.AdminSupplyInventory.findByPk(unit.adminSupplyInventoryId);
-//     } else if (req.itemType === 'genItem') {
-//       const unit = await db.GenItem.findByPk(req.itemId);
-//       if (unit) inv = await db.GenItemInventory.findByPk(unit.genItemInventoryId);
-//     }
-//   }
-
-//   if (!inv) {
-//     req.status = 'out_of_stock';
-//     await req.save();
-//     throw { status: 404, message: 'Inventory item not found; request marked out_of_stock' };
-//   }
-
-//   const available = inv.totalQuantity || 0;
-//   if (available < qty) {
-//     req.status = 'out_of_stock';
-//     await req.save();
-//     throw { status: 400, message: `Not enough stock to fulfill (${available} available); request marked out_of_stock` };
-//   }
-
-//   // decrement inventory
-//   inv.totalQuantity = (inv.totalQuantity || 0) - qty;
-//   await inv.save();
-
-//   // get requester name for claimedBy / logging
-//   const requester = await db.Account.findByPk(req.accountId);
-//   const requesterName = requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : String(req.accountId);
-
-//   // create release batch using existing service patterns
-//   let releaseBatch = null;
-//   if (req.itemType === 'apparel') {
-//     // // call apparel service release handler
-//     // // releaseApparelHandler expects { apparelInventoryId, releaseQuantity, releasedBy, claimedBy }
-//     // releaseBatch = await apparelService.releaseApparelHandler({
-//     //   apparelInventoryId: inv.apparelInventoryId ?? inv.id,
-//     //   releaseQuantity: qty,
-//     //   releasedBy: 'Stockroom',            // or the stockroom name; could be req.acceptedBy or fetched account
-//     //   claimedBy: requesterName
-//     // });
-//     try {
-//       const batches = await db.ReceiveApparel.findAll({
-//         where: {
-//           roomId: inv.roomId,
-//           apparelName: inv.apparelName,
-//           apparelLevel: inv.apparelLevel,
-//           apparelType: inv.apparelType,
-//           apparelFor: inv.apparelFor,
-//           apparelSize: inv.apparelSize
-//         },
-//         attributes: ['id'],
-//         order: [['receivedAt', 'ASC']]
-//       });
-//       const batchIds = batches.map(b => b.id);
-//       const units = await db.Apparel.findAll({
-//         where: { receiveApparelId: batchIds, status: 'in_stock' }, // change if you used a different in-stock token
-//         limit: qty
-//       });
-//       await Promise.all(units.map(u => { u.status = 'released'; return u.save(); }));
-//     } catch (err) {
-//       console.warn('Warning: per-unit update failed', err);
-//     }
-//   } else if (req.itemType === 'supply') {
-//     // best-effort: try to call adminSupply service release method if it exists
-//     if (adminSupplyService && typeof adminSupplyService.releaseSupplyHandler === 'function') {
-//       releaseBatch = await adminSupplyService.releaseSupplyHandler({
-//         roomId: inv.roomId,
-//         adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id,
-//         releasedBy: 'Stockroom',
-//         claimedBy: requesterName,
-//         releaseQuantity: qty
-//       });
-//     } else {
-//       // fallback: create a simple Release record or mark success
-//       // (Your repo doesn't include ReleaseAdminSupply model — adapt if you have a model)
-//       releaseBatch = { note: 'AdminSupply release performed (no dedicated Release model in repo).', inventoryId: inv.adminSupplyInventoryId ?? inv.id };
-//     }
-//   } else if (req.itemType === 'genItem') {
-//     // create ReleaseGenItem row directly (model exists)
-//     releaseBatch = await db.ReleaseGenItem.create({
-//       roomId: inv.roomId,
-//       genItemInventoryId: inv.genItemInventoryId ?? inv.id,
-//       releasedBy: 'Stockroom',
-//       claimedBy: requesterName,
-//       releaseItemQuantity: qty,
-//       genItemType: inv.genItemType
-//     });
-//   }
-
-//   // finalize request
-//   req.status = 'fulfilled';
-//   req.fulfilledBy = fulfillerAccountId || null;
-//   req.fulfilledAt = new Date();
-//   await req.save();
-
-//   return { request: req, releaseBatch };
-// }
 async function fulfillItemRequest(id, fulfillerAccountId) {
   const req = await getItemRequestById(id);
-  // only allow fulfill when previously released by stockroom
   if (req.status !== 'released') throw { status: 400, message: 'Only released requests can be fulfilled by the requester' };
 
   req.status = 'fulfilled';

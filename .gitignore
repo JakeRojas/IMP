@@ -2,4 +2,7 @@ node_modules
 uploads
 config
 notes.md
-env
+
+.env
+/config.aiven.json
+/certs/ca.pem

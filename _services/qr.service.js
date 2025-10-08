@@ -17,9 +17,19 @@ module.exports = {
   generateUnitQR,
 
   scanItem,
-  updateItemStatus
+  updateItemStatus,
+
+  markInventoryQrGenerated
 };
 
+function pickFirst(obj, ...keys) {
+  if (!obj) return null;
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+    if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
+  }
+  return null;
+}
 async function loadBatchRecord(stockroomType, id) {
   if (!stockroomType || !id) return null;
 
@@ -110,86 +120,40 @@ async function loadUnitRecord(stockroomType, id) {
   }
   return null;
 }
-// function buildBatchPayloadObject(stockroomType, batch) {
-//   if (stockroomType === 'apparel') {
-//     return {
-//       id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
-//       name:   batch.apparelName       ?? batch.name   ?? null,
-//       size:   batch.apparelSize       ?? batch.size   ?? null,
-//       level:  batch.apparelLevel      ?? batch.level  ?? null,
-//       for:    batch.apparelFor        ?? batch.for    ?? null,
-//       qty:    batch.totalQuantity     ?? batch.qty    ?? null
-//     };
-//   }
-
-//   if (stockroomType === 'supply') {
-//     return {
-//       id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
-//       name:       batch.supplyName            ?? batch.name       ?? null,
-//       category:   batch.supplyCategory        ?? batch.category   ?? null,
-//       qty:        batch.totalQuantity         ?? batch.qty        ?? null
-//     };
-//   }
-
-//   if (stockroomType === 'it' || stockroomType === 'maintenance') {
-//     return {
-//       id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
-//       name:   batch.genItemName       ?? batch.name   ?? null,
-//       size:   batch.genItemSize       ?? batch.size   ?? null,
-//       type:   batch.genItemType       ?? batch.type   ?? null,
-//       qty:    batch.totalQuantity     ?? batch.qty        ?? null
-//     };
-//   }
-
-//   return {
-//     id:     batch.id    ?? null,
-//     name:   batch.name  ?? batch.title ?? null
-//   };
-// }
 function buildBatchPayloadObject(stockroomType, batch) {
-  stockroomType = String(stockroomType || '').toLowerCase();
+  if (!batch) return { stockroomType };
 
-  // For batch-level QR we only include identifying info (id, name, type, roomId, etc.)
-  // Do NOT include qty — that makes the payload change whenever qty changes.
-  if (stockroomType === 'apparel') {
-    return {
-      stockroomType: 'apparel',
-      id:     batch.receiveApparelId  ?? batch.apparelInventoryId ?? null,
-      name:   batch.apparelName       ?? batch.name   ?? null,
-      size:   batch.apparelSize       ?? batch.size   ?? null,
-      level:  batch.apparelLevel      ?? batch.level  ?? null,
-      for:    batch.apparelFor        ?? batch.for    ?? null,
-      roomId: batch.roomId ?? null
-    };
-  }
+  // Common fields we want in every QR
+  const id = pickFirst(batch,
+    // inventory primary keys in different patterns
+    'id', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId',
+    'receiveApparelId', 'receiveAdminSupplyId', 'receiveGenItemId'
+  );
 
-  if (stockroomType === 'supply') {
-    return {
-      stockroomType: 'supply',
-      id:         batch.receiveAdminSupplyId  ?? batch.adminSupplyInventoryId ?? null,
-      name:       batch.supplyName            ?? batch.name       ?? null,
-      category:   batch.supplyCategory        ?? batch.category   ?? null,
-      roomId:     batch.roomId ?? null
-    };
-  }
+  const name = pickFirst(batch,
+    'sku', 'code', 'itemCode', 'apparelSku', 'adminSupplyCode', 'genItemSku',
+    'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName', 'description'
+  );
 
-  if (stockroomType === 'it' || stockroomType === 'maintenance' || stockroomType === 'genitem') {
-    return {
-      stockroomType: stockroomType,
-      id:     batch.receiveGEnItemId  ?? batch.genItemInventoryId ?? null,
-      name:   batch.genItemName       ?? batch.name   ?? null,
-      size:   batch.genItemSize       ?? batch.size   ?? null,
-      type:   batch.genItemType       ?? batch.type   ?? null,
-      roomId: batch.roomId ?? null
-    };
-  }
+  // Status (inventory-level)
+  const status = pickFirst(batch, 'status', 'itemStatus', 'apparelStatus', 'adminSupplyStatus');
 
-  // generic fallback
+  // totalQuantity fallbacks
+  const totalQuantity = pickFirst(batch,
+    'totalQuantity', 'quantity', 'qty',
+    'apparelQuantity', 'supplyQuantity', 'genItemQuantity',
+    'remainingQuantity', 'availableQuantity'
+  );
+
+  const roomId = pickFirst(batch, 'roomId', 'room_id');
+
   return {
-    stockroomType: stockroomType,
-    id:     batch.id    ?? null,
-    name:   batch.name  ?? batch.title ?? null,
-    roomId: batch.roomId ?? null
+    stockroomType: stockroomType || null,
+    inventoryId: id ?? null,
+    name: name ?? null,
+    status: status ?? null,
+    totalQuantity: (totalQuantity !== null && totalQuantity !== undefined) ? Number(totalQuantity) : null,
+    roomId: roomId ?? null
   };
 }
 function buildUnitPayloadObject(stockroomType, unit) {
@@ -262,10 +226,6 @@ async function generateBatchQR(argsOrStockroom) {
     return { filename, absolutePath, publicPath, payload, batch };
   }
 
-  // otherwise, write new PNG (reuse your existing writePngFromPayload or similar)
-  // If you already have a writePngFromPayload(stockroomType, payload) that writes a file and returns paths,
-  // you can keep using it — but ensure it writes into QRCODES_DIR with the filename above.
-  // Example (adapt to your existing code):
   const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
@@ -312,25 +272,44 @@ async function generateUnitQR(argsOrStockroom) {
 async function scanItem(qrPayloadText) {
   if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
 
-  // Attempt exact match against stored payload column (example uses qrFilePath or qrFilePath)
-  const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
-
-  if (!record) {
-    // fallback: try matching by decoded JSON fields (for example unitId)
-    try {
-      const parsed = JSON.parse(qrPayloadText);
-      if (parsed.unitId) {
-        // try to load the unit record from corresponding table
-        const unit = await loadUnitRecord(parsed.itemType || 'apparel', parsed.unitId);
-        if (unit) return { payload: parsed, unit };
-      }
-    } catch (e) { /* not JSON — ignore */ }
-
-    throw { status: 404, message: `QR code not found` };
+  // Try exact match (if you stored payload or file path in a Qr table)
+  if (db.Qr) {
+    const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
+    if (record) return { qrRecord: record };
   }
 
-  return record;
+  // Try JSON decode (most of our generated QRs are JSON payloads)
+  try {
+    const parsed = JSON.parse(qrPayloadText);
+
+    // If parsed contains inventoryId -> try to load inventory row
+    if (parsed.inventoryId || parsed.id) {
+      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
+      const inventoryId = parsed.inventoryId || parsed.id;
+
+      const inv = await loadBatchRecord(itemType, Number(inventoryId));
+      if (inv) {
+        // build a clean response: include parsed payload and the loaded inventory row (for frontend usage)
+        return { payload: parsed, inventory: inv };
+      }
+    }
+
+    // If parsed contains unitId -> try to load unit row
+    if (parsed.unitId) {
+      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
+      const unit = await loadUnitRecord(itemType, Number(parsed.unitId));
+      if (unit) return { payload: parsed, unit };
+    }
+
+    // otherwise return the parsed payload for the frontend to handle (no db row found)
+    return { payload: parsed };
+  } catch (e) {
+    // not JSON — the payload is a plain string (maybe an old style code)
+    // Try match on QR table again by code fields (if you have them), else 404
+    throw { status: 404, message: 'QR code not found' };
+  }
 }
+
 async function updateItemStatus(stockroomType, id) {
   if (!stockroomType || !id) return null;
 
@@ -343,6 +322,31 @@ async function updateItemStatus(stockroomType, id) {
 
     return null;
   }
+}
+async function markInventoryQrGenerated(stockroomType, inventoryId) {
+  try {
+    if (!inventoryId) return;
 
-  
+    stockroomType = String(stockroomType || '').toLowerCase();
+
+    if (stockroomType === 'apparel' && db.ApparelInventory) {
+      await db.ApparelInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+    if (stockroomType === 'supply' && db.AdminSupplyInventory) {
+      await db.AdminSupplyInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+    if ((stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') && db.GenItemInventory) {
+      await db.GenItemInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+      return;
+    }
+
+    const modelName = `${stockroomType.charAt(0).toUpperCase()}${stockroomType.slice(1)}Inventory`;
+    if (db[modelName]) {
+      await db[modelName].update({ qrStatus: true }, { where: { id: inventoryId } });
+    }
+  } catch (err) {
+    console.warn('markInventoryQrGenerated warning:', err && err.message ? err.message : err);
+  }
 }

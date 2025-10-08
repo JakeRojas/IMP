@@ -3,9 +3,9 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
   const attributes = {
     itemRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    accountId:     { type: DataTypes.INTEGER, allowNull: false }, // requester (teacher / room-in-charge)
-    requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true }, // optional: which room made the request
-    itemId:        { type: DataTypes.INTEGER, allowNull: true }, // polymorphic id -> inventory id or unit id
+    accountId:     { type: DataTypes.INTEGER, allowNull: false },
+    requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true },
+    itemId:        { type: DataTypes.INTEGER, allowNull: true },
     itemType:      { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity:      { type: DataTypes.INTEGER, defaultValue: 1 },
     status:        {

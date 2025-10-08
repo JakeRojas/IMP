@@ -3,18 +3,11 @@ const config        = require('config.json');
 
 module.exports = sendEmail;
 
-// async function sendEmail({ to, subject, html, from = config.emailFrom }) {
-//     const transporter = nodemailer.createTransport(config.smtpOptions);
-//     await transporter.sendMail({ from, to, subject, html});
-// }
-
 async function sendEmail({ to, subject, html, from = config.emailFrom }) {
     let transporter;
-    // If config.smtpOptions looks usable, use it
     if (config.smtpOptions && config.smtpOptions.auth && config.smtpOptions.auth.user && config.smtpOptions.auth.pass) {
       transporter = nodemailer.createTransport(config.smtpOptions);
     } else {
-      // Fallback: create a test account on the fly (Ethereal)
       const testAccount = await nodemailer.createTestAccount();
       transporter = nodemailer.createTransport({
         host: 'smtp.ethereal.email',
@@ -36,10 +29,3 @@ async function sendEmail({ to, subject, html, from = config.emailFrom }) {
   
     return info;
   }
-
-// async function sendEmail({ to, subject, html, from }) {
-//     console.log('DEV EMAIL (not sent):', { from, to, subject });
-//     // optionally also log the html for debugging
-//     // console.log('html:', html);
-//     return Promise.resolve();
-//   };

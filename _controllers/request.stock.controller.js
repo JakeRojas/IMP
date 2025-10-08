@@ -29,7 +29,6 @@ function createSchema(req, res, next) {
   });
   validateRequest(req, next, schema);
 }
-
 async function createStockRequestHandler(req, res) {
   try {
     console.log('POST /req-stock body:', req.body, 'user:', req.user && { id: req.user.accountId || req.user.id, role: req.user.role });
@@ -45,7 +44,6 @@ async function createStockRequestHandler(req, res) {
     return res.status(status).json({ message, details: process.env.NODE_ENV === 'development' ? (err && err.stack ? err.stack : err) : undefined });
   }
 }
-
 async function listRequests(req, res, next) {
   try {
     const where = {};
@@ -55,7 +53,6 @@ async function listRequests(req, res, next) {
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 }
-
 async function getRequestById(req, res, next) {
   try {
     const stockRequestId = parseInt(req.params.stockRequestId, 10);
@@ -63,7 +60,6 @@ async function getRequestById(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function approveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -71,7 +67,6 @@ async function approveRequest(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function disapproveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
@@ -80,7 +75,6 @@ async function disapproveRequest(req, res, next) {
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-
 async function fulfillRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);

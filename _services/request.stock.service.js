@@ -14,7 +14,6 @@ async function createStockRequest({ accountId, requesterRoomId = null, itemId = 
   if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
-  // optional existence check: try to find an inventory or unit
   if (itemId) {
     const model = getInventoryModel(itemType);
     if (model) {
@@ -29,7 +28,6 @@ async function createStockRequest({ accountId, requesterRoomId = null, itemId = 
 
   return req;
 }
-
 async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
   return await db.StockRequest.findAll({
     where,
@@ -38,12 +36,10 @@ async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
     offset
   });
 }
-
 async function getStockRequestById(stockRequestId) {
   const r = await db.StockRequest.findByPk(stockRequestId);
   if (!r) throw { status: 404, message: 'StockRequest not found' };
 
-  // attach requested item details (inventory OR unit + resolved inventory)
   try {
     const requestedItem = await _loadRequestedItem(r.itemId, r.itemType);
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', requestedItem);
@@ -57,8 +53,6 @@ async function getStockRequestById(stockRequestId) {
 
   return r;
 }
-
-
 async function approveStockRequest(id, approverAccountId = null) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
@@ -67,7 +61,6 @@ async function approveStockRequest(id, approverAccountId = null) {
   await req.save();
   return req;
 }
-
 async function disapproveStockRequest(id, adminAccountId = null, reason = null) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be disapproved' };
@@ -76,7 +69,6 @@ async function disapproveStockRequest(id, adminAccountId = null, reason = null) 
   await req.save();
   return req;
 }
-
 async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
   const req = await db.StockRequest.findByPk(stockRequestId);
   if (!req) throw { status: 404, message: 'StockRequest not found' };
@@ -155,9 +147,7 @@ async function findInventoryAndType(id) {
 
   return null;
 }
-
 async function resolveInventoryFromUnit(found) {
-  // If we only have a unit, load its inventory FK (common field names used in your project)
   try {
     if (found.type === 'apparel' && found.unit.apparelInventoryId) {
       return await db.ApparelInventory.findByPk(found.unit.apparelInventoryId);
@@ -173,16 +163,12 @@ async function resolveInventoryFromUnit(found) {
   }
   return null;
 }
-
 function getUnitStatusForType(type) {
-  // Apparel model enum: 'released','damaged','lost','good' -> use 'good'
-  // AdminSupply and GenItem use free-form STRING default 'in_stock' -> use 'in_stock'
   if (type === 'apparel') return 'good';
   if (type === 'supply') return 'in_stock';
   if (type === 'genitem') return 'in_stock';
   return 'in_stock';
 }
-
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
   // Returns created batch row. Creates per-unit rows if unit model exists.
   if (found.type === 'apparel') {
@@ -271,7 +257,6 @@ if (db.Apparel && qty > 0) {
 
   throw { status: 500, message: 'Unsupported inventory type' };
 }
-
 async function updateInventory(inv, qty) {
   // update the aggregate totalQuantity field (safe against different column names)
   if (!inv) return;
@@ -294,7 +279,6 @@ async function updateInventory(inv, qty) {
   // If none of the expected fields are present, throw so caller can mark failed_request.
   throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
-
 function getInventoryModel(itemType) {
   // your models use: ApparelInventory, AdminSupplyInventory, GenItemInventory (see _models)
   if (itemType === 'apparel') return db.ApparelInventory || null;
@@ -302,8 +286,6 @@ function getInventoryModel(itemType) {
   if (itemType === 'genItem') return db.GenItemInventory || null;
   return null;
 }
-
-
 
 async function _loadRequestedItem(itemId, itemTypeRaw) {
   if (!itemId) return null;
@@ -325,7 +307,6 @@ async function _loadRequestedItem(itemId, itemTypeRaw) {
   // 3) fallback: try all unit models (best-effort)
   return await _tryLoadAnyUnit(itemId);
 }
-
 async function _tryLoadUnitByType(itemId, typeNorm) {
   try {
     if (typeNorm.includes('apparel')) {
@@ -359,7 +340,6 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
   }
   return null;
 }
-
 async function _tryLoadAnyUnit(itemId) {
   // Apparel
   if (db.Apparel) {

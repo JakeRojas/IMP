@@ -94,7 +94,6 @@ async function logActivity(accountId, actionType, ipAddress, browserInfo, update
       throw error;
     }
 }
-  // Add this new service function
 async function getAllActivityLogs(filters = {}) {
   try {
       let whereClause = {};
@@ -185,7 +184,7 @@ async function getAccountActivities(accountId, filters = {}) {
           accountId: activity.accountId,
           actionType: activity.actionType,
           actionDetails: activity.actionDetails,
-          timestamp: formattedDate // Replace raw timestamp with formatted date
+          timestamp: formattedDate
       };
   });
   } catch (error) {
@@ -317,8 +316,8 @@ async function create(params) {
 }
 async function update(accountId, params, ipAddress, browserInfo) {
   const account = await getAccount(accountId);
-  const oldData = account.toJSON(); // Get current user data as a plain object
-  const updatedFields = []; // Declare updatedFields array
+  const oldData = account.toJSON();
+  const updatedFields = [];
   const nonUserFields = ['ipAddress', 'browserInfo'];
 
   // Check if any meaningful changes are being made
@@ -388,7 +387,7 @@ function generateJwtToken(account) {
 }
 function generateRefreshToken(account, ipAddress) {
     return new db.RefreshToken({
-        accountId: account.accountId, // Set the accountId field
+        accountId: account.accountId,
         token: randomTokenString(),
         expires: new Date(Date.now() + 7*24*60*60*1000), 
         createdByIp: ipAddress
