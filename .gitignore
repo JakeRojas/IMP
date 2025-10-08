@@ -4,5 +4,5 @@ config
 notes.md
 
 .env
-/config.aiven.json
-/certs/ca.pem
+config.aiven.json
+certs/ca.pem
