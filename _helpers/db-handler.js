@@ -15,7 +15,7 @@ async function initialize() {
     
     // await connection.end();
 
-    const host = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
+  const host = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
   const port = parseInt(process.env.DB_PORT || (config.database && config.database.port) || 3306, 10);
   const user = process.env.DB_USER || (config.database && config.database.user) || 'root';
   const password = process.env.DB_PASS || (config.database && config.database.password) || '';
@@ -28,11 +28,10 @@ async function initialize() {
   if (caPath) {
     try {
       ca = fs.readFileSync(path.resolve(__dirname, '..', caPath), 'utf8');
+      console.log('Loaded DB CA from path:', caPath);
     } catch (err) {
       console.warn('Could not read DB CA from path:', caPath, err.message);
     }
-  } else if (process.env.DB_CA) {
-    ca = process.env.DB_CA;
   }
 
   // If host is local (127.0.0.1 / localhost), try create DB. Remote managed DBs often don't allow CREATE DATABASE.
@@ -53,25 +52,46 @@ async function initialize() {
     console.log('Running against remote DB host, skipping CREATE DATABASE step.');
   }
 
+  if (!ca && process.env.DB_CA) {
+    ca = process.env.DB_CA;
+    console.log('Loaded DB CA from environment variable DB_CA (raw PEM).');
+  }
+
+  // if still not, check base64 env var
+  if (!ca && process.env.DB_CA_B64) {
+    try {
+      ca = Buffer.from(process.env.DB_CA_B64, 'base64').toString('utf8');
+      console.log('Loaded DB CA from environment variable DB_CA_B64 (base64).');
+    } catch (err) {
+      console.warn('Failed to decode DB_CA_B64:', err.message);
+    }
+  }
+
   // Build Sequelize config
   const sequelizeOptions = {
     host,
     port,
     dialect: 'mysql',
-    logging: false, // set to console.log for debugging
+    logging: false,
     dialectOptions: {}
   };
 
+  // Accept insecure override (use only for testing)
+  const allowInsecure = (process.env.DB_ALLOW_INSECURE === 'true');
+
   if (useSsl) {
-    // For mysql2 + Sequelize SSL: pass dialectOptions.ssl with ca buffer/text
-    sequelizeOptions.dialectOptions.ssl = {};
-    if (ca) {
-      sequelizeOptions.dialectOptions.ssl.ca = ca;
-      // optionally:
-      // sequelizeOptions.dialectOptions.ssl.minVersion = 'TLSv1.2';
+    if (allowInsecure) {
+      console.warn('DB_ALLOW_INSECURE=true -> TLS certificate verification DISABLED (not recommended for production).');
+      sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: false };
     } else {
-      // If CA not provided but SSL required, try rejectUnauthorized = true (may fail)
-      sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: true };
+      if (ca) {
+        sequelizeOptions.dialectOptions.ssl = { ca };
+        console.log('Sequelize configured with provided CA for TLS verification.');
+      } else {
+        // no CA and SSL required -> will probably fail
+        sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: true };
+        console.warn('No DB CA provided and DB_SSL is true. Connection may fail with TLS errors.');
+      }
     }
   }
 
