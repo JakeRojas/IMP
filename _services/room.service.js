@@ -1,4 +1,5 @@
 const db        = require('_helpers/db-handler');
+const Role      = require('_helpers/role');
 const qrService = require('_services/qr.service');
 
 module.exports = {
@@ -50,43 +51,84 @@ module.exports = {
 };
 
 // Room's CRUD Handler
-async function getRoomsHandler() {
+function isSuperAdmin(user) {
+  if (!user) return false;
+  const role = user.role;
+  if (!role) return false;
+  if (Array.isArray(role)) {
+    return role.some(r => String(r).toLowerCase() === 'superadmin');
+  }
+  return String(role).toLowerCase() === 'superadmin';
+}
+async function getRoomsHandler(user) {
+  if (!user) return [];
+
+  const include = [{
+    model: db.Account,
+    attributes: ['firstName', 'lastName', 'accountId']
+  }];
+
+  if ((user.role || '').toString().toLowerCase() === (Role.SuperAdmin || '').toString().toLowerCase()) {
+    return await db.Room.findAll({ include });
+  }
+
+  const accountId = Number(user.accountId || user.AccountId || user.id);
+  if (!accountId) return [];
+
   return await db.Room.findAll({
-    include: [{
-      model: db.Account,
-      attributes: ['firstName', 'lastName']
-    }]
+    where: { roomInCharge: accountId },
+    include
   });
 }
-async function createRoomHandler(params) {
-  let rooms = await db.Room.findOne({ where: {roomName: params.roomName} });
+async function createRoomHandler(payload, user) {
+  if (!isSuperAdmin(user)) {
+    const err = new Error('Forbidden: only Super Admin can create rooms');
+    err.status = 403;
+    throw err;
+  }
 
-  if (rooms) {
-    return { 
-      message: 'Room already exists'
-    }
-  } else {
-    rooms = await db.Room.create({
-      roomName: params.roomName,
-      roomFloor: params.roomFloor,
-      roomType: params.roomType,
-      stockroomType: params.stockroomType,
-      roomInCharge: params.roomInCharge
-    });
-    return { 
-      message: 'New room created.', 
-      rooms 
-  };
-  }
+  const created = await db.Room.create({
+    roomName: payload.roomName,
+    roomInCharge: payload.roomInCharge,
+    description: payload.description,
+  });
+
+  return created;
 }
-async function getRoomByIdHandler(roomId) {
-  const rooms = await db.Room.findByPk(roomId);
-  if (!rooms) {
-      throw new Error('Invalid room ID');
+async function getRoomByIdHandler(roomId, user) {
+  const room = await db.Room.findByPk(roomId, {
+    include: [{
+      model: db.Account,
+      attributes: ['firstName', 'lastName', 'accountId']
+    }]
+  });
+
+  if (!room) {
+    const err = new Error('Room not found');
+    err.status = 404;
+    throw err;
   }
-  return rooms;
+
+  if ((user.role || '').toString().toLowerCase() === (Role.SuperAdmin || '').toString().toLowerCase()) {
+    return room;
+  }
+
+  const accountId = Number(user.accountId || user.AccountId || user.id);
+  if (accountId && Number(room.roomInCharge) === accountId) {
+    return room;
+  }
+
+  const err = new Error('Forbidden: you do not have access to this room');
+  err.status = 403;
+  throw err;
 }
-async function updateRoomHandler(roomId, params) {
+async function updateRoomHandler(roomId, payload, user) {
+  if (!isSuperAdmin(user)) {
+    const err = new Error('Forbidden: only Super Admin can edit rooms');
+    err.status = 403;
+    throw err;
+  }
+
   const room = await db.Room.findByPk(roomId);
   if (!room) {
     const err = new Error('Room not found');
@@ -94,9 +136,12 @@ async function updateRoomHandler(roomId, params) {
     throw err;
   }
 
-  // allowed fields to update
-  const allowed = ['roomName', 'roomFloor', 'roomType', 'stockroomType', 'roomInCharge'];
-  allowed.forEach(k => { if (params[k] !== undefined) room[k] = params[k]; });
+  // apply updates (this pattern keeps it simple)
+  Object.assign(room, {
+    roomName: payload.roomName ?? room.roomName,
+    roomInCharge: payload.roomInCharge ?? room.roomInCharge,
+    description: payload.description ?? room.description,
+  });
 
   await room.save();
   return room;

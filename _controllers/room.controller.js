@@ -48,7 +48,7 @@ router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin
 router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
 // PUT -------------------------------------------------------------------------------------
-router.put('/:roomId',  authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema, updateRoom);
+router.put('/:roomId',  authorize(Role.SuperAdmin),  updateRoomSchema, updateRoom);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -169,27 +169,27 @@ function receiveGenItemSchema(req, res, next) {
 
 // Management part
 function createRoom(req, res, next) {
-  roomService.createRoomHandler(req.body)
-      .then(() => res.json({ message: 'Room created' }))
-      .catch(next);
+  // pass user to service for extra checks/logging
+  roomService.createRoomHandler(req.body, req.user)
+    .then(created => res.status(201).json(created))
+    .catch(next);
+}
+function updateRoom(req, res, next) {
+  const roomId = Number(req.params.roomId);
+  roomService.updateRoomHandler(roomId, req.body, req.user)
+    .then(updated => res.json(updated))
+    .catch(next);
 }
 function getRooms(req, res, next) {
-  roomService.getRoomsHandler()
-      .then(room => res.json(room))
-      .catch(next);
+  roomService.getRoomsHandler(req.user)
+    .then(rooms => res.json(rooms))
+    .catch(next);
 }
 function getRoomById(req, res, next) {
-  roomService.getRoomByIdHandler(req.params.roomId)
-      .then(rooms => res.json(rooms))
-      .catch(next);
-}
-async function updateRoom(req, res, next) {
-  try {
-    const updated = await roomService.updateRoomHandler(req.params.roomId, req.body);
-    res.json(updated);
-  } catch (err) {
-    next(err);
-  }
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getRoomByIdHandler(roomId, req.user)
+    .then(room => res.json(room))
+    .catch(next);
 }
 
 // Receive part

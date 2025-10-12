@@ -9,93 +9,93 @@ module.exports = db = {};
 
 initialize();
 async function initialize() { 
-    // const { host, port, user, password, database } = config.database;
-    // const connection = await mysql.createConnection({ host, port, user, password });
-    // await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+    const { host, port, user, password, database } = config.database;
+    const connection = await mysql.createConnection({ host, port, user, password });
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
     
-    // await connection.end();
+    await connection.end();
 
-  const host = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
-  const port = parseInt(process.env.DB_PORT || (config.database && config.database.port) || 3306, 10);
-  const user = process.env.DB_USER || (config.database && config.database.user) || 'root';
-  const password = process.env.DB_PASS || (config.database && config.database.password) || '';
-  const database = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
-  const useSsl = (process.env.DB_SSL || (config.database && config.database.ssl) || false) === 'true' || (process.env.DB_SSL || (config.database && config.database.ssl) || false) === true;
+  // const host = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
+  // const port = parseInt(process.env.DB_PORT || (config.database && config.database.port) || 3306, 10);
+  // const user = process.env.DB_USER || (config.database && config.database.user) || 'root';
+  // const password = process.env.DB_PASS || (config.database && config.database.password) || '';
+  // const database = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
+  // const useSsl = (process.env.DB_SSL || (config.database && config.database.ssl) || false) === 'true' || (process.env.DB_SSL || (config.database && config.database.ssl) || false) === true;
 
-  // get CA contents: either from file path (DB_CA_PATH) or env var DB_CA
-  let ca = null;
-  const caPath = process.env.DB_CA_PATH || (config.database && config.database.caFile) || '';
-  if (caPath) {
-    try {
-      ca = fs.readFileSync(path.resolve(__dirname, '..', caPath), 'utf8');
-      console.log('Loaded DB CA from path:', caPath);
-    } catch (err) {
-      console.warn('Could not read DB CA from path:', caPath, err.message);
-    }
-  }
+  // // get CA contents: either from file path (DB_CA_PATH) or env var DB_CA
+  // let ca = null;
+  // const caPath = process.env.DB_CA_PATH || (config.database && config.database.caFile) || '';
+  // if (caPath) {
+  //   try {
+  //     ca = fs.readFileSync(path.resolve(__dirname, '..', caPath), 'utf8');
+  //     console.log('Loaded DB CA from path:', caPath);
+  //   } catch (err) {
+  //     console.warn('Could not read DB CA from path:', caPath, err.message);
+  //   }
+  // }
 
-  // If host is local (127.0.0.1 / localhost), try create DB. Remote managed DBs often don't allow CREATE DATABASE.
-  const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(host);
+  // // If host is local (127.0.0.1 / localhost), try create DB. Remote managed DBs often don't allow CREATE DATABASE.
+  // const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(host);
 
-  if (isLocalHost) {
-    try {
-      const connOpts = { host, port, user, password };
-      if (useSsl && ca) connOpts.ssl = { ca };
-      const connection = await mysql.createConnection(connOpts);
-      await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
-      await connection.end();
-      console.log('Ensured database exists:', database);
-    } catch (e) {
-      console.warn('CREATE DATABASE failed (continuing if DB already exists or remote user lacks permission):', e.message);
-    }
-  } else {
-    console.log('Running against remote DB host, skipping CREATE DATABASE step.');
-  }
+  // if (isLocalHost) {
+  //   try {
+  //     const connOpts = { host, port, user, password };
+  //     if (useSsl && ca) connOpts.ssl = { ca };
+  //     const connection = await mysql.createConnection(connOpts);
+  //     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+  //     await connection.end();
+  //     console.log('Ensured database exists:', database);
+  //   } catch (e) {
+  //     console.warn('CREATE DATABASE failed (continuing if DB already exists or remote user lacks permission):', e.message);
+  //   }
+  // } else {
+  //   console.log('Running against remote DB host, skipping CREATE DATABASE step.');
+  // }
 
-  if (!ca && process.env.DB_CA) {
-    ca = process.env.DB_CA;
-    console.log('Loaded DB CA from environment variable DB_CA (raw PEM).');
-  }
+  // if (!ca && process.env.DB_CA) {
+  //   ca = process.env.DB_CA;
+  //   console.log('Loaded DB CA from environment variable DB_CA (raw PEM).');
+  // }
 
-  // if still not, check base64 env var
-  if (!ca && process.env.DB_CA_B64) {
-    try {
-      ca = Buffer.from(process.env.DB_CA_B64, 'base64').toString('utf8');
-      console.log('Loaded DB CA from environment variable DB_CA_B64 (base64).');
-    } catch (err) {
-      console.warn('Failed to decode DB_CA_B64:', err.message);
-    }
-  }
+  // // if still not, check base64 env var
+  // if (!ca && process.env.DB_CA_B64) {
+  //   try {
+  //     ca = Buffer.from(process.env.DB_CA_B64, 'base64').toString('utf8');
+  //     console.log('Loaded DB CA from environment variable DB_CA_B64 (base64).');
+  //   } catch (err) {
+  //     console.warn('Failed to decode DB_CA_B64:', err.message);
+  //   }
+  // }
 
-  // Build Sequelize config
-  const sequelizeOptions = {
-    host,
-    port,
-    dialect: 'mysql',
-    logging: false,
-    dialectOptions: {}
-  };
+  // // Build Sequelize config
+  // const sequelizeOptions = {
+  //   host,
+  //   port,
+  //   dialect: 'mysql',
+  //   logging: false,
+  //   dialectOptions: {}
+  // };
 
-  // Accept insecure override (use only for testing)
-  const allowInsecure = (process.env.DB_ALLOW_INSECURE === 'true');
+  // // Accept insecure override (use only for testing)
+  // const allowInsecure = (process.env.DB_ALLOW_INSECURE === 'true');
 
-  if (useSsl) {
-    if (allowInsecure) {
-      console.warn('DB_ALLOW_INSECURE=true -> TLS certificate verification DISABLED (not recommended for production).');
-      sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: false };
-    } else {
-      if (ca) {
-        sequelizeOptions.dialectOptions.ssl = { ca };
-        console.log('Sequelize configured with provided CA for TLS verification.');
-      } else {
-        // no CA and SSL required -> will probably fail
-        sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: true };
-        console.warn('No DB CA provided and DB_SSL is true. Connection may fail with TLS errors.');
-      }
-    }
-  }
+  // if (useSsl) {
+  //   if (allowInsecure) {
+  //     console.warn('DB_ALLOW_INSECURE=true -> TLS certificate verification DISABLED (not recommended for production).');
+  //     sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: false };
+  //   } else {
+  //     if (ca) {
+  //       sequelizeOptions.dialectOptions.ssl = { ca };
+  //       console.log('Sequelize configured with provided CA for TLS verification.');
+  //     } else {
+  //       // no CA and SSL required -> will probably fail
+  //       sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: true };
+  //       console.warn('No DB CA provided and DB_SSL is true. Connection may fail with TLS errors.');
+  //     }
+  //   }
+  // }
 
-    const sequelize = new Sequelize(database, user, password, sequelizeOptions/* { host: 'localhost', dialect: 'mysql' } */);
+    const sequelize = new Sequelize(database, user, password, /* sequelizeOptions, */ { host: 'localhost', dialect: 'mysql' });
 
 // Initialize models and add them to the exported `db` object
 db.Room             = require('../_models/room.model')(sequelize);

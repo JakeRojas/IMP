@@ -1,4 +1,3 @@
-
 ================================================================================
 File: config.json
 Size: 562 B
@@ -58,7 +57,7 @@ Size: 626 B
 
 ================================================================================
 File: package.json
-Size: 1.02 kB
+Size: 1.04 kB
 ================================================================================
 
 {
@@ -79,6 +78,7 @@ Size: 1.02 kB
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
+    "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "express-jwt": "^8.5.1",
     "joi": "^17.13.3",
@@ -1605,7 +1605,7 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 18.68 kB
+Size: 18.77 kB
 ================================================================================
 
 const express   = require('express');
@@ -1658,7 +1658,7 @@ router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin
 router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
 // PUT -------------------------------------------------------------------------------------
-router.put('/:roomId',  authorize(Role.SuperAdmin, Role.Admin),  updateRoomSchema, updateRoom);
+router.put('/:roomId',  authorize(Role.SuperAdmin),  updateRoomSchema, updateRoom);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -1779,27 +1779,27 @@ function receiveGenItemSchema(req, res, next) {
 
 // Management part
 function createRoom(req, res, next) {
-  roomService.createRoomHandler(req.body)
-      .then(() => res.json({ message: 'Room created' }))
-      .catch(next);
+  // pass user to service for extra checks/logging
+  roomService.createRoomHandler(req.body, req.user)
+    .then(created => res.status(201).json(created))
+    .catch(next);
+}
+function updateRoom(req, res, next) {
+  const roomId = Number(req.params.roomId);
+  roomService.updateRoomHandler(roomId, req.body, req.user)
+    .then(updated => res.json(updated))
+    .catch(next);
 }
 function getRooms(req, res, next) {
-  roomService.getRoomsHandler()
-      .then(room => res.json(room))
-      .catch(next);
+  roomService.getRoomsHandler(req.user)
+    .then(rooms => res.json(rooms))
+    .catch(next);
 }
 function getRoomById(req, res, next) {
-  roomService.getRoomByIdHandler(req.params.roomId)
-      .then(rooms => res.json(rooms))
-      .catch(next);
-}
-async function updateRoom(req, res, next) {
-  try {
-    const updated = await roomService.updateRoomHandler(req.params.roomId, req.body);
-    res.json(updated);
-  } catch (err) {
-    next(err);
-  }
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getRoomByIdHandler(roomId, req.user)
+    .then(room => res.json(room))
+    .catch(next);
 }
 
 // Receive part
@@ -2139,12 +2139,15 @@ async function acceptReturned(req, res, next) {
 
 ================================================================================
 File: _helpers\db-handler.js
-Size: 8.66 kB
+Size: 12.42 kB
 ================================================================================
 
 const config            = require('config.json');
 const mysql             = require('mysql2/promise');
 const { Sequelize }     = require('sequelize');
+
+const fs = require('fs');
+const path = require('path');
 
 module.exports = db = {};
 
@@ -2195,6 +2198,7 @@ db.Transfer = require('../_models/transfer.model')(sequelize);
 dbAssociations();
 
     await sequelize.sync({ alter: true }); 
+    console.log('Sequelize synced.');
 }  
 
 function dbAssociations() {
@@ -3110,7 +3114,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\transfer.model.js
-Size: 1.29 kB
+Size: 1.35 kB
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3120,23 +3124,23 @@ module.exports = model;
 function model(sequelize) {
     const attributes = {
         transferId:      { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-    fromRoomId:      { type: DataTypes.INTEGER, allowNull: false },
-    toRoomId:        { type: DataTypes.INTEGER, allowNull: false },
-    createdBy:       { type: DataTypes.INTEGER, allowNull: false },
-    itemType:        { type: DataTypes.STRING, allowNull: false },
-    itemId:          { type: DataTypes.INTEGER, allowNull: true },
-    quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+        fromRoomId:      { type: DataTypes.INTEGER, allowNull: false },
+        toRoomId:        { type: DataTypes.INTEGER, allowNull: false },
+        createdBy:       { type: DataTypes.INTEGER, allowNull: false },
+        itemType:        { type: DataTypes.STRING, allowNull: false },
+        itemId:          { type: DataTypes.INTEGER, allowNull: true },
+        quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
 
-    status:          { type: DataTypes.STRING, allowNull: false, defaultValue: 'in_transfer' },
-    acceptedBy:      { type: DataTypes.INTEGER, allowNull: true },
-    acceptedAt:      { type: DataTypes.DATE, allowNull: true },
+        status:          { type: DataTypes.STRING, allowNull: false, defaultValue: 'in_transfer' },
+        acceptedBy:      { type: DataTypes.INTEGER, allowNull: true },
+        acceptedAt:      { type: DataTypes.DATE, allowNull: true },
 
-    returningBy:     { type: DataTypes.INTEGER, allowNull: true },
-    returnedAt:      { type: DataTypes.DATE, allowNull: true },
+        returningBy:     { type: DataTypes.INTEGER, allowNull: true },
+        returnedAt:      { type: DataTypes.DATE, allowNull: true },
 
-    note:            { type: DataTypes.TEXT, allowNull: true },
+        note:            { type: DataTypes.TEXT, allowNull: true },
 
-    updatedAt:       { type: DataTypes.DATE, allowNull: true }
+        updatedAt:       { type: DataTypes.DATE, allowNull: true }
     };
 
     const options = { 
@@ -4594,10 +4598,11 @@ async function _tryLoadAnyUnit(itemId) {
 
 ================================================================================
 File: _services\room.service.js
-Size: 26.01 kB
+Size: 27.33 kB
 ================================================================================
 
 const db        = require('_helpers/db-handler');
+const Role      = require('_helpers/role');
 const qrService = require('_services/qr.service');
 
 module.exports = {
@@ -4649,43 +4654,84 @@ module.exports = {
 };
 
 // Room's CRUD Handler
-async function getRoomsHandler() {
+function isSuperAdmin(user) {
+  if (!user) return false;
+  const role = user.role;
+  if (!role) return false;
+  if (Array.isArray(role)) {
+    return role.some(r => String(r).toLowerCase() === 'superadmin');
+  }
+  return String(role).toLowerCase() === 'superadmin';
+}
+async function getRoomsHandler(user) {
+  if (!user) return [];
+
+  const include = [{
+    model: db.Account,
+    attributes: ['firstName', 'lastName', 'accountId']
+  }];
+
+  if ((user.role || '').toString().toLowerCase() === (Role.SuperAdmin || '').toString().toLowerCase()) {
+    return await db.Room.findAll({ include });
+  }
+
+  const accountId = Number(user.accountId || user.AccountId || user.id);
+  if (!accountId) return [];
+
   return await db.Room.findAll({
-    include: [{
-      model: db.Account,
-      attributes: ['firstName', 'lastName']
-    }]
+    where: { roomInCharge: accountId },
+    include
   });
 }
-async function createRoomHandler(params) {
-  let rooms = await db.Room.findOne({ where: {roomName: params.roomName} });
+async function createRoomHandler(payload, user) {
+  if (!isSuperAdmin(user)) {
+    const err = new Error('Forbidden: only Super Admin can create rooms');
+    err.status = 403;
+    throw err;
+  }
 
-  if (rooms) {
-    return { 
-      message: 'Room already exists'
-    }
-  } else {
-    rooms = await db.Room.create({
-      roomName: params.roomName,
-      roomFloor: params.roomFloor,
-      roomType: params.roomType,
-      stockroomType: params.stockroomType,
-      roomInCharge: params.roomInCharge
-    });
-    return { 
-      message: 'New room created.', 
-      rooms 
-  };
-  }
+  const created = await db.Room.create({
+    roomName: payload.roomName,
+    roomInCharge: payload.roomInCharge,
+    description: payload.description,
+  });
+
+  return created;
 }
-async function getRoomByIdHandler(roomId) {
-  const rooms = await db.Room.findByPk(roomId);
-  if (!rooms) {
-      throw new Error('Invalid room ID');
+async function getRoomByIdHandler(roomId, user) {
+  const room = await db.Room.findByPk(roomId, {
+    include: [{
+      model: db.Account,
+      attributes: ['firstName', 'lastName', 'accountId']
+    }]
+  });
+
+  if (!room) {
+    const err = new Error('Room not found');
+    err.status = 404;
+    throw err;
   }
-  return rooms;
+
+  if ((user.role || '').toString().toLowerCase() === (Role.SuperAdmin || '').toString().toLowerCase()) {
+    return room;
+  }
+
+  const accountId = Number(user.accountId || user.AccountId || user.id);
+  if (accountId && Number(room.roomInCharge) === accountId) {
+    return room;
+  }
+
+  const err = new Error('Forbidden: you do not have access to this room');
+  err.status = 403;
+  throw err;
 }
-async function updateRoomHandler(roomId, params) {
+async function updateRoomHandler(roomId, payload, user) {
+  if (!isSuperAdmin(user)) {
+    const err = new Error('Forbidden: only Super Admin can edit rooms');
+    err.status = 403;
+    throw err;
+  }
+
   const room = await db.Room.findByPk(roomId);
   if (!room) {
     const err = new Error('Room not found');
@@ -4693,9 +4739,12 @@ async function updateRoomHandler(roomId, params) {
     throw err;
   }
 
-  // allowed fields to update
-  const allowed = ['roomName', 'roomFloor', 'roomType', 'stockroomType', 'roomInCharge'];
-  allowed.forEach(k => { if (params[k] !== undefined) room[k] = params[k]; });
+  // apply updates (this pattern keeps it simple)
+  Object.assign(room, {
+    roomName: payload.roomName ?? room.roomName,
+    roomInCharge: payload.roomInCharge ?? room.roomInCharge,
+    description: payload.description ?? room.description,
+  });
 
   await room.save();
   return room;
