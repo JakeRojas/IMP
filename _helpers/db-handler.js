@@ -109,11 +109,11 @@ const { Sequelize } = require('sequelize');
 module.exports = db = {};
 
 // Environment-aware DB config (env vars override config.json for deployment)
-const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
-const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
-const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
-const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || '';
-const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
+const DB_HOST = process.env.DB_HOST || (config.database && config.database.host)/*  || 'localhost' */;
+const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port)/*  || 3306 */;
+const DB_USER = process.env.DB_USER || (config.database && config.database.user) /* || 'root' */;
+const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password)/*  || '' */;
+const DB_NAME = process.env.DB_NAME || (config.database && config.database.database)/*  || 'IMP_db' */;
 
 let sequelize; // declared in module scope so it's available after initialization
 
