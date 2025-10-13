@@ -4,4 +4,4 @@ config.json
 notes.md
 
 .env
-config.aiven.json
+/certs/

@@ -1,135 +1,219 @@
-const config            = require('config.json');
-const mysql             = require('mysql2/promise');
-const { Sequelize }     = require('sequelize');
+// const config            = require('config.json');
+// const mysql             = require('mysql2/promise');
+// const { Sequelize }     = require('sequelize');
 
-const fs = require('fs');
-const path = require('path');
+// const fs = require('fs');
+// const path = require('path');
+
+// module.exports = db = {};
+
+// const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
+// const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
+// const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
+// const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || '';
+// const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
+
+// initialize();
+// async function initialize() { 
+//     // const { host, port, user, password, database } = config.database;
+//     // const connection = await mysql.createConnection({ host, port, user, password });
+//     // await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+//     // await connection.end();
+//     // const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
+
+//     try {
+//       // Build connection options for mysql2
+//       const connOptions = {
+//         host: DB_HOST,
+//         port: DB_PORT,
+//         user: DB_USER,
+//         password: DB_PASSWORD,
+//       };
+  
+//       // If DB_CA is provided (for providers requiring SSL), attach it
+//       if (process.env.DB_CA) {
+//         connOptions.ssl = { ca: process.env.DB_CA };
+//       }
+  
+//       console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
+//       const connection = await mysql.createConnection(connOptions);
+  
+//       // create database if not exists
+//       await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
+//       await connection.end();
+  
+//       // use the same DB_HOST variable for Sequelize (important — previously hardcoded 'localhost')
+//       const sequelizeOptions = {
+//         host: DB_HOST,
+//         dialect: 'mysql',
+//         port: DB_PORT,
+//         logging: false,
+//       };
+  
+//       if (process.env.DB_CA) {
+//         sequelizeOptions.dialectOptions = { ssl: { ca: process.env.DB_CA } };
+//       }
+  
+//       const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
+
+// // Initialize models and add them to the exported `db` object
+// db.Room             = require('../_models/room.model')(sequelize);
+// db.Account          = require('../_models/account.model')(sequelize);
+// db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
+// db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
+
+// // Apparel models
+// db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
+// db.ReceiveApparel     = require('../_models/apparel/receiveApparel.model')(sequelize);
+// db.ReleaseApparel     = require('../_models/apparel/releaseApparel.model')(sequelize);
+// db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(sequelize);
+
+// // Admin Supply models
+// db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
+// db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
+// db.ReleaseAdminSupply      = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
+// db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
+
+// // Item models
+// db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
+// db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
+// db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
+// db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
+
+// // Qr code models
+// db.Qr = require('../_models/qr.model')(sequelize);
+
+// // Request models
+// db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
+// db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
+
+// // Transfer models
+// db.Transfer = require('../_models/transfer.model')(sequelize);
+
+// if (process.env.NODE_ENV !== 'production') {
+//   await sequelize.sync();
+// }
+
+// console.log('Database initialized successfully.');
+// } catch (err) {
+// console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
+// // fail fast so Render shows the error in logs (you can change to retries if you prefer)
+// process.exit(1);
+// }
+
+
+const config = require('config.json');
+const mysql = require('mysql2/promise');
+const { Sequelize } = require('sequelize');
 
 module.exports = db = {};
 
+// Environment-aware DB config (env vars override config.json for deployment)
+const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
+const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
+const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
+const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || '';
+const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
+
+let sequelize; // declared in module scope so it's available after initialization
+
 initialize();
-async function initialize() { 
-    const { host, port, user, password, database } = config.database;
-    const connection = await mysql.createConnection({ host, port, user, password });
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
-    
+
+async function initialize() {
+  try {
+    // Build connection options for mysql2 (used to create database if missing)
+    const connOptions = {
+      host: DB_HOST,
+      port: DB_PORT,
+      user: DB_USER,
+      password: DB_PASSWORD,
+    };
+
+    // Optional: pass CA for providers that require TLS (paste PEM text into DB_CA env var)
+    if (process.env.DB_CA) {
+      connOptions.ssl = { ca: process.env.DB_CA };
+    }
+
+    console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
+
+    const connection = await mysql.createConnection(connOptions);
+
+    // Create database if it doesn't exist
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
     await connection.end();
 
-  // const host = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
-  // const port = parseInt(process.env.DB_PORT || (config.database && config.database.port) || 3306, 10);
-  // const user = process.env.DB_USER || (config.database && config.database.user) || 'root';
-  // const password = process.env.DB_PASS || (config.database && config.database.password) || '';
-  // const database = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
-  // const useSsl = (process.env.DB_SSL || (config.database && config.database.ssl) || false) === 'true' || (process.env.DB_SSL || (config.database && config.database.ssl) || false) === true;
+    // Build Sequelize options and instance (use DB_HOST, not hardcoded 'localhost')
+    const sequelizeOptions = {
+      host: DB_HOST,
+      dialect: 'mysql',
+      port: DB_PORT,
+      logging: false,
+    };
 
-  // // get CA contents: either from file path (DB_CA_PATH) or env var DB_CA
-  // let ca = null;
-  // const caPath = process.env.DB_CA_PATH || (config.database && config.database.caFile) || '';
-  // if (caPath) {
-  //   try {
-  //     ca = fs.readFileSync(path.resolve(__dirname, '..', caPath), 'utf8');
-  //     console.log('Loaded DB CA from path:', caPath);
-  //   } catch (err) {
-  //     console.warn('Could not read DB CA from path:', caPath, err.message);
-  //   }
-  // }
+    if (process.env.DB_CA) {
+      sequelizeOptions.dialectOptions = { ssl: { ca: process.env.DB_CA } };
+    }
 
-  // // If host is local (127.0.0.1 / localhost), try create DB. Remote managed DBs often don't allow CREATE DATABASE.
-  // const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(host);
+    sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
 
-  // if (isLocalHost) {
-  //   try {
-  //     const connOpts = { host, port, user, password };
-  //     if (useSsl && ca) connOpts.ssl = { ca };
-  //     const connection = await mysql.createConnection(connOpts);
-  //     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
-  //     await connection.end();
-  //     console.log('Ensured database exists:', database);
-  //   } catch (e) {
-  //     console.warn('CREATE DATABASE failed (continuing if DB already exists or remote user lacks permission):', e.message);
-  //   }
-  // } else {
-  //   console.log('Running against remote DB host, skipping CREATE DATABASE step.');
-  // }
+    // Attach sequelize to exported db object for external usage
+    db.sequelize = sequelize;
+    db.Sequelize = Sequelize;
 
-  // if (!ca && process.env.DB_CA) {
-  //   ca = process.env.DB_CA;
-  //   console.log('Loaded DB CA from environment variable DB_CA (raw PEM).');
-  // }
-
-  // // if still not, check base64 env var
-  // if (!ca && process.env.DB_CA_B64) {
-  //   try {
-  //     ca = Buffer.from(process.env.DB_CA_B64, 'base64').toString('utf8');
-  //     console.log('Loaded DB CA from environment variable DB_CA_B64 (base64).');
-  //   } catch (err) {
-  //     console.warn('Failed to decode DB_CA_B64:', err.message);
-  //   }
-  // }
-
-  // // Build Sequelize config
-  // const sequelizeOptions = {
-  //   host,
-  //   port,
-  //   dialect: 'mysql',
-  //   logging: false,
-  //   dialectOptions: {}
-  // };
-
-  // // Accept insecure override (use only for testing)
-  // const allowInsecure = (process.env.DB_ALLOW_INSECURE === 'true');
-
-  // if (useSsl) {
-  //   if (allowInsecure) {
-  //     console.warn('DB_ALLOW_INSECURE=true -> TLS certificate verification DISABLED (not recommended for production).');
-  //     sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: false };
-  //   } else {
-  //     if (ca) {
-  //       sequelizeOptions.dialectOptions.ssl = { ca };
-  //       console.log('Sequelize configured with provided CA for TLS verification.');
-  //     } else {
-  //       // no CA and SSL required -> will probably fail
-  //       sequelizeOptions.dialectOptions.ssl = { rejectUnauthorized: true };
-  //       console.warn('No DB CA provided and DB_SSL is true. Connection may fail with TLS errors.');
-  //     }
-  //   }
-  // }
-
-    const sequelize = new Sequelize(database, user, password, /* sequelizeOptions, */ { host: 'localhost', dialect: 'mysql' });
-
-// Initialize models and add them to the exported `db` object
+// // Initialize models and add them to the exported `db` object
 db.Room             = require('../_models/room.model')(sequelize);
 db.Account          = require('../_models/account.model')(sequelize);
 db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
 db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
 
-// Apparel models
+// // Apparel models
 db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
 db.ReceiveApparel     = require('../_models/apparel/receiveApparel.model')(sequelize);
 db.ReleaseApparel     = require('../_models/apparel/releaseApparel.model')(sequelize);
 db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(sequelize);
 
-// Admin Supply models
+// // Admin Supply models
 db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
 db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 db.ReleaseAdminSupply      = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
 db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
 
-// Item models
+// // Item models
 db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
 db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
 db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
 db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
 
-// Qr code models
+// // Qr code models
 db.Qr = require('../_models/qr.model')(sequelize);
 
-// Request models
+// // Request models
 db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
 db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
 
-// Transfer models
+// // Transfer models
 db.Transfer = require('../_models/transfer.model')(sequelize);
+
+    // If any models define associations, call them now
+    Object.keys(db).forEach((modelName) => {
+      if (db[modelName] && typeof db[modelName].associate === 'function') {
+        db[modelName].associate(db);
+      }
+    });
+
+    // Sync models to DB when in non-production for convenience.
+    // WARNING: avoid alter:true in real production; prefer migrations.
+    if (process.env.NODE_ENV !== 'production') {
+      await sequelize.sync({ alter: true });
+      console.log('Sequelize sync finished (alter: true).');
+    }
+
+    console.log('Database initialized successfully.');
+  } catch (err) {
+    console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
+    // Fail fast so deploy logs show the error. Change to retry logic if desired.
+    process.exit(1);
+  }
 
 dbAssociations();
 

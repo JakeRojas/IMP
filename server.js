@@ -21,7 +21,8 @@ const allowedOrigins = [
   'http://localhost:4200',      // duplicated project
   'http://localhost:4000',      // angularBoilerplate
   'http://localhost:3000',      // nextjs frontend
-  'http://221.121.99.208:4200'    // your other device (keep or remove as needed)
+  'http://221.121.99.208:4200',    // your other device (keep or remove as needed)
+  'inventory-management-system-liard-eta.vercel.app'
 ];
 
 app.use(cors({
@@ -36,6 +37,11 @@ app.use(cors({
   },
   credentials: true
 }));
+
+// app.use(express.static(path.join(__dirname, 'dist', 'angular-15-example')));
+// app.get('*', (req, res) => {
+//   res.sendFile(path.join(__dirname, 'dist', 'angular-15-example', 'index.html'));
+// });
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
@@ -54,7 +60,9 @@ app.use('/api-docs',    require('./_helpers/swagger'));
 app.use(errorHandler);
 
 // ─── START SERVER ────────────────────────────────────────────────
-const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80): 5000;
+const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 10000): 5000;
 app.listen(port, () => console.log('Server listening on port' + port));
+// const PORT = process.env.PORT || 10000;
+// app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 5000;
 // app.listen(port, '0.0.0.0', () => console.log(`Server listening on 0.0.0.0:${port}`));
