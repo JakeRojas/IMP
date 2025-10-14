@@ -17,31 +17,49 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 
 // ─── FRONTEND PORT ───────────────────────────────────────────────────
+// const allowedOrigins = [
+//   'http://localhost:4200',      // duplicated project
+//   'http://localhost:4000',      // angularBoilerplate
+//   'http://localhost:3000',      // nextjs frontend
+//   'http://221.121.99.208:4200',    // your other device (keep or remove as needed)
+//   'inventory-management-system-liard-eta.vercel.app'
+// ];
+// app.use(cors({
+//   origin: function(origin, callback){
+//     // allow requests with no origin (like mobile apps or curl)
+//     if(!origin) return callback(null, true);
+//     if(allowedOrigins.indexOf(origin) !== -1){
+//       callback(null, true);
+//     } else {
+//       callback(new Error('CORS policy does not allow access from this origin'));
+//     }
+//   },
+//   credentials: true
+// }));
+
 const allowedOrigins = [
-  'http://localhost:4200',      // duplicated project
-  'http://localhost:4000',      // angularBoilerplate
-  'http://localhost:3000',      // nextjs frontend
-  'http://221.121.99.208:4200',    // your other device (keep or remove as needed)
-  'inventory-management-system-liard-eta.vercel.app'
+  'http://localhost:4200',
+  'http://localhost:3000',
+  'https://inventory-management-system-liard-eta.vercel.app', // <-- frontend on Vercel (include https)
+  'https://inventory-management-system-vy5y.onrender.com'     // <-- backend origin (if you need it)
 ];
 
 app.use(cors({
-  origin: function(origin, callback){
-    // allow requests with no origin (like mobile apps or curl)
-    if(!origin) return callback(null, true);
-    if(allowedOrigins.indexOf(origin) !== -1){
-      callback(null, true);
-    } else {
-      callback(new Error('CORS policy does not allow access from this origin'));
+  origin: function(origin, callback) {
+    // allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    // reject other origins (CORS will fail on browser side)
+    return callback(new Error('CORS policy does not allow access from this origin: ' + origin));
   },
-  credentials: true
+  credentials: true,          // allow cookies (if needed)
+  optionsSuccessStatus: 200   // some old browsers choke on 204 for preflight
 }));
 
-// app.use(express.static(path.join(__dirname, 'dist', 'angular-15-example')));
-// app.get('*', (req, res) => {
-//   res.sendFile(path.join(__dirname, 'dist', 'angular-15-example', 'index.html'));
-// });
+// ensure preflight OPTIONS are handled
+app.options('*', cors({ origin: allowedOrigins, credentials: true }));
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
