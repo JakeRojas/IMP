@@ -4,9 +4,9 @@ module.exports = (sequelize) => {
   const attributes = {
     itemRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     accountId:     { type: DataTypes.INTEGER, allowNull: false },
+    requestToRoomId:{ type: DataTypes.INTEGER, allowNull: true },
     requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true },
     itemId:        { type: DataTypes.INTEGER, allowNull: true },
-    itemType:      { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity:      { type: DataTypes.INTEGER, defaultValue: 1 },
     status:        {
       type: DataTypes.ENUM('pending','accepted','released','declined','out_of_stock','fulfilled'),

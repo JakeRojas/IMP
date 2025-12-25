@@ -1,3 +1,37 @@
+
+================================================================================
+File: certs\ca.pem
+Size: 1.56 kB
+================================================================================
+
+-----BEGIN CERTIFICATE-----
+MIIEUDCCArigAwIBAgIUXdnCHH5nPdRt6/UZ3QkbxC2DC4YwDQYJKoZIhvcNAQEM
+BQAwQDE+MDwGA1UEAww1OWUxNTRhZDQtOTRmNC00OTg0LWEwNjktMzI5MDBlYjVl
+NjRmIEdFTiAxIFByb2plY3QgQ0EwHhcNMjUxMDA1MTIyODMwWhcNMzUxMDAzMTIy
+ODMwWjBAMT4wPAYDVQQDDDU5ZTE1NGFkNC05NGY0LTQ5ODQtYTA2OS0zMjkwMGVi
+NWU2NGYgR0VOIDEgUHJvamVjdCBDQTCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCC
+AYoCggGBAIwvKe3n2XzPzWSZXosWCC/rg1Sizlui5/CqjdKPVKq+FTjOLWmERKot
+m3dgmgd+FSYHcgpV7N8x9YRn3qPTf1f7dwPmoAuOEFlUWi/HqyoehbpnQ/6+B570
+1L5Wv7oabuNW/cbvdtxlIG4jjyBq+y7cUssXeyGWtva6L9Xm821iO9xj8EG+2ig4
+5aI5mcaxge/Zqlf7sLmsy1nFMEiBnJTO7ZQkYeb4CJECSywspQ1mhBCokdOvI5Cn
+0/vvt+FMmeXy8XXmICd9pKRgu8cKz/04apggCbcX17l1c/j9poi21ZD94uvAVB2b
+qZZL0Q6BX3DiU+pZdqcOaIKb0JYw+ATx4xOBqp1amjqAOdMKam5lUhZRRAiCs6s3
+b9ANDcOJo79q7s2vdQpbNyTFY+I9hVy2eAIGcPA7eVzsnGV6UAJ6UslmKGXMjsSO
+mc/NcbZ8uDrb3M9GR/Ef1lRvuqYRF1XgMrKOFnyFzEHL97rGndr/6J9lmU/Rj7iY
+SQdF0rJe2wIDAQABo0IwQDAdBgNVHQ4EFgQU1F3fyIp8qf2qGtbBuzX5uHyENQYw
+EgYDVR0TAQH/BAgwBgEB/wIBADALBgNVHQ8EBAMCAQYwDQYJKoZIhvcNAQEMBQAD
+ggGBAAdHQXAeLTeKxJVr0n26nh8Wxe+A9Yzr6pX7N5INr9TD0M/ToxZf9RSLFuiQ
+2yaC4TdiQD2w44eJJ2sZvUu8h6k4AAaqJuixXOcVzGMuHUo3GxuICQ2A4hwrBphO
+Nlevd35TT0IvCA9lOY89E+DrZ2F/l5BrrRzk/woLJIlgX6tYyZ0MX+4TfaIimEYE
+/cVQItwOFRZRpIeilbwYD7dkn9qKXTWBnPpW+x71dZkWPrVQ5G2SoTGMC81jgBL/
+15Rzjfphpi/jGGfS20Y0DM0DaX9/zS7Oa5MNBYRcGX+58qm3Umep766sxWho1gP+
+SZ76Xv83ygFVQ6cxcGdR1DDBF87UMgYETd1Yflu2CTSLIqnAgYwSkZrzk2tmwbV7
+yXrCsDTb6kxGEAR6f4VvdUKwqYTVu9JiDGj/B7Ktuk8yT3o8GWolmYuANfHJ1LpZ
+utug2sb2NcNw0fFp6fWFvE8K2Et5RP66To0RQMJQmMvfWwgFFhWKHGlnrNy9TH4n
+yVM//A==
+-----END CERTIFICATE-----
+
+
 ================================================================================
 File: config.json
 Size: 562 B
@@ -112,8 +146,36 @@ Inventory Management Project
 
 
 ================================================================================
+File: scripts\write-ca.js
+Size: 707 B
+================================================================================
+
+const fs = require('fs');
+const path = require('path');
+
+const outDir = path.join(__dirname, '..', 'certs');
+const outPath = process.env.DB_CA_PATH || path.join(outDir, 'ca.pem');
+const base64 = process.env.DB_CA_BASE64 || '';
+
+if (!base64) {
+  console.log('DB_CA_BASE64 not set — skipping writing CA file.');
+  process.exit(0);
+}
+
+try {
+  if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+  const buf = Buffer.from(base64, 'base64');
+  fs.writeFileSync(outPath, buf, { mode: 0o600 }); // owner read/write only
+  console.log(`Wrote DB CA to ${outPath}`);
+  process.exit(0);
+} catch (err) {
+  console.error('Failed to write DB CA file:', err);
+  process.exit(1);
+}
+
+================================================================================
 File: server.js
-Size: 3.58 kB
+Size: 4.87 kB
 ================================================================================
 
 require('rootpath')();
@@ -135,25 +197,49 @@ app.use(bodyParser.json());
 app.use(cookieParser());
 
 // ─── FRONTEND PORT ───────────────────────────────────────────────────
+// const allowedOrigins = [
+//   'http://localhost:4200',      // duplicated project
+//   'http://localhost:4000',      // angularBoilerplate
+//   'http://localhost:3000',      // nextjs frontend
+//   'http://221.121.99.208:4200',    // your other device (keep or remove as needed)
+//   'inventory-management-system-liard-eta.vercel.app'
+// ];
+// app.use(cors({
+//   origin: function(origin, callback){
+//     // allow requests with no origin (like mobile apps or curl)
+//     if(!origin) return callback(null, true);
+//     if(allowedOrigins.indexOf(origin) !== -1){
+//       callback(null, true);
+//     } else {
+//       callback(new Error('CORS policy does not allow access from this origin'));
+//     }
+//   },
+//   credentials: true
+// }));
+
 const allowedOrigins = [
-  'http://localhost:4200',      // duplicated project
-  'http://localhost:4000',      // angularBoilerplate
-  'http://localhost:3000',      // nextjs frontend
-  'http://221.121.99.208:4200'    // your other device (keep or remove as needed)
+  'http://localhost:4200',
+  'http://localhost:3000',
+  'https://inventory-management-system-liard-eta.vercel.app', // <-- frontend on Vercel (include https)
+  'https://inventory-management-system-vy5y.onrender.com'     // <-- backend origin (if you need it)
 ];
 
 app.use(cors({
-  origin: function(origin, callback){
-    // allow requests with no origin (like mobile apps or curl)
-    if(!origin) return callback(null, true);
-    if(allowedOrigins.indexOf(origin) !== -1){
-      callback(null, true);
-    } else {
-      callback(new Error('CORS policy does not allow access from this origin'));
+  origin: function(origin, callback) {
+    // allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
     }
+    // reject other origins (CORS will fail on browser side)
+    return callback(new Error('CORS policy does not allow access from this origin: ' + origin));
   },
-  credentials: true
+  credentials: true,          // allow cookies (if needed)
+  optionsSuccessStatus: 200   // some old browsers choke on 204 for preflight
 }));
+
+// ensure preflight OPTIONS are handled
+app.options('*', cors({ origin: allowedOrigins, credentials: true }));
 
 // ─── SERVE UPLOADS DIRECTORY ────────────────────────────────────────────────
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
@@ -164,6 +250,7 @@ app.use('/qr',          require('./_controllers/qr.controller'));
 app.use('/req-stock',   require('./_controllers/request.stock.controller'));
 app.use('/req-item',    require('./_controllers/request.item.controller'));
 app.use('/transfers',   require('./_controllers/transfer.controller'));
+app.use('/borrows',     require('./_controllers/borrow.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
 app.use('/api-docs',    require('./_helpers/swagger'));
@@ -172,8 +259,10 @@ app.use('/api-docs',    require('./_helpers/swagger'));
 app.use(errorHandler);
 
 // ─── START SERVER ────────────────────────────────────────────────
-const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80): 5000;
+const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 10000): 5000;
 app.listen(port, () => console.log('Server listening on port' + port));
+// const PORT = process.env.PORT || 10000;
+// app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // const port = process.env.NODE_ENV === 'production' ? (process.env.PORT || 80) : 5000;
 // app.listen(port, '0.0.0.0', () => console.log(`Server listening on 0.0.0.0:${port}`));
 
@@ -870,7 +959,7 @@ components:
 
 ================================================================================
 File: _controllers\account.controller.js
-Size: 12.82 kB
+Size: 12.99 kB
 ================================================================================
 
 // main functions of account controller
@@ -898,6 +987,7 @@ router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivi
 router.get('/exists',                   existsAccount);
 
 router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
+router.post('/create-array',            authorize (Role.SuperAdmin), createAsArraySchema, createAsArray);
 router.get('/',                         authorize (Role.SuperAdmin), getAll);
 router.get('/:accountId',               authorize(), getById);
 router.put('/:accountId',               authorize(Role.SuperAdmin), updateSchema, update);
@@ -920,14 +1010,12 @@ try {
     const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
 
-    // accountService.authenticate returns { ...basicDetails(account), jwtToken, refreshToken: token }
     const account = await accountService.authenticate({ email, password, ipAddress, browserInfo });
 
     if (account.status === 'deactivated') {
       return res.status(403).json({ message: 'Account is deactivated. Contact administrator.' });
     }
 
-    // set jwt cookie (if you want a jwt cookie) — keep same options as before
     res.cookie('token', account.jwtToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -935,10 +1023,8 @@ try {
     maxAge: 60 * 60 * 1000, // 1h
     });
 
-    // set refresh-token cookie (httpOnly) — setTokenCookie already does this
     setTokenCookie(res, account.refreshToken);
 
-    // return the account object (frontend expects account + jwtToken)
     return res.json(account);
 } catch (err) {
     next(err);
@@ -972,42 +1058,34 @@ function getAllActivityLogs(req, res, next) {
 }
 async function refreshToken(req, res, next) {
     try {
-      // try common locations for the refresh token
       const token =
         (req.cookies && req.cookies.refreshToken) ||
         req.body?.token ||
         req.get('x-refresh-token') ||
         req.headers['x-refresh-token'];
   
-      // No token -> not logged in (choose 204 to avoid console noise)
       if (!token) {
-        return res.status(204).end(); // or res.status(401).json({ message: 'No refresh token' });
+        return res.status(204).end();
       }
   
-      // call service — wrap in try so service errors are handled
       let accountPayload;
       try {
         accountPayload = await accountService.refreshToken({ token, ipAddress: req.ip });
       } catch (serviceErr) {
-        // service-level failure (invalid token / DB error). Distinguish if possible:
         if (serviceErr && serviceErr.message && serviceErr.message.toLowerCase().includes('invalid')) {
           return res.status(401).json({ message: 'Invalid or expired refresh token' });
         }
-        // unexpected service error: log and forward
         console.error('refreshToken service error:', serviceErr);
         return res.status(500).json({ message: 'Internal error while refreshing token' });
       }
   
-      // No payload => treat as unauthorized
       if (!accountPayload) {
         return res.status(401).json({ message: 'Invalid or expired refresh token' });
       }
   
-      // success: return payload (tokens/account)
       return res.json(accountPayload);
     } catch (err) {
       console.error('refreshToken handler unexpected error:', err);
-      // fallback: don't expose internal errors
       return res.status(500).json({ message: 'Unexpected server error' });
     }
 }
@@ -1024,19 +1102,15 @@ async function revokeToken (req, res, next) {
 
         if (!token) return res.status(400).json({ message: 'Token is required' });
 
-        // Find refresh token (validate it)
         const refreshToken = await db.RefreshToken.findOne({ where: { token } });
         if (!refreshToken || !refreshToken.isActive) {
-            // Keep response consistent with service errors
             return res.status(400).json({ message: 'Invalid token' });
         }
 
-        // Ensure token belongs to caller or caller is SuperAdmin
         if (refreshToken.accountId !== req.user.accountId && req.user.role !== Role.SuperAdmin) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
-        // Revoke via service (keeps single place for revoke logic)
         await accountService.revokeToken({ token, ipAddress });
         return res.json({ message: 'Token revoked' });
     } catch (err) {
@@ -1182,7 +1256,6 @@ async function _delete(req, res, next) {
       const accountId = parseInt(req.params.accountId || req.params.accountId, 10);
       if (Number.isNaN(accountId)) return res.status(400).json({ message: 'Invalid id' });
   
-      // soft delete
       await accountService.update(accountId, { status: 'deactivated' });
       res.json({ message: 'Account deactivated' });
     } catch (err) {
@@ -1199,9 +1272,198 @@ function setTokenCookie(res, token) {
   res.cookie('refreshToken', token, cookieOptions);
 }
 
+//===================Lazy Style Methods=======================================
+function createAsArraySchema(req, res, next) {
+    const accountSchema = Joi.object({
+      title: Joi.string().empty(''),
+      firstName: Joi.string().empty(''),
+      lastName: Joi.string().empty(''),
+      email: Joi.string().email().empty(''),
+      password: Joi.string().min(6).empty(''),
+      confirmPassword: Joi.string().valid(Joi.ref('password')).empty(''),
+      status: Joi.string().valid('active', 'deactivated').empty(''),
+      role: Joi.string().valid(Role.SuperAdmin, Role.Admin, Role.User, Role.StockroomAdmin, Role.Teacher).empty('')
+    });
+  
+    const schema = Joi.alternatives().try(
+      accountSchema,
+      Joi.array().items(accountSchema)
+    );
+  
+    validateRequest(req, next, schema);
+}
+async function createAsArray(req, res, next) {
+    try {
+      if (Array.isArray(req.body)) {
+        const accounts = await Promise.all(req.body.map(data => accountService.create(data)));
+        return res.json(accounts);
+      }
+  
+      const account = await accountService.create(req.body);
+      res.json(account);
+    } catch (err) {
+      next(err);
+    }
+}
+
+================================================================================
+File: _controllers\borrow.controller.js
+Size: 5.19 kB
+================================================================================
+
+const express = require('express');
+const router = express.Router();
+const Joi = require('joi');
+
+const borrowService = require('_services/borrow.service');
+const validateRequest = require('_middlewares/validate-request');
+const authorize = require('_middlewares/authorize');
+const Role = require('_helpers/role');
+
+router.post('/', authorize(), createSchema, createBorrow);
+router.get('/', authorize(), listBorrows);
+router.get('/:id', authorize(), getById);
+
+router.post('/:id/approve', authorize(), approveBorrow);
+router.post('/:id/decline', authorize(), declineBorrow);
+router.post('/:id/cancel', authorize(), cancelBorrow);
+router.post('/:id/acquire', authorize(), acquireBorrow);
+router.post('/:id/return', authorize(), returnBorrow);
+router.post('/:id/accept-return', authorize(), acceptReturnHandler);
+
+
+module.exports = router;
+
+// Schema for create
+function createSchema(req, res, next) {
+  const schema = Joi.object({
+    roomId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().optional().allow(null),
+    quantity: Joi.number().integer().min(1).required(),
+    note: Joi.string().max(500).optional().allow(null)
+  });
+  validateRequest(req, next, schema);
+}
+
+// handlers
+async function createBorrow(req, res, next) {
+  try {
+    const payload = req.body;
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    payload.requesterId = req.user.accountId;
+    const created = await borrowService.createBorrow(payload, ipAddress, browserInfo);
+    res.status(201).json({ success: true, data: created });
+  } catch (err) { next(err); }
+}
+async function listBorrows(req, res, next) {
+  try {
+    const where = {};
+    if (req.query.status) where.status = req.query.status;
+    if (req.query.requesterId) where.requesterId = req.query.requesterId;
+    if (req.query.roomId) where.roomId = req.query.roomId;
+
+    const rows = await borrowService.listBorrows({ where });
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+}
+async function getById(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const r = await borrowService.getById(id);
+    res.json({ success: true, data: r });
+  } catch (err) { next(err); }
+}
+
+async function cancelBorrow(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.cancelBorrow(id, user, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function approveBorrow(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.approveBorrow(id, user, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+async function declineBorrow(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const { reason } = req.body || {};
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.declineBorrow(id, user, { reason }, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function acquireBorrow(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.acquireBorrow(id, user, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+async function returnBorrow(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const { note } = req.body || {};
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.returnBorrow(id, user, { note }, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function acceptReturnHandler(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const user = req.user;
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const updated = await borrowService.acceptReturn(id, user, ipAddress, browserInfo);
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+
 ================================================================================
 File: _controllers\qr.controller.js
-Size: 8.88 kB
+Size: 7.64 kB
 ================================================================================
 
 const PDFDocument = require('pdfkit');
@@ -1211,8 +1473,11 @@ const router      = express.Router();
 
 const qrService   = require('_services/qr.service'); 
 const db          = require('_helpers/db-handler');
+const validateRequest   = require('_middlewares/validate-request');
+const authorize         = require('_middlewares/authorize');
+const Role              = require('_helpers/role');
 
-router.post('/scan',                                scanItem);
+router.post('/scan',                               authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), scanItem);
 router.post('/:stockroomType/unit/:unitId/release', releaseUnit);
 
 router.get('/:stockroomType/:inventoryId/qrcode', getBatchQr);
@@ -1226,6 +1491,7 @@ async function getBatchQr(req, res, next) {
   try {
     const stockroomType = String(req.params.stockroomType || '').toLowerCase();
     const inventoryId = Number(req.params.inventoryId);
+
     const out = await qrService.generateBatchQR({ stockroomType, inventoryId });
     const pngPath = out && (out.absolutePath || out.path || out.filepath);
     if (!pngPath || !fs.existsSync(pngPath)) return res.status(404).json({ message: 'QR not found' });
@@ -1235,6 +1501,7 @@ async function getBatchQr(req, res, next) {
     next(err);
   }
 }
+
 async function qrGeneratorUnit(req, res, next) {
   try {
     const stockroomType = req.params.stockroomType; 
@@ -1258,25 +1525,14 @@ async function scanItem(req, res, next) {
 }
 async function releaseUnit(req, res, next) {
   try {
-    const stockroomType = req.params.stockroomType;
+    const stockroomType = String(req.params.stockroomType || '').toLowerCase();
     const unitId = parseInt(req.params.unitId, 10);
     const actorId = req.body?.actorId;
 
     if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
 
-    // delegate to specific service depending on stockroomType
-    if (stockroomType === 'apparel') {
-      const apparelService = require('_services/apparel.service');
-      const result = await apparelService.releaseUnitById(unitId, { actorId });
-      return res.json(result);
-    } else if (stockroomType === 'admin-supply' || stockroomType === 'supply') {
-      const supplyService = require('_services/adminSupply.service');
-      const result = await supplyService.releaseUnitById(unitId, { actorId });
-      return res.json(result);
-    } else {
-      // fallback — you can add gen item handler similarly
-      return res.status(400).json({ message: 'Unsupported stockroomType for unit release' });
-    }
+    const result = await qrService.releaseUnit(stockroomType, unitId, { actorId });
+    return res.json(result);
   } catch (err) { next(err); }
 }
 async function generateAllPdf(req, res, next) {
@@ -1285,7 +1541,6 @@ async function generateAllPdf(req, res, next) {
     const roomId = parseInt(req.params.roomId, 10);
     if (!stockroomType || Number.isNaN(roomId)) return res.status(400).json({ message: 'Invalid params' });
 
-    // Load inventory for the room/type (adapt model names to your project if needed)
     let inventory = [];
     if (stockroomType === 'apparel') {
       inventory = await db.ApparelInventory.findAll({ where: { roomId } });
@@ -1302,7 +1557,6 @@ async function generateAllPdf(req, res, next) {
       return res.status(404).json({ message: 'No inventory found for this room/type' });
     }
 
-    // Helper to safely read candidate fields (also checks dataValues for Sequelize instances)
     function tryFields(obj, ...keys) {
       if (!obj) return null;
       for (const k of keys) {
@@ -1312,7 +1566,6 @@ async function generateAllPdf(req, res, next) {
       return null;
     }
 
-    // Build array of items with image path and label (sku). Keep invId for fallback or later use.
     const qrItems = [];
     for (let idx = 0; idx < inventory.length; idx++) {
       const inv = inventory[idx];
@@ -1329,10 +1582,6 @@ async function generateAllPdf(req, res, next) {
         'description', 'serialNumber'
       );
 
-      // Final label fallback order:
-      // 1) labelCandidate (preferred)
-      // 2) invId (if present)
-      // 3) "Item #<index+1>" as last resort to avoid 'undefined'
       const label = labelCandidate !== null && labelCandidate !== undefined
         ? String(labelCandidate)
         : (invId !== undefined && invId !== null ? String(invId) : `Item #${idx + 1}`);
@@ -1340,7 +1589,6 @@ async function generateAllPdf(req, res, next) {
       if (pngPath) {
         qrItems.push({ imgPath: pngPath, label, invId });
       } else {
-        // optionally include items without PNG (they will show "QR missing" placeholders)
         qrItems.push({ imgPath: null, label, invId });
       }
     }
@@ -1349,37 +1597,32 @@ async function generateAllPdf(req, res, next) {
       return res.status(404).json({ message: 'No QR images generated' });
     }
 
-    // Prepare PDF response
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="qrcodes-${stockroomType}-room-${roomId}.pdf"`);
 
     const doc = new PDFDocument({ autoFirstPage: false, size: 'LETTER', margin: 0 });
     doc.pipe(res);
 
-    // Layout constants
     const POINTS_PER_INCH = 72;
-    const PAGE_WIDTH = 8.5 * POINTS_PER_INCH; // 612
-    const PAGE_HEIGHT = 11 * POINTS_PER_INCH; // 792
-    const MARGIN = 0.5 * POINTS_PER_INCH;     // half inch margin (36pt)
-    const QR_SIDE = 1 * POINTS_PER_INCH;     // 1 inch QR (72pt)
-    const LABEL_HEIGHT = 12;                 // room for label under QR (12pt)
+    const PAGE_WIDTH = 8.5 * POINTS_PER_INCH;
+    const PAGE_HEIGHT = 11 * POINTS_PER_INCH;
+    const MARGIN = 0.5 * POINTS_PER_INCH;
+    const QR_SIDE = 1 * POINTS_PER_INCH;
+    const LABEL_HEIGHT = 12;
     const CELL_HEIGHT = QR_SIDE + LABEL_HEIGHT;
 
     const usableWidth = PAGE_WIDTH - 2 * MARGIN;
     const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
 
-    // how many fit horizontally / vertically
     const cols = Math.max(1, Math.floor(usableWidth / QR_SIDE));
     const rows = Math.max(1, Math.floor(usableHeight / CELL_HEIGHT));
     const perPage = cols * rows;
 
-    // distribute leftover space as gaps
     const gapX = (usableWidth - cols * QR_SIDE) / (cols + 1);
     const gapY = (usableHeight - rows * CELL_HEIGHT) / (rows + 1);
     const hGap = Math.max(0, gapX);
     const vGap = Math.max(0, gapY);
 
-    // font defaults
     doc.font('Helvetica');
 
     for (let i = 0; i < qrItems.length; i++) {
@@ -1406,8 +1649,7 @@ async function generateAllPdf(req, res, next) {
         doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
       }
 
-      // draw SKU label under the QR
-      const labelY = y + QR_SIDE + 4; // small gap between QR and label
+      const labelY = y + QR_SIDE + 4;
       doc.fontSize(10);
       doc.text(label, x, labelY, { width: QR_SIDE, align: 'center' });
     }
@@ -1421,10 +1663,9 @@ async function generateAllPdf(req, res, next) {
 
 ================================================================================
 File: _controllers\request.item.controller.js
-Size: 3.72 kB
+Size: 7.65 kB
 ================================================================================
 
-// _controllers/itemRequest.controller.js
 const express = require('express');
 const router  = express.Router();
 const Joi     = require('joi');
@@ -1447,27 +1688,85 @@ router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Teacher, Role.User]
 
 module.exports = router;
 
+function _extractIpAndBrowser(req) {
+  const ipAddress = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'Unknown IP';
+  const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  return { ipAddress, browserInfo };
+}
+
 // Schemas
 function createSchema(req, res, next) {
   const schema = Joi.object({
-    requesterRoomId: Joi.number().integer().optional(),
-    itemId: Joi.number().integer().allow(null),
-    itemType: Joi.string().valid('apparel','supply','genItem').required(),
+    requesterRoomId: Joi.number().integer().required(),
+    requestToRoomId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).allow('', null).optional(),
+    note: Joi.string().max(500).allow('', null).optional()
   });
   validateRequest(req, next, schema);
 }
 
 // Handlers
-async function createRequest(req, res, next) {
-  try {
-    const payload = req.body;
-    payload.accountId = req.user.accountId;
-    const created = await itemRequestService.createItemRequest(payload);
-    res.status(201).json({ success: true, data: created });
-  } catch (err) { next(err); }
+function isUserInCharge(room, accountId) {
+  if (!room || !accountId) return false;
+  const possibleFields = ['inChargeId','inChargeUserId','roomInCharge','managerId','accountId','createdBy'];
+  for (const f of possibleFields) {
+    if (typeof room[f] !== 'undefined' && String(room[f]) === String(accountId)) return true;
+  }
+  // also allow an array of users in charge stored as 'inChargeUsers' (comma-separated or array)
+  if (room.inChargeUsers) {
+    if (Array.isArray(room.inChargeUsers) && room.inChargeUsers.map(String).includes(String(accountId))) return true;
+    if (typeof room.inChargeUsers === 'string' && room.inChargeUsers.split(',').map(s => s.trim()).includes(String(accountId))) return true;
+  }
+  return false;
 }
+async function createRequest(req, res) {
+  try {
+    const payload = req.body || {};
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const accountId = req.user && req.user.accountId;
+    if (!accountId) return res.status(401).json({ message: 'Unauthenticated' });
+
+    // ensure the requesterRoom exists
+    const requesterRoom = await db.Room.findByPk(payload.requesterRoomId);
+    if (!requesterRoom) return res.status(400).json({ message: 'Invalid requesterRoomId' });
+
+    // user must be in charge of the requesterRoom
+    if (!isUserInCharge(requesterRoom, accountId)) {
+      return res.status(403).json({ message: 'You are not authorized as requester for the selected room' });
+    }
+
+    // ensure the requestToRoom exists
+    const requestToRoom = await db.Room.findByPk(payload.requestToRoomId);
+    if (!requestToRoom) return res.status(400).json({ message: 'Invalid requestToRoomId' });
+
+    // NEW: only allow requestToRoom whose roomType is 'stockroom' or 'substockroom'
+    const rt = String(requestToRoom.roomType || '').toLowerCase();
+    if (!['stockroom', 'substockroom'].includes(rt)) {
+      return res.status(403).json({ message: 'You can only request from rooms with roomType \"stockroom\" or \"substockroom\"' });
+    }
+
+    // delegate to service — service will validate item belongs to requestToRoom, infer itemType, create record
+    const created = await itemRequestService.createItemRequest({
+      accountId,
+      requesterRoomId: Number(payload.requesterRoomId),
+      requestToRoomId: Number(payload.requestToRoomId),
+      itemId: Number(payload.itemId),
+      quantity: Number(payload.quantity),
+      note: payload.note || null,
+      ipAddress, browserInfo
+    });
+
+    return res.status(201).json({ success: true, data: created });
+  } catch (err) {
+    console.error('createItemRequestHandler error', err);
+    const status = (err && err.status) || 500;
+    const message = (err && err.message) || 'Server error';
+    return res.status(status).json({ message });
+  }
+}
+
 async function listRequests(req, res, next) {
   try {
     const where = {};
@@ -1485,37 +1784,68 @@ async function getRequestById(req, res, next) {
 }
 async function acceptRequest(req, res, next) {
   try {
-    const r = await itemRequestService.acceptItemRequest(parseInt(req.params.id, 10), req.user.accountId);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await itemRequestService.acceptItemRequest(parseInt(req.params.id, 10), req.user.accountId, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
 async function declineRequest(req, res, next) {
   try {
     const reason = req.body.reason || null;
-    const r = await itemRequestService.declineItemRequest(parseInt(req.params.id, 10), req.user.accountId, reason);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await itemRequestService.declineItemRequest(parseInt(req.params.id, 10), req.user.accountId, reason, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
+// async function releaseRequest(req, res, next) {
+//   try {
+//     const releaserId = req.user && req.user.accountId;
+//     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+//     if (!releaserId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
+//     const id = parseInt(req.params.id, 10);
+//     const result = await itemRequestService.releaseItemRequest(id, releaserId, ipAddress, browserInfo);
+//     res.json({ success: true, data: result });
+//   } catch (err) { next(err); }
+// }
+// async function fulfillRequest(req, res, next) {
+//   try {
+//     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+//     const r = await itemRequestService.fulfillItemRequest(parseInt(req.params.id, 10), req.user.accountId, ipAddress, browserInfo);
+//     res.json({ success: true, data: r });
+//   } catch (err) { next(err); }
+// }
 async function releaseRequest(req, res, next) {
   try {
-    const releaserId = req.user && req.user.accountId;
-    if (!releaserId) return res.status(401).json({ success: false, message: 'Unauthenticated' });
-    const id = parseInt(req.params.id, 10);
-    const result = await itemRequestService.releaseItemRequest(id, releaserId);
-    res.json({ success: true, data: result });
-  } catch (err) { next(err); }
+    const id = req.params.id;
+    const ip = req.headers['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '';
+    const browser = req.get('User-Agent') || '';
+    const result = await itemRequestService.releaseItemRequest(id, req.user, ip, browser);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 }
+
 async function fulfillRequest(req, res, next) {
   try {
-    const r = await itemRequestService.fulfillItemRequest(parseInt(req.params.id, 10), req.user.accountId);
-    res.json({ success: true, data: r });
-  } catch (err) { next(err); }
+    const id = req.params.id;
+    const ip = req.headers['x-forwarded-for'] || req.ip || req.socket?.remoteAddress || '';
+    const browser = req.get('User-Agent') || '';
+    const result = await itemRequestService.fulfillItemRequest(id, req.user, ip, browser);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
 }
 
 
 ================================================================================
 File: _controllers\request.stock.controller.js
-Size: 3.9 kB
+Size: 5.18 kB
 ================================================================================
 
 const express = require('express');
@@ -1526,6 +1856,7 @@ const validateRequest = require('_middlewares/validate-request');
 const authorize       = require('_middlewares/authorize');
 const Role            = require('_helpers/role');
 const stockService    = require('_services/request.stock.service');
+const roomService     = require('_services/room.service');
 
 router.post('/',  authorize([Role.SuperAdmin, Role.StockroomAdmin]),              createSchema, createStockRequestHandler);
 router.get('/',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]),  listRequests);
@@ -1538,12 +1869,17 @@ router.post('/:id/fulfill',     authorize([Role.SuperAdmin, Role.StockroomAdmin]
 
 module.exports = router;
 
+function _extractIpAndBrowser(req) {
+  const ipAddress = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'Unknown IP';
+  const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  return { ipAddress, browserInfo };
+}
+
 function createSchema(req, res, next) {
+  // accountId and itemType removed from client payload
   const schema = Joi.object({
-    accountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
-    requesterRoomId: Joi.number().integer().optional(),
-    itemId: Joi.number().integer().optional(),
-    itemType: Joi.string().valid('apparel','supply','genItem').required(),
+    requesterRoomId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).allow('', null).optional(),
   });
@@ -1551,24 +1887,40 @@ function createSchema(req, res, next) {
 }
 async function createStockRequestHandler(req, res) {
   try {
-    console.log('POST /req-stock body:', req.body, 'user:', req.user && { id: req.user.accountId || req.user.id, role: req.user.role });
-    const created = await stockService.createStockRequest(req.body);
-    return res.json({ data: created });
-  } catch (err) {
-    // Log full error to server console for debugging
-    console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);
+    // take accountId from logged-in user
+    const payload = req.body || {};
+    payload.accountId = req.user && req.user.accountId;
 
-    // Normalize response so frontend receives a helpful JSON on failure
+    // basic presence check (validateRequest already checked requesterRoomId is a number)
+    if (!payload.accountId) return res.status(401).json({ message: 'Unauthenticated' });
+
+    // verify requesterRoomId exists and is a stockroom (only stockroom-type rooms can create stock requests)
+    const room = await db.Room.findByPk(payload.requesterRoomId);
+    if (!room) return res.status(400).json({ message: 'Invalid requesterRoomId' });
+
+    // normalize roomType (some of your code uses roomType fields like 'stockroom' / 'substockroom' / 'room')
+    if (String(room.roomType || '').toLowerCase() !== 'stockroom') {
+      return res.status(403).json({ message: 'Only rooms with roomType \"stockroom\" can create stock requests' });
+    }
+
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    // delegate to service (service will infer itemType from itemId)
+    const created = await stockService.createStockRequest(payload, ipAddress, browserInfo);
+    return res.status(201).json({ success: true, data: created });
+  } catch (err) {
+    console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);
     const status = (err && err.status) || 500;
     const message = (err && (err.message || err.error || err.toString())) || 'Server error';
     return res.status(status).json({ message, details: process.env.NODE_ENV === 'development' ? (err && err.stack ? err.stack : err) : undefined });
   }
 }
+
 async function listRequests(req, res, next) {
   try {
     const where = {};
     if (req.query.status) where.status = req.query.status;
-    if (req.query.acccountId) where.acccountId = req.query.acccountId;
+    if (req.query.accountId) where.accountId = req.query.accountId;
     const rows = await stockService.listStockRequests({ where });
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -1583,7 +1935,9 @@ async function getRequestById(req, res, next) {
 async function approveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const r = await stockService.approveStockRequest(id, req.user?.accountId);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.approveStockRequest(id, req.user?.accountId, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
@@ -1591,21 +1945,25 @@ async function disapproveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
     const reason = req.body.reason || null;
-    const r = await stockService.disapproveStockRequest(id, req.user?.accountId, reason);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.disapproveStockRequest(id, req.user?.accountId, reason, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
 async function fulfillRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const r = await stockService.fulfillStockRequest(id, req.user?.accountId);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.fulfillStockRequest(id, req.user?.accountId, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 18.77 kB
+Size: 22.32 kB
 ================================================================================
 
 const express   = require('express');
@@ -1621,6 +1979,7 @@ const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
 router.post('/create-room',               authorize(Role.SuperAdmin), createRoomschema, createRoom);
+router.post('/create-array',               authorize(Role.SuperAdmin), createAsArraySchema, createAsArray);
 router.post('/:roomId/receive/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveApparelSchema,      receiveApparel);
 router.post('/:roomId/receive/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema,  receiveAdminSupply);
 router.post('/:roomId/receive/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema,      receiveGenItem);
@@ -1639,21 +1998,23 @@ router.get('/:roomId/qr/apparel/unit/:unitId',            authorize([Role.SuperA
 router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
-router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRooms);
+router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRooms);
+router.get('/list',     listRooms);
+router.get('/:roomId/room-items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getItemsByRoom);
 router.get('/:roomId',  authorize(), getRoomById);
 // Apparel
 router.get('/:roomId/receive-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnits);
+router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getApparelUnits);
 router.get('/:roomId/apparel-inventory',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelInventory);
 router.get('/:roomId/release-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleaseApparels);
 // Admin Supply
 router.get('/:roomId/receive-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveAdminSupply);
-router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnits);
+router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getAdminSupplyUnits);
 router.get('/:roomId/supply-inventory',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyInventory);
 router.get('/:roomId/release-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedBatchAdminSupply);
 // General Items
 router.get('/:roomId/receive-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveGenItem);
-router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemUnits);
+router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getGenItemUnits);
 router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemInventory);
 router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
@@ -1664,12 +2025,10 @@ function resolveQrFilePath(result) {
   if (!result) return null;
   if (result.absolutePath && fs.existsSync(result.absolutePath)) return path.resolve(result.absolutePath);
 
-  // fallback: try uploads/qrcodes/<filename>
   const projectRoot = path.join(__dirname, '../uploads');
   const try1 = path.join(projectRoot, 'uploads', 'qrcodes', result.filename || '');
   if (fs.existsSync(try1)) return try1;
 
-  // fallback: try uploads/<filename>
   const try2 = path.join(projectRoot, 'uploads', result.filename || '');
   if (fs.existsSync(try2)) return try2;
 
@@ -1769,24 +2128,27 @@ function receiveGenItemSchema(req, res, next) {
     notes:            Joi.string().trim().allow('', null).optional()
   });
 
-  // validate params first
   const { error: paramsErr } = paramsSchema.validate(req.params);
   if (paramsErr) return next(paramsErr);
 
-  // validate body
   validateRequest(req, next, bodySchema);
 }
 
 // Management part
 function createRoom(req, res, next) {
-  // pass user to service for extra checks/logging
-  roomService.createRoomHandler(req.body, req.user)
+  const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const browserInfo = req.headers['user-agent'] || '';
+
+  roomService.createRoomHandler(req.body, req.user, ipAddress, browserInfo)
     .then(created => res.status(201).json(created))
     .catch(next);
 }
 function updateRoom(req, res, next) {
   const roomId = Number(req.params.roomId);
-  roomService.updateRoomHandler(roomId, req.body, req.user)
+  const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const browserInfo = req.headers['user-agent'] || '';
+
+  roomService.updateRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo)
     .then(updated => res.json(updated))
     .catch(next);
 }
@@ -1795,6 +2157,11 @@ function getRooms(req, res, next) {
     .then(rooms => res.json(rooms))
     .catch(next);
 }
+// function listRooms(req, res, next) {
+//   roomService.listRoomsHandler()
+//     .then(rooms => res.json(rooms))
+//     .catch(next);
+// }
 function getRoomById(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   roomService.getRoomByIdHandler(roomId, req.user)
@@ -1806,21 +2173,30 @@ function getRoomById(req, res, next) {
 async function receiveApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveApparelInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveApparelInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
 async function receiveAdminSupply(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveAdminSupplyInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveAdminSupplyInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
 async function receiveGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
@@ -1829,14 +2205,12 @@ async function receiveGenItem(req, res, next) {
 async function releaseInStockroom(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    // normalize fields so room.service gets the expected names
     if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
       req.body.releaseApparelQuantity = req.body.releaseQuantity;
     }
     if (req.body.claimedBy == null) {
       req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
     }
-    // support both claimedBy / releasedBy fields already present in your release schema
     const result = await roomService.releaseInStockroomHandler(roomId, req.body);
     res.status(201).json(result);
   } catch (err) { next(err); }
@@ -1844,13 +2218,13 @@ async function releaseInStockroom(req, res, next) {
 async function releaseApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
 
-    // Normalize same as releaseInStockroom: accept releaseQuantity alias
     if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
       req.body.releaseApparelQuantity = req.body.releaseQuantity;
     }
 
-    // Provide defaults for claimedBy/releasedBy so DB non-null constraints don't fail
     if (req.body.claimedBy == null) {
       req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
     }
@@ -1858,7 +2232,7 @@ async function releaseApparel(req, res, next) {
       req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
     }
 
-    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
+    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -1867,18 +2241,49 @@ async function releaseApparel(req, res, next) {
 async function releaseAdminSupply(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    if (req.body.releaseQuantity != null && req.body.releaseAdminSupplyQuantity == null) {
+      req.body.releaseAdminSupplyQuantity = req.body.releaseQuantity;
+    }
+
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
+    const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 async function releaseGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body);
-    res.status(201).json(result);
-  } catch (err) { next(err); }
-}
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
 
+    if (req.body.releaseQuantity != null && req.body.releaseItemQuantity == null) {
+      req.body.releaseItemQuantity = req.body.releaseQuantity;
+    }
+
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
+    const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Get Received part
 function getReceiveApparels(req, res, next) {
@@ -1964,13 +2369,11 @@ async function getApparelBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateApparelBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -1983,13 +2386,11 @@ async function getAdminSupplyBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateAdminSupplyBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -2002,13 +2403,11 @@ async function getGenItemBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateGenItemBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -2016,6 +2415,7 @@ async function getGenItemBatchQr(req, res, next) {
     next(err);
   }
 }
+
 
 async function getApparelUnitQr(req, res, next) {
   try {
@@ -2052,12 +2452,62 @@ async function getAdminSupplyUnitQr(req, res, next) {
   }
 }
 
+//===================Lazy Style Methods=======================================
+function createAsArraySchema(req, res, next) {
+  const roomSchema = Joi.object({
+    roomName: Joi.string().required().min(1).max(30),
+    roomFloor: Joi.string().required().min(1).max(5),
+    roomType: Joi.string()
+      .valid('stockroom', 'subStockroom', 'office', 'classroom', 'openarea')
+      .required(),
+    stockroomType: Joi.string()
+      .valid('apparel', 'supply', 'general')
+      .allow(null)
+      .optional(),
+    roomInCharge: Joi.number().integer().min(0),
+    description: Joi.string().allow('', null)
+  });
+
+  const schema = Joi.alternatives().try(
+    roomSchema,
+    Joi.array().items(roomSchema)
+  );
+
+  validateRequest(req, next, schema);
+}
+async function createAsArray(req, res, next) {
+  try {
+    if (Array.isArray(req.body)) {
+      const createdRooms = await Promise.all(
+        req.body.map(room => roomService.createRoomHandler(room, req.user))
+      );
+      return res.status(201).json(createdRooms);
+    }
+
+    const created = await roomService.createRoomHandler(req.body, req.user);
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function listRooms(req, res, next) {
+  roomService.listRoomsHandler()
+    .then(rooms => res.json(rooms))
+    .catch(next);
+}
+function getItemsByRoom(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getItemsByRoomHandler(roomId)
+    .then(rows => res.json(rows))
+    .catch(next);
+}
+
 ================================================================================
 File: _controllers\transfer.controller.js
-Size: 3.19 kB
+Size: 5.33 kB
 ================================================================================
 
-// _controllers/transfer.controller.js
 const express = require('express');
 const router  = express.Router();
 const Joi     = require('joi');
@@ -2067,14 +2517,12 @@ const validateRequest = require('_middlewares/validate-request');
 const authorize       = require('_middlewares/authorize');
 const Role            = require('_helpers/role');
 
-router.post('/', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), createSchema, createTransfer);
+router.post('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), createSchema, createTransfer);
 
-router.get('/',     authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), listTransfers);
-router.get('/:id',  authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), getById);
+router.get('/',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), listTransfers);
+router.get('/:id',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), getById);
 
-router.post('/:id/accept',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptTransfer);
-router.post('/:id/return',        authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), returnTransfer);
-router.post('/:id/accept-return', authorize(Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher), acceptReturned);
+router.post('/:id/accept', authorize(), acceptTransfer);
 
 module.exports = router;
 
@@ -2083,22 +2531,72 @@ function createSchema(req, res, next) {
   const schema = Joi.object({
     fromRoomId: Joi.number().integer().required(),
     toRoomId: Joi.number().integer().required(),
-    itemType: Joi.string().valid('apparel','supply','genItem').required(),
     itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).optional()
+    note: Joi.string().max(500).allow('', null).optional()
   });
   validateRequest(req, next, schema);
 }
 
 // Handlers
-async function createTransfer(req, res, next) {
+async function createTransfer(req, res) {
   try {
-    const payload = req.body;
-    payload.createdBy = req.user.accountId;
-    const created = await transferService.createTransfer(payload);
-    res.status(201).json({ success: true, data: created });
-  } catch (err) { next(err); }
+    const payload = req.body || {};
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const createdBy = req.user && req.user.accountId;
+    if (!createdBy) return res.status(401).json({ message: 'Unauthenticated' });
+
+    // ensure fromRoom exists
+    const fromRoom = await db.Room.findByPk(payload.fromRoomId);
+    if (!fromRoom) return res.status(400).json({ message: 'Invalid fromRoomId' });
+
+    // requester must be in charge of fromRoom
+    if (!isUserInCharge(fromRoom, createdBy)) {
+      return res.status(403).json({ message: 'You are not authorized to transfer from the selected room' });
+    }
+
+    // ensure toRoom exists
+    const toRoom = await db.Room.findByPk(payload.toRoomId);
+    if (!toRoom) return res.status(400).json({ message: 'Invalid toRoomId' });
+
+    // NEW: only allow toRoom whose roomType is 'stockroom' or 'substockroom'
+    const tr = String(toRoom.roomType || '').toLowerCase();
+    if (!['stockroom', 'substockroom'].includes(tr)) {
+      return res.status(403).json({ message: 'Transfers are allowed only to rooms with type \"stockroom\" or \"substockroom\"' });
+    }
+
+    // delegate to service
+    const created = await transferService.createTransfer({
+      createdBy,
+      fromRoomId: Number(payload.fromRoomId),
+      toRoomId: Number(payload.toRoomId),
+      itemId: Number(payload.itemId),
+      quantity: Number(payload.quantity),
+      note: payload.note || null,
+      ipAddress, browserInfo
+    });
+
+    return res.status(201).json({ success: true, data: created });
+  } catch (err) {
+    console.error('createTransferHandler error', err);
+    const status = (err && err.status) || 500;
+    const message = (err && err.message) || 'Server error';
+    return res.status(status).json({ message });
+  }
+}
+function isUserInCharge(room, accountId) {
+  if (!room || !accountId) return false;
+  const possibleFields = ['inChargeId','inChargeUserId','roomInCharge','managerId','accountId','createdBy'];
+  for (const f of possibleFields) {
+    if (typeof room[f] !== 'undefined' && String(room[f]) === String(accountId)) return true;
+  }
+  if (room.inChargeUsers) {
+    if (Array.isArray(room.inChargeUsers) && room.inChargeUsers.map(String).includes(String(accountId))) return true;
+    if (typeof room.inChargeUsers === 'string' && room.inChargeUsers.split(',').map(s => s.trim()).includes(String(accountId))) return true;
+  }
+  return false;
 }
 async function listTransfers(req, res, next) {
   try {
@@ -2114,52 +2612,102 @@ async function getById(req, res, next) {
     res.json({ success: true, data: tr });
   } catch (err) { next(err); }
 }
+// async function acceptTransfer(req, res, next) {
+//   try {
+//     const id = parseInt(req.params.id, 10);
+//     const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+//     const browserInfo = req.headers['user-agent'] || '';
+
+//     // pass both accountId and role so service can decide authorization
+//     const r = await transferService.acceptTransfer(id, req.user.accountId, req.user.role, ipAddress, browserInfo);
+//     res.json({ success: true, data: r });
+//   } catch (err) { next(err); }
+// }
 async function acceptTransfer(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const r = await transferService.acceptTransfer(id, req.user.accountId);
+    // pass ip and user-agent for logging
+    const ipAddress = req.ip || (req.headers && req.headers['x-forwarded-for']) || '';
+    const browserInfo = req.headers?.['user-agent'] || '';
+    const r = await transferService.acceptTransfer(id, req.user.accountId, req.user.role, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
-async function returnTransfer(req, res, next) {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const r = await transferService.returnTransfer(id, req.user.accountId);
-    res.json({ success: true, data: r });
-  } catch (err) { next(err); }
-}
-async function acceptReturned(req, res, next) {
-  try {
-    const id = parseInt(req.params.id, 10);
-    const r = await transferService.acceptReturned(id, req.user.accountId);
-    res.json({ success: true, data: r });
-  } catch (err) { next(err); }
-}
-
 
 ================================================================================
 File: _helpers\db-handler.js
-Size: 12.42 kB
+Size: 13.45 kB
 ================================================================================
 
-const config            = require('config.json');
-const mysql             = require('mysql2/promise');
-const { Sequelize }     = require('sequelize');
+// const config            = require('config.json');
+// const mysql             = require('mysql2/promise');
+// const { Sequelize }     = require('sequelize');
 
-const fs = require('fs');
-const path = require('path');
+// const fs = require('fs');
+// const path = require('path');
+
+// module.exports = db = {};
+
+// initialize();
+// async function initialize() { 
+//     // const { host, port, user, password, database } = config.database;
+//     // const connection = await mysql.createConnection({ host, port, user, password });
+//     // await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+//     // await connection.end();
+//     // const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
+
+const config = require('config.json');
+const mysql = require('mysql2/promise');
+const { Sequelize } = require('sequelize');
 
 module.exports = db = {};
 
+// Environment-aware DB config (env vars override config.json for deployment)
+const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
+const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
+const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
+const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || 'root';
+const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
+
+let sequelize; // declared in module scope so it's available after initialization
+
 initialize();
-async function initialize() { 
-    const { host, port, user, password, database } = config.database;
-    const connection = await mysql.createConnection({ host, port, user, password });
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
-    
+
+async function initialize() {
+  try {
+    const connOptions = {
+      host: DB_HOST,
+      port: DB_PORT,
+      user: DB_USER,
+      password: DB_PASSWORD,
+    };
+
+    if (process.env.DB_CA) {
+      connOptions.ssl = { ca: process.env.DB_CA };
+    }
+
+    console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
+
+    const connection = await mysql.createConnection(connOptions);
+
+    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
     await connection.end();
 
-    const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
+    const sequelizeOptions = {
+      host: DB_HOST,
+      dialect: 'mysql',
+      port: DB_PORT,
+      logging: false,
+    };
+
+    if (process.env.DB_CA) {
+      sequelizeOptions.dialectOptions = { ssl: { ca: process.env.DB_CA } };
+    }
+
+    sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
+
+    db.sequelize = sequelize;
+    db.Sequelize = Sequelize;
 
 // Initialize models and add them to the exported `db` object
 db.Room             = require('../_models/room.model')(sequelize);
@@ -2194,6 +2742,28 @@ db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
 
 // Transfer models
 db.Transfer = require('../_models/transfer.model')(sequelize);
+db.Borrow = require('../_models/borrow.model')(sequelize);
+
+    // If any models define associations, call them now
+    Object.keys(db).forEach((modelName) => {
+      if (db[modelName] && typeof db[modelName].associate === 'function') {
+        db[modelName].associate(db);
+      }
+    });
+
+    // Sync models to DB when in non-production for convenience.
+    // WARNING: avoid alter:true in real production; prefer migrations.
+    if (process.env.NODE_ENV !== 'production') {
+      await sequelize.sync({ alter: true });
+      console.log('Sequelize sync finished (alter: true).');
+    }
+
+    console.log('Database initialized successfully.');
+  } catch (err) {
+    console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
+    // Fail fast so deploy logs show the error. Change to retry logic if desired.
+    process.exit(1);
+  }
 
 dbAssociations();
 
@@ -2267,8 +2837,8 @@ function dbAssociations() {
 
   // ---------------- STOCK REQUEST associations ----------------
   // StockRequest -> Account (who requested)
-  db.Account.hasMany(db.StockRequest, { foreignKey: 'acccountId' });
-  db.StockRequest.belongsTo(db.Account, { foreignKey: 'acccountId' });
+  db.Account.hasMany(db.StockRequest, { foreignKey: 'accountId' });
+  db.StockRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
 
   // StockRequest -> Room (which room/stockroom requested it)
   db.Room.hasMany(db.StockRequest, { foreignKey: 'requesterRoomId' });
@@ -2283,6 +2853,8 @@ function dbAssociations() {
   db.StockRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
 
+
+  
   // ---------- ITEM REQUEST associations ----------
   db.Account.hasMany(db.ItemRequest, { foreignKey: 'accountId' });
   db.ItemRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
@@ -2300,17 +2872,59 @@ function dbAssociations() {
   db.ItemRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
 
+
+
+  // ---------- TRANSFER associations ----------
   db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy' });
   db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy' });    // who accepted transfer
   db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy' });   // who initiated return
 
   // Transfer <> Room (rooms)
-  db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId' });
-  db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId' });
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId', as: 'fromRoom' });
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId', as: 'toRoom' });
 
   db.Transfer.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+
+
+
+  // ---------- BORROW associations ----------
+  // requester -> Borrow
+  db.Account.hasMany(db.Borrow, { foreignKey: 'requesterId' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'requesterId', as: 'requester' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'approvedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'approvedBy', as: 'approver' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'declinedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'declinedBy', as: 'decliner' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'cancelledBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'cancelledBy', as: 'canceller' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'acquiredBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'acquiredBy', as: 'acquirer' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'returnedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'returnedBy', as: 'returner' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'acceptedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'acceptedBy', as: 'acceptor' });
+
+  // room -> Borrow (owner room)
+  db.Room.hasMany(db.Borrow, { foreignKey: 'roomId' });
+  db.Borrow.belongsTo(db.Room, { foreignKey: 'roomId', as: 'room' });
+
+  // polymorphic item joins (no FK constraints)
+  db.Borrow.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.ApparelInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
+
+  db.Borrow.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.AdminSupplyInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
+
+  db.Borrow.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.GenItemInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 }
 
 ================================================================================
@@ -2380,7 +2994,7 @@ module.exports = router;
 
 ================================================================================
 File: _middlewares\authorize.js
-Size: 1.29 kB
+Size: 1.36 kB
 ================================================================================
 
 const { expressjwt: jwt }   = require('express-jwt');
@@ -2409,7 +3023,10 @@ function authorize(roles = []) {
                     return res.status(403).json({ message: 'Forbidden: insufficient permissions' });
                 }
 
-                req.user = { accountId: account.accountId, email: account.email, role: account.role };
+                req.user = { 
+                    accountId: account.accountId, 
+                    email: account.email, 
+                    role: account.role };
                 next();
             } catch (error) {
                 console.error('Authorization error:', error);
@@ -2540,7 +3157,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\adminSupply\adminSupply.model.js
-Size: 609 B
+Size: 691 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -2551,7 +3168,8 @@ module.exports = (sequelize) => {
         adminSupplyId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
         receiveAdminSupplyId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+        status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        adminSupplyInventoryId: { type: DataTypes.INTEGER,  allowNull: false },
     };
 
     const options = {
@@ -2662,7 +3280,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\apparel\apparel.model.js
-Size: 972 B
+Size: 1.06 kB
 ================================================================================
 
 /* 
@@ -2678,11 +3296,12 @@ module.exports = (sequelize) => {
         apparelId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:      { type: DataTypes.ENUM(
+        status:             { type: DataTypes.ENUM(
                                 'released','damaged',
                                 'lost','good'
                                 ), defaultValue: 'good'
-                            }
+                            },
+        apparelInventoryId: { type: DataTypes.INTEGER, allowNull: false },
     };
 
     const options = {
@@ -2828,8 +3447,80 @@ module.exports = (sequelize) => {
 };
 
 ================================================================================
+File: _models\borrow.model.js
+Size: 2.22 kB
+================================================================================
+
+const { DataTypes } = require('sequelize');
+
+module.exports = model;
+
+function model(sequelize) {
+  const attributes = {
+    borrowId:        { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    requesterId:     { type: DataTypes.INTEGER, allowNull: false },
+    roomId:          { type: DataTypes.INTEGER, allowNull: false },
+
+    // item info
+    itemId:          { type: DataTypes.INTEGER, allowNull: true },  // inventory id (nullable)
+    itemType:        { 
+      type: DataTypes.ENUM('apparel','supply','genItem'), 
+      allowNull: true 
+    },
+
+    quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
+
+    // workflow statuses
+    status: {
+      type: DataTypes.ENUM(
+        'waiting_for_approval',
+        'approved',
+        'declined',
+        'acquired',
+        'cancelled',
+        'in_return',
+        'return_accepted'
+      ),
+      allowNull: false,
+      defaultValue: 'waiting_for_approval'
+    },
+
+    // approvals (owner actions)
+    approvedBy:      { type: DataTypes.INTEGER, allowNull: true },
+    approvedAt:      { type: DataTypes.DATE, allowNull: true },
+
+    declinedBy:      { type: DataTypes.INTEGER, allowNull: true },
+    declinedAt:      { type: DataTypes.DATE, allowNull: true },
+    declineReason:   { type: DataTypes.TEXT, allowNull: true },
+
+    // borrower actions
+    acquiredBy:      { type: DataTypes.INTEGER, allowNull: true },
+    acquiredAt:      { type: DataTypes.DATE, allowNull: true },
+
+    cancelledBy:     { type: DataTypes.INTEGER, allowNull: true },
+    cancelledAt:     { type: DataTypes.DATE, allowNull: true },
+
+    returnedBy:      { type: DataTypes.INTEGER, allowNull: true }, // borrower marked as returned
+    returnedAt:      { type: DataTypes.DATE, allowNull: true },
+
+    // owner accepts returned items
+    acceptedBy:      { type: DataTypes.INTEGER, allowNull: true },
+    acceptedAt:      { type: DataTypes.DATE, allowNull: true },
+
+    // generic note field
+    note:            { type: DataTypes.TEXT, allowNull: true }
+  };
+
+  const options = {
+    timestamps: true,
+  };
+
+  return sequelize.define('Borrow', attributes, options);
+}
+
+================================================================================
 File: _models\genItem\genItem.model.js
-Size: 832 B
+Size: 916 B
 ================================================================================
 
 /* 
@@ -2843,9 +3534,10 @@ module.exports = (sequelize) => {
 
     const attributes = {
         genItemId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-        roomId:          { type: DataTypes.INTEGER,  allowNull: false },
+        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveGenItemId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:          { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+        status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        genItemInventoryId: { type: DataTypes.INTEGER,  allowNull: false },
     };
 
     const options = {
@@ -3025,7 +3717,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\request\item.request.model.js
-Size: 1.18 kB
+Size: 1.13 kB
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3034,9 +3726,9 @@ module.exports = (sequelize) => {
   const attributes = {
     itemRequestId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     accountId:     { type: DataTypes.INTEGER, allowNull: false },
+    requestToRoomId:{ type: DataTypes.INTEGER, allowNull: true },
     requesterRoomId:{ type: DataTypes.INTEGER, allowNull: true },
     itemId:        { type: DataTypes.INTEGER, allowNull: true },
-    itemType:      { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity:      { type: DataTypes.INTEGER, defaultValue: 1 },
     status:        {
       type: DataTypes.ENUM('pending','accepted','released','declined','out_of_stock','fulfilled'),
@@ -3058,7 +3750,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\request\stock.request.model.js
-Size: 890 B
+Size: 776 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3069,7 +3761,6 @@ module.exports = (sequelize) => {
     accountId: { type: DataTypes.INTEGER, allowNull: false },
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true },
-    itemType: { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity: { type: DataTypes.INTEGER, defaultValue: 1 },
     status: { 
       type: DataTypes.ENUM('pending','approved','failed_request','disapproved','fulfilled'),
@@ -3114,7 +3805,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\transfer.model.js
-Size: 1.35 kB
+Size: 1.27 kB
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3127,7 +3818,6 @@ function model(sequelize) {
         fromRoomId:      { type: DataTypes.INTEGER, allowNull: false },
         toRoomId:        { type: DataTypes.INTEGER, allowNull: false },
         createdBy:       { type: DataTypes.INTEGER, allowNull: false },
-        itemType:        { type: DataTypes.STRING, allowNull: false },
         itemId:          { type: DataTypes.INTEGER, allowNull: true },
         quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
 
@@ -3613,8 +4303,466 @@ async function sendPasswordResetEmail (account, origin) {
 }
 
 ================================================================================
+File: _services\borrow.service.js
+Size: 17.91 kB
+================================================================================
+
+const db = require('_helpers/db-handler');
+const Role = require('_helpers/role');
+const accountService = require('./account.service');
+
+module.exports = {
+  createBorrow,
+  listBorrows,
+  getById,
+  cancelBorrow,
+  approveBorrow,
+  declineBorrow,
+  acquireBorrow,
+  returnBorrow,
+  acceptReturn,
+};
+
+async function createBorrow(payload, ipAddress, browserInfo) {
+  const { requesterId, roomId, quantity = 1 } = payload;
+  if (!requesterId || !roomId) throw { status: 400, message: 'Missing required fields' };
+  const q = parseInt(quantity, 10);
+  if (!Number.isInteger(q) || q <= 0) throw { status: 400, message: 'quantity must be positive' };
+
+  const created = await db.Borrow.create({
+    requesterId,
+    roomId,
+    itemId: payload.itemId || null,
+    quantity: q,
+    note: payload.note || null,
+    status: 'waiting_for_approval'
+  });
+
+  try {
+    await accountService.logActivity(String(requesterId), 'borrow_create', ipAddress, browserInfo, `borrowId:${created.borrowId}`);
+  } catch (err) {
+    console.error('activity log failed (createBorrow)', err);
+  }
+
+  return created;
+}
+async function listBorrows({ where = {}, limit = 200, offset = 0 } = {}) {
+  const rows = await db.Borrow.findAll({
+    where,
+    order: [['borrowId', 'DESC']],
+    limit,
+    offset,
+    include: [
+      { model: db.Account, as: 'requester', attributes: ['accountId', 'firstName', 'lastName'], required: false },
+      // { model: db.Room, foreignKey: 'roomId' },
+      { model: db.Room, as: 'room', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
+
+      // polymorphic-ish item relations (no FK constraints)
+      // { model: db.ApparelInventory, foreignKey: 'itemId', constraints: false },
+      // { model: db.AdminSupplyInventory, foreignKey: 'itemId', constraints: false },
+      // { model: db.GenItemInventory, foreignKey: 'itemId', constraints: false },
+    ]
+  });
+
+  return rows;
+}
+async function getById(id) {
+  if (!id) throw { status: 400, message: 'id required' };
+  const n = parseInt(id, 10);
+  if (!Number.isInteger(n) || n <= 0) throw { status: 400, message: 'invalid id' };
+
+  const r = await db.Borrow.findByPk(n, {
+    include: [
+      { model: db.Account, as: 'requester', foreignKey: 'requesterId' },
+      { model: db.Room, as: 'room', foreignKey: 'roomId' },
+      { model: db.ApparelInventory, foreignKey: 'itemId', as: 'apparel', constraints: false },
+      { model: db.AdminSupplyInventory, foreignKey: 'itemId', as: 'adminSupply', constraints: false },
+      { model: db.GenItemInventory, foreignKey: 'itemId', as: 'generalItem', constraints: false },
+    ]
+  });
+
+  if (!r) throw { status: 404, message: 'Borrow not found' };
+  return r;
+}
+
+async function _getCallerId(user) {
+  // flexible - return the first available id-like property as string
+  const id = user?.accountId ?? user?.id ?? user?.userId ?? null;
+  return id == null ? null : String(id);
+}
+async function getInventoryModelForItemId(db, id, transaction) {
+  if (!id) return null;
+
+  // Try each model; return the first that contains a row with this PK.
+  const models = [
+    { key: 'apparel', model: db.ApparelInventory },
+    { key: 'supply',  model: db.AdminSupplyInventory },
+    { key: 'genitem', model: db.GenItemInventory }
+  ];
+
+  for (const m of models) {
+    if (!m.model) continue;
+    // use transaction and lock if provided
+    const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};
+    const row = await m.model.findByPk(id, opts);
+    if (row) {
+      return { key: m.key, model: m.model, row };
+    }
+  }
+  return null;
+}
+async function cancelBorrow(borrowId, user, ipAddress, browserInfo) {
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  const b = await db.Borrow.findByPk(n, { include: [{ model: db.Room }] });
+  if (!b) throw { status: 404, message: 'Borrow not found' };
+
+  // only requester can cancel
+  if (String(b.requesterId) !== String(user.accountId)) {
+    throw { status: 403, message: 'Only requester can cancel this borrow' };
+  }
+
+  // allow cancel only in these states (adjust if you want more)
+  if (!['waiting_for_approval', 'approved'].includes(b.status)) {
+    throw { status: 400, message: `Cannot cancel borrow in status '${b.status}'` };
+  }
+
+  b.status = 'cancelled';
+  b.cancelledBy = user.accountId;
+  b.cancelledAt = new Date();
+
+  await b.save();
+
+  try {
+    await accountService.logActivity(String(user.accountId), 'borrow_cancel', ipAddress, browserInfo, `borrowId:${b.borrowId}`);
+  } catch (err) {
+    console.error('activity log failed (cancelBorrow)', err);
+  }
+
+  return b;
+}
+
+async function approveBorrow(borrowId, user, ipAddress, browserInfo) {
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  // load borrow (no includes required)
+  const b = await db.Borrow.findByPk(n);
+  if (!b) throw { status: 404, message: 'Borrow not found' };
+
+  if (b.status !== 'waiting_for_approval') {
+    throw { status: 400, message: 'Only requests waiting for approval can be approved' };
+  }
+
+  // requester cannot approve
+  if (String(b.requesterId) === String((user?.accountId ?? user?.id ?? user?.userId))) {
+    throw { status: 403, message: 'Requester cannot approve their own borrow' };
+  }
+
+  // get caller id reliably
+  const callerId = await _getCallerId(user);
+  if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+
+  // only superadmin OR the room in-charge (by ID) can approve
+  const userRole = String(user.role ?? '').toLowerCase();
+  const isSuperAdmin = userRole === 'superadmin';
+
+  // fetch room explicitly to ensure roomInCharge is available (avoids include/as mismatch)
+  const room = await db.Room.findByPk(b.roomId);
+  if (!room) throw { status: 500, message: 'Associated room not found for this borrow' };
+
+  const roomInChargeId = room.roomInCharge == null ? null : String(room.roomInCharge);
+
+  if (!isSuperAdmin && callerId !== roomInChargeId) {
+    throw { status: 403, message: 'Not authorized to approve this borrow' };
+  }
+
+  b.status = 'approved';
+  b.approvedBy = callerId;
+  b.approvedAt = new Date();
+
+  await b.save();
+
+  try {
+    await accountService.logActivity(String(callerId), 'borrow_approve', ipAddress, browserInfo, `borrowId:${b.borrowId}`);
+  } catch (err) {
+    console.error('activity log failed (approveBorrow)', err);
+  }
+
+  return b;
+}
+async function declineBorrow(borrowId, user, opts = {}, ipAddress, browserInfo) {
+  const reason = opts.reason ?? null;
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  const b = await db.Borrow.findByPk(n);
+  if (!b) throw { status: 404, message: 'Borrow not found' };
+
+  if (b.status !== 'waiting_for_approval') {
+    throw { status: 400, message: 'Only requests waiting for approval can be declined' };
+  }
+
+  // requester cannot decline
+  if (String(b.requesterId) === String((user?.accountId ?? user?.id ?? user?.userId))) {
+    throw { status: 403, message: 'Requester cannot decline their own borrow' };
+  }
+
+  const callerId = await _getCallerId(user);
+  if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+
+  const userRole = String(user.role ?? '').toLowerCase();
+  const isSuperAdmin = userRole === 'superadmin';
+
+  // fetch room explicitly
+  const room = await db.Room.findByPk(b.roomId);
+  if (!room) throw { status: 500, message: 'Associated room not found for this borrow' };
+
+  const roomInChargeId = room.roomInCharge == null ? null : String(room.roomInCharge);
+
+  if (!isSuperAdmin && callerId !== roomInChargeId) {
+    throw { status: 403, message: 'Not authorized to decline this borrow' };
+  }
+
+  b.status = 'declined';
+  b.declinedBy = callerId;
+  b.declinedAt = new Date();
+  b.declineReason = reason;
+
+  await b.save();
+
+  try {
+    await accountService.logActivity(String(callerId), 'borrow_decline', ipAddress, browserInfo, `borrowId:${b.borrowId}${reason ? `, reason:${reason}` : ''}`);
+  } catch (err) {
+    console.error('activity log failed (declineBorrow)', err);
+  }
+
+  return b;
+}
+
+// async function acquireBorrow(borrowId, user) {
+//   const n = Number(borrowId);
+//   if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+//   return await db.sequelize.transaction(async (t) => {
+//     const borrow = await db.Borrow.findByPk(n, { transaction: t, lock: t.LOCK.UPDATE });
+//     if (!borrow) throw { status: 404, message: 'Borrow not found' };
+
+//     if (borrow.status !== 'approved') throw { status: 400, message: "Only 'approved' borrows can be acquired" };
+
+//     const callerId = (user?.accountId ?? user?.id ?? user?.userId);
+//     if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+//     if (String(borrow.requesterId) !== String(callerId)) throw { status: 403, message: 'Only the requester can acquire this borrow' };
+
+//     const itemId = borrow.itemId;
+//     if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
+
+//     const invInfo = await getInventoryModelForItemId(db, itemId, t);
+//     if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
+
+//     const inv = invInfo.row;
+//     const qty = Number(borrow.quantity || 0);
+//     if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid borrow quantity' };
+
+//     const available = Number(inv.totalQuantity || 0);
+//     if (available < qty) throw { status: 400, message: `Insufficient stock: available ${available}, required ${qty}` };
+
+//     inv.totalQuantity = Math.max(0, available - qty);
+//     await inv.save({ transaction: t });
+
+//     borrow.status = 'acquired';
+//     borrow.acquiredBy = String(callerId);
+//     borrow.acquiredAt = new Date();
+//     await borrow.save({ transaction: t });
+
+//     return borrow;
+//   });
+// }
+async function acquireBorrow(borrowId, user, ipAddress, browserInfo) {
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  const result = await db.sequelize.transaction(async (t) => {
+    const borrow = await db.Borrow.findByPk(n, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!borrow) throw { status: 404, message: 'Borrow not found' };
+    if (borrow.status !== 'approved') throw { status: 400, message: "Only 'approved' borrows can be acquired" };
+
+    const callerId = (user?.accountId ?? user?.id ?? user?.userId);
+    if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+    if (String(borrow.requesterId) !== String(callerId)) throw { status: 403, message: 'Only the requester can acquire this borrow' };
+
+    const itemId = borrow.itemId;
+    if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
+
+    const invInfo = await getInventoryModelForItemId(db, itemId, t);
+    if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
+
+    const inv = invInfo.row;
+    const qty = Number(borrow.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid borrow quantity' };
+
+    const available = Number(inv.totalQuantity || 0);
+    if (available < qty) throw { status: 400, message: `Insufficient stock: available ${available}, required ${qty}` };
+
+    inv.totalQuantity = Math.max(0, available - qty);
+    await inv.save({ transaction: t });
+
+    borrow.status = 'acquired';
+    borrow.acquiredBy = String(callerId);
+    borrow.acquiredAt = new Date();
+    await borrow.save({ transaction: t });
+
+    return borrow;
+  });
+
+  // log activity (best-effort) — use acquiredBy from result
+  try {
+    await accountService.logActivity(String(result.acquiredBy), 'borrow_acquire', ipAddress, browserInfo, `borrowId:${result.borrowId}`);
+  } catch (err) {
+    console.error('activity log failed (acquireBorrow)', err);
+  }
+
+  return result;
+}
+async function returnBorrow(borrowId, user, opts = {}, ipAddress, browserInfo) {
+  const note = opts.note ?? null;
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  // load borrow
+  const b = await db.Borrow.findByPk(n);
+  if (!b) throw { status: 404, message: 'Borrow not found' };
+
+  // only allow return when it was acquired
+  if (b.status !== 'acquired') {
+    throw { status: 400, message: "Only 'acquired' borrows can be returned" };
+  }
+
+  // get caller id
+  const callerId = await _getCallerId(user);
+  if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+
+  // allow only requester OR the one who acquired (acquiredBy)
+  const isRequester = String(b.requesterId) === String(callerId);
+  const isAcquirer  = b.acquiredBy != null && String(b.acquiredBy) === String(callerId);
+
+  if (!isRequester && !isAcquirer) {
+    throw { status: 403, message: 'Only the requester or the acquirer can return this borrow' };
+  }
+
+  // perform return update
+  b.status = 'in_return';
+  b.returnedBy = callerId;
+  b.returnedAt = new Date();
+  if (note) b.returnNote = String(note).slice(0, 1000); // limit note size
+
+  await b.save();
+
+  try {
+    await accountService.logActivity(String(callerId), 'borrow_return', ipAddress, browserInfo, `borrowId:${b.borrowId}${note ? `, note:${note}` : ''}`);
+  } catch (err) {
+    console.error('activity log failed (returnBorrow)', err);
+  }
+
+  return b;
+}
+
+// async function acceptReturn(borrowId, user, ipAddress, browserInfo) {
+//   const n = Number(borrowId);
+//   if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+//   return await db.sequelize.transaction(async (t) => {
+//     const borrow = await db.Borrow.findByPk(n, { transaction: t, lock: t.LOCK.UPDATE });
+//     if (!borrow) throw { status: 404, message: 'Borrow not found' };
+
+//     if (borrow.status !== 'in_return') throw { status: 400, message: "Only 'in_return' borrows can be accepted" };
+
+//     const callerId = (user?.accountId ?? user?.id ?? user?.userId);
+//     if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+
+//     // verify room in-charge, same as before
+//     const room = await db.Room.findByPk(borrow.roomId, { transaction: t, lock: t.LOCK.UPDATE });
+//     if (!room) throw { status: 500, message: 'Associated room not found' };
+//     if (String(room.roomInCharge) !== String(callerId)) throw { status: 403, message: 'Only the room in charge can accept returned items' };
+
+//     const itemId = borrow.itemId;
+//     if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
+
+//     const invInfo = await getInventoryModelForItemId(db, itemId, t);
+//     if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
+
+//     const inv = invInfo.row;
+//     const qty = Number(borrow.quantity || 0);
+//     if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid borrow quantity' };
+
+//     inv.totalQuantity = (Number(inv.totalQuantity || 0) + qty);
+//     await inv.save({ transaction: t });
+
+//     borrow.status = 'return_accepted';
+//     borrow.acceptedBy = String(callerId);
+//     borrow.acceptedAt = new Date();
+//     await borrow.save({ transaction: t });
+
+//     try {
+//       await accountService.logActivity(String(result.acceptedBy), 'borrow_accept_return', '', '', `borrowId:${result.borrowId}`);
+//     } catch (err) {
+//       console.error('activity log failed (acceptReturn)', err);
+//     }
+
+//     return borrow;
+//   });
+// }
+async function acceptReturn(borrowId, user, ipAddress, browserInfo) {
+  const n = Number(borrowId);
+  if (!Number.isFinite(n) || n <= 0) throw { status: 400, message: 'Invalid id' };
+
+  const result = await db.sequelize.transaction(async (t) => {
+    const borrow = await db.Borrow.findByPk(n, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!borrow) throw { status: 404, message: 'Borrow not found' };
+    if (borrow.status !== 'in_return') throw { status: 400, message: "Only 'in_return' borrows can be accepted" };
+
+    const callerId = (user?.accountId ?? user?.id ?? user?.userId);
+    if (!callerId) throw { status: 401, message: 'Invalid user identity' };
+
+    const room = await db.Room.findByPk(borrow.roomId, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!room) throw { status: 500, message: 'Associated room not found' };
+    if (String(room.roomInCharge) !== String(callerId)) throw { status: 403, message: 'Only the room in charge can accept returned items' };
+
+    const itemId = borrow.itemId;
+    if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
+
+    const invInfo = await getInventoryModelForItemId(db, itemId, t);
+    if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
+
+    const inv = invInfo.row;
+    const qty = Number(borrow.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid borrow quantity' };
+
+    inv.totalQuantity = (Number(inv.totalQuantity || 0) + qty);
+    await inv.save({ transaction: t });
+
+    borrow.status = 'return_accepted';
+    borrow.acceptedBy = String(callerId);
+    borrow.acceptedAt = new Date();
+    await borrow.save({ transaction: t });
+
+    return borrow;
+  });
+
+  try {
+    await accountService.logActivity(String(result.acceptedBy), 'borrow_accept_return', ipAddress, browserInfo, `borrowId:${result.borrowId}`);
+  } catch (err) {
+    console.error('activity log failed (acceptReturn)', err);
+  }
+
+  return result;
+}
+
+
+================================================================================
 File: _services\qr.service.js
-Size: 12.58 kB
+Size: 13.71 kB
 ================================================================================
 
 const fs      = require('fs');
@@ -3636,9 +4784,10 @@ module.exports = {
   generateUnitQR,
 
   scanItem,
+  releaseUnit,
   updateItemStatus,
 
-  markInventoryQrGenerated
+  markInventoryQrGenerated,
 };
 
 function pickFirst(obj, ...keys) {
@@ -3831,6 +4980,7 @@ async function generateBatchQR(argsOrStockroom) {
   const batch = await loadBatchRecord(stockroomType, inventoryId);
   if (!batch) throw new Error(`Batch not found for ${stockroomType} id=${inventoryId}`);
 
+
   // build payload object (use your existing builder)
   const payloadObj = buildBatchPayloadObject(stockroomType, batch);
   const payload = JSON.stringify(payloadObj);
@@ -3891,43 +5041,75 @@ async function generateUnitQR(argsOrStockroom) {
 async function scanItem(qrPayloadText) {
   if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
 
-  // Try exact match (if you stored payload or file path in a Qr table)
+  // previously you attempted exact QR matches first — keep that
   if (db.Qr) {
     const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
     if (record) return { qrRecord: record };
   }
 
-  // Try JSON decode (most of our generated QRs are JSON payloads)
   try {
     const parsed = JSON.parse(qrPayloadText);
 
-    // If parsed contains inventoryId -> try to load inventory row
-    if (parsed.inventoryId || parsed.id) {
-      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
-      const inventoryId = parsed.inventoryId || parsed.id;
+    // helper tries explicit type first, otherwise tries common types
+    async function findBatch(parsedObj) {
+      const id = Number(parsedObj.inventoryId || parsedObj.id);
+      if (!id) return null;
+      const explicit = (parsedObj.stockroomType || parsedObj.itemType || parsedObj.type);
+      const tryOrder = explicit ? [String(explicit).toLowerCase()] : ['apparel','supply','genitem','it','maintenance'];
+      for (const t of tryOrder) {
+        const inv = await loadBatchRecord(t, id);
+        if (inv) return { inv, type: t };
+      }
+      return null;
+    }
 
-      const inv = await loadBatchRecord(itemType, Number(inventoryId));
-      if (inv) {
-        // build a clean response: include parsed payload and the loaded inventory row (for frontend usage)
-        return { payload: parsed, inventory: inv };
+    if (parsed.inventoryId || parsed.id) {
+      const found = await findBatch(parsed);
+      if (found) {
+        parsed._detectedItemType = parsed._detectedItemType || found.type;
+        return { payload: parsed, inventory: found.inv };
       }
     }
 
-    // If parsed contains unitId -> try to load unit row
     if (parsed.unitId) {
-      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
-      const unit = await loadUnitRecord(itemType, Number(parsed.unitId));
-      if (unit) return { payload: parsed, unit };
+      const tryOrder = [(parsed.stockroomType || parsed.itemType || parsed.type), 'apparel','supply','genitem','it','maintenance']
+                       .filter(Boolean).map(x => String(x).toLowerCase());
+      for (const t of tryOrder) {
+        const u = await loadUnitRecord(t, Number(parsed.unitId));
+        if (u) { parsed._detectedItemType = parsed._detectedItemType || t; return { payload: parsed, unit: u }; }
+      }
     }
 
-    // otherwise return the parsed payload for the frontend to handle (no db row found)
     return { payload: parsed };
   } catch (e) {
-    // not JSON — the payload is a plain string (maybe an old style code)
-    // Try match on QR table again by code fields (if you have them), else 404
     throw { status: 404, message: 'QR code not found' };
   }
 }
+
+// new helper: centralize unit release logic so controller can be tiny
+async function releaseUnit(stockroomType, unitId, opts = {}) {
+  if (!stockroomType || !unitId) throw { status: 400, message: 'Invalid params' };
+  const t = String(stockroomType).toLowerCase();
+  const actorId = opts.actorId || null;
+
+  if (t === 'apparel') {
+    const apparelService = require('_services/apparel.service');
+    return apparelService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  if (['admin-supply','supply','adminsupply','admin-supply'].includes(t)) {
+    const supplyService = require('_services/adminSupply.service');
+    return supplyService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  if (['genitem','general-item','general','it','maintenance'].includes(t)) {
+    const genService = require('_services/genItem.service');
+    return genService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  throw { status: 400, message: 'Unsupported stockroomType for unit release' };
+}
+
 
 async function updateItemStatus(stockroomType, id) {
   if (!stockroomType || !id) return null;
@@ -3972,12 +5154,12 @@ async function markInventoryQrGenerated(stockroomType, inventoryId) {
 
 ================================================================================
 File: _services\request.item.service.js
-Size: 9.38 kB
+Size: 27.47 kB
 ================================================================================
 
-// _services/itemRequest.service.js
 const db = require('_helpers/db-handler');
 const Role = require('_helpers/role');
+const accountService = require('_services/account.service');
 
 module.exports = {
   createItemRequest,
@@ -3989,26 +5171,123 @@ module.exports = {
   fulfillItemRequest
 };
 
-async function createItemRequest({ accountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
-  if (!accountId) throw { status: 400, message: 'accountId required' };
-  if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
-  if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive' };
+async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+  if (!accountId) throw { status: 401, message: 'Unauthenticated' };
+  if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive integer' };
 
-  const req = await db.ItemRequest.create({
-    accountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
+  // Defensive: ensure requestToRoom exists and is stockroom/substockroom (in case service is called directly)
+  const requestToRoom = await db.Room.findByPk(requestToRoomId);
+  if (!requestToRoom) throw { status: 400, message: 'Invalid requestToRoomId' };
+  const rt = String(requestToRoom.roomType || '').toLowerCase();
+  if (!['stockroom', 'substockroom'].includes(rt)) {
+    throw { status: 403, message: 'Can only request from rooms of type stockroom or substockroom' };
+  }
+
+  // first, ensure the itemId exists and belongs to the requestToRoomId
+  let resolvedType = null;
+  let itemRow = null;
+
+  async function tryInventory(modelName) {
+    const M = db[modelName];
+    if (!M) return null;
+    const candidate = await M.findByPk(itemId);
+    if (!candidate) return null;
+    const roomFields = ['roomId','locationRoomId','storedRoomId','room_id','stockRoomId'];
+    for (const f of roomFields) {
+      if (typeof candidate[f] !== 'undefined' && String(candidate[f]) === String(requestToRoomId)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  if (db.ApparelInventory) {
+    const r = await tryInventory('ApparelInventory');
+    if (r) { resolvedType = 'apparel'; itemRow = r; }
+  }
+  if (!resolvedType && db.AdminSupplyInventory) {
+    const r = await tryInventory('AdminSupplyInventory');
+    if (r) { resolvedType = 'supply'; itemRow = r; }
+  }
+  if (!resolvedType && db.GenItemInventory) {
+    const r = await tryInventory('GenItemInventory');
+    if (r) { resolvedType = 'genItem'; itemRow = r; }
+  }
+
+  if (!resolvedType) {
+    const unitCandidates = [
+      { model: 'Apparel', type: 'apparel' },
+      { model: 'AdminSupply', type: 'supply' },
+      { model: 'GenItem', type: 'genItem' }
+    ];
+    for (const cand of unitCandidates) {
+      const M = db[cand.model];
+      if (!M) continue;
+      const u = await M.findByPk(itemId);
+      if (!u) continue;
+      const roomFields = ['roomId','locationRoomId','storedRoomId','room_id','stockRoomId'];
+      for (const f of roomFields) {
+        if (typeof u[f] !== 'undefined' && String(u[f]) === String(requestToRoomId)) {
+          resolvedType = cand.type; itemRow = u; break;
+        }
+      }
+      if (resolvedType) break;
+    }
+  }
+
+  if (!resolvedType) {
+    throw { status: 400, message: `Item ${itemId} was not found in the inventory (or does not belong to room ${requestToRoomId})` };
+  }
+
+  // Create the ItemRequest record (store itemType for downstream compatibility)
+  const created = await db.ItemRequest.create({
+    accountId,
+    requesterRoomId,
+    requestToRoomId,
+    itemType: resolvedType,
+    itemId,
+    quantity,
+    note,
+    status: 'pending'
+    , ipAddress, browserInfo
   });
 
-  return req;
+  try {
+    await accountService.logActivity(
+      String(accountId),
+      'item_request_create',
+      created.ipAddress,
+      created.browserInfo,
+      `requestId:${created.itemRequestId}`
+    );
+  } catch (e) { console.error('activity log failed (createItemRequest)', e); }
+
+  return created;
 }
+
 async function listItemRequests({ where = {}, limit = 100, offset = 0 } = {}) {
-  return await db.ItemRequest.findAll({ where, order: [['itemRequestId','DESC']], limit, offset });
+  return await db.ItemRequest.findAll({
+    where,
+    order: [['itemRequestId','DESC']],
+    limit,
+    offset,
+    include: [
+      { model: db.Room, attributes: ['roomId','roomName'] },
+      { model: db.Account, attributes: ['accountId','firstName','lastName'] }
+    ]
+  });
 }
 async function getItemRequestById(id) {
-  const r = await db.ItemRequest.findByPk(id);
+  const r = await db.ItemRequest.findByPk(id, {
+    include: [{
+      model: db.Account,
+      attributes: ['accountId', 'firstName', 'lastName']
+    }]
+  });
   if (!r) throw { status: 404, message: 'ItemRequest not found' };
   return r;
 }
-async function acceptItemRequest(id, acceptorAccountId) {
+async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
 
@@ -4016,80 +5295,454 @@ async function acceptItemRequest(id, acceptorAccountId) {
   req.acceptedBy = acceptorAccountId || null;
   req.acceptedAt = new Date();
   await req.save();
+
+  try {
+    await accountService.logActivity(
+      String(acceptorAccountId),
+      'item_request_accept',
+      ipAddress,
+      browserInfo,
+      `requestId:${req.itemRequestId}`
+    );
+  } catch (e) { console.error('activity log failed (acceptItemRequest)', e); }
+
   return req;
 }
-async function declineItemRequest(id, declinerAccountId, reason = null) {
+async function declineItemRequest(id, declinerAccountId, reason = null, ipAddress, browserInfo) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be declined' };
   req.status = 'declined';
   if (reason) req.note = (req.note ? req.note + ' | ' : '') + `Declined: ${reason}`;
   await req.save();
-  return req;
-}
-async function releaseItemRequest(id, releaserAccountId) {
-  const req = await getItemRequestById(id);
-  if (req.status !== 'accepted') throw { status: 400, message: 'Only accepted requests can be released' };
-
-  const qty = parseInt(req.quantity || 0, 10);
-  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid quantity' };
-
-  const sequelize = db.sequelize || null;
-  const t = sequelize ? await sequelize.transaction() : null;
 
   try {
-    // resolve inventory aggregate (or unit -> inventory)
-    const inv = await resolveInventory(req, { transaction: t });
-    if (!inv) {
-      // mark out_of_stock and commit so caller sees state change
-      req.status = 'out_of_stock';
-      await req.save({ transaction: t });
-      if (t) await t.commit();
-      throw { status: 404, message: 'Inventory item not found; request marked out_of_stock' };
+    await accountService.logActivity(
+      String(declinerAccountId),
+      'item_request_decline',
+      ipAddress,
+      browserInfo,
+      `requestId:${req.itemRequestId}${reason ? `, reason:${reason}` : ''}`
+    );
+  } catch (e) { console.error('activity log failed (declineItemRequest)', e); }
+
+  return req;
+}
+// async function releaseItemRequest(id, releaserAccountId, ipAddress, browserInfo) {
+//   const req = await getItemRequestById(id);
+//   if (req.status !== 'accepted') throw { status: 400, message: 'Only accepted requests can be released' };
+
+//   const qty = parseInt(req.quantity || 0, 10);
+//   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid quantity' };
+
+//   const sequelize = db.sequelize || null;
+//   const t = sequelize ? await sequelize.transaction() : null;
+
+//   try {
+//     const inv = await resolveInventory(req, { transaction: t });
+//     if (!inv) {
+//       req.status = 'out_of_stock';
+//       await req.save({ transaction: t });
+//       if (t) await t.commit();
+//       throw { status: 404, message: 'Inventory item not found; request marked out_of_stock' };
+//     }
+
+//     const available = inv.totalQuantity || 0;
+//     if (available < qty) {
+//       req.status = 'out_of_stock';
+//       await req.save({ transaction: t });
+//       if (t) await t.commit();
+//       throw { status: 400, message: `Not enough stock to release (${available} available); request marked out_of_stock` };
+//     }
+
+//     const requester = await db.Account.findByPk(req.accountId || req.acccountId, { transaction: t });
+//     const requesterName = requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : String(req.accountId || req.acccountId);
+
+//     const releaseBatch = await createReleaseForType(req, inv, qty, requesterName, releaserAccountId, { transaction: t });
+
+//     req.status = 'released';
+//     req.releasedBy = releaserAccountId || null;
+//     req.releasedAt = new Date();
+//     await req.save({ transaction: t });
+
+//     try {
+//       await accountService.logActivity(
+//         String(releaserAccountId),
+//         'item_request_release',
+//         ipAddress,
+//         browserInfo,
+//         `requestId:${req.itemRequestId}, qty:${qty}`
+//       );
+//     } catch (e) { console.error('activity log failed (releaseItemRequest)', e); }
+
+//     if (t) await t.commit();
+//     return { request: req, releaseBatch };
+//   } catch (err) {
+//     if (t) {
+//       try { await t.rollback(); } catch (e) {}
+//     }
+//     try {
+//       const fresh = await db.ItemRequest.findByPk(id);
+//       if (fresh && fresh.status === 'accepted') {
+//         fresh.status = 'out_of_stock';
+//         await fresh.save();
+//       }
+//     } catch (e) {}
+//     throw err;
+//   }
+// }
+// async function fulfillItemRequest(id, fulfillerAccountId, ipAddress, browserInfo) {
+//   const req = await getItemRequestById(id);
+//   if (req.status !== 'released') throw { status: 400, message: 'Only released requests can be fulfilled by the requester' };
+
+//   req.status = 'fulfilled';
+//   req.fulfilledBy = fulfillerAccountId || null;
+//   req.fulfilledAt = new Date();
+//   await req.save();
+
+//   try {
+//     await accountService.logActivity(
+//       String(fulfillerAccountId),
+//       'item_request_fulfill',
+//       ipAddress,
+//       browserInfo,
+//       `requestId:${req.itemRequestId}`
+//     );
+//   } catch (e) { console.error('activity log failed (fulfillItemRequest)', e); }
+
+//   return req;
+// }
+
+async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo = '') {
+  const rid = Number(requestId);
+  if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid request id' };
+
+  const result = await db.sequelize.transaction(async (t) => {
+    const reqRow = await db.ItemRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!reqRow) throw { status: 404, message: 'Item request not found' };
+
+    // must be in accepted state to release (adjust to your actual statuses)
+    if (reqRow.status !== 'accepted') throw { status: 400, message: `Cannot release request in status '${reqRow.status}'` };
+
+    // ensure itemId exists (common cause of "not found")
+    const itemId = reqRow.itemId;
+    if (!itemId) {
+      // more helpful error so you can debug acceptance flow
+      throw { status: 400, message: 'ItemRequest.itemId is null or missing. Ensure accept flow sets the inventory itemId before release.' };
     }
 
-    const available = inv.totalQuantity || 0;
+    // find inventory row (search across inventory tables)
+    const invInfo = await getInventoryModelForItemId(itemId, t);
+    if (!invInfo) {
+      // mark request out_of_stock (your existing logic did this)
+      reqRow.status = 'out_of_stock';
+      reqRow.outOfStockAt = new Date();
+      await reqRow.save({ transaction: t });
+      throw { status: 400, message: 'Inventory item not found; request marked out_of_stock' };
+    }
+
+    const inv = invInfo.row;
+    const qty = Number(reqRow.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
+
+    const available = Number(inv.totalQuantity || 0);
     if (available < qty) {
-      req.status = 'out_of_stock';
-      await req.save({ transaction: t });
-      if (t) await t.commit();
-      throw { status: 400, message: `Not enough stock to release (${available} available); request marked out_of_stock` };
+      // not enough stock -> mark out_of_stock and return
+      reqRow.status = 'out_of_stock';
+      reqRow.outOfStockAt = new Date();
+      await reqRow.save({ transaction: t });
+      throw { status: 400, message: `Insufficient stock (have ${available}, need ${qty}). Request marked out_of_stock.` };
     }
 
-    // fetch requester name for claimedBy
-    const requester = await db.Account.findByPk(req.accountId || req.acccountId, { transaction: t });
-    const requesterName = requester ? `${requester.firstName || ''} ${requester.lastName || ''}`.trim() : String(req.accountId || req.acccountId);
-
-    // create release record (type-specific) and update inventory + units
-    const releaseBatch = await createReleaseForType(req, inv, qty, requesterName, releaserAccountId, { transaction: t });
+    // decrease inventory
+    inv.totalQuantity = Math.max(0, available - qty);
+    await inv.save({ transaction: t });
 
     // mark request released
-    req.status = 'released';
-    req.releasedBy = releaserAccountId || null;
-    req.releasedAt = new Date();
-    await req.save({ transaction: t });
+    reqRow.status = 'released';
+    reqRow.releasedBy = String(user?.accountId ?? user?.id ?? user?.userId ?? '');
+    reqRow.releasedAt = new Date();
+    await reqRow.save({ transaction: t });
 
-    if (t) await t.commit();
-    return { request: req, releaseBatch };
+    return { reqRow, invInfo };
+  });
+
+  // activity log (best-effort) — include ip/browser if provided
+  try {
+    await accountService.logActivity(
+      String(user?.accountId ?? user?.id ?? user?.userId ?? ''),
+      'itemrequest_release',
+      ipAddress || '',
+      browserInfo || '',
+      `requestId:${result.reqRow.requestId}`
+    );
   } catch (err) {
-    if (t) {
-      try { await t.rollback(); } catch (e) { /* ignore rollback error */ }
-    }
-    // best-effort: if request still accepted, mark out_of_stock to avoid dangling accepted requests
-    try {
-      const fresh = await db.ItemRequest.findByPk(id);
-      if (fresh && fresh.status === 'accepted') {
-        fresh.status = 'out_of_stock';
-        await fresh.save();
-      }
-    } catch (e) { /* ignore */ }
-    throw err;
+    console.error('activity log failed (releaseItemRequest)', err);
   }
+
+  return result.reqRow;
 }
+
+// /**
+//  * fulfillItemRequest
+//  * - After release, mark request fulfilled/closed; adjust other flags as needed.
+//  */
+// async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo = '') {
+//   const rid = Number(requestId);
+//   if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid request id' };
+
+//   const result = await db.sequelize.transaction(async (t) => {
+//     const reqRow = await db.ItemRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+//     if (!reqRow) throw { status: 404, message: 'Item request not found' };
+
+//     // require released -> fulfill. If your flow uses a different status, adapt this.
+//     if (reqRow.status !== 'released') throw { status: 400, message: `Only released requests can be fulfilled. Current status: '${reqRow.status}'` };
+
+//     reqRow.status = 'fulfilled';
+//     reqRow.fulfilledBy = String(user?.accountId ?? user?.id ?? user?.userId ?? '');
+//     reqRow.fulfilledAt = new Date();
+//     await reqRow.save({ transaction: t });
+
+//     return reqRow;
+//   });
+
+//   // activity log
+//   try {
+//     await accountService.logActivity(
+//       String(user?.accountId ?? user?.id ?? user?.userId ?? ''),
+//       'itemrequest_fulfill',
+//       ipAddress || '',
+//       browserInfo || '',
+//       `requestId:${result.requestId}`
+//     );
+//   } catch (err) {
+//     console.error('activity log failed (fulfillItemRequest)', err);
+//   }
+
+//   return result;
+// }
+async function findInventoryAndType(itemId, itemType, options = {}) {
+  const id = Number(itemId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const tOpt = options.transaction ? { transaction: options.transaction } : {};
+
+  // apparel: try inventory first, then unit
+  if (String(itemType).toLowerCase().includes('apparel')) {
+    const inv = await db.ApparelInventory.findByPk(id, tOpt);
+    if (inv) return { inv, type: 'apparel' };
+    const unit = await db.Apparel.findByPk(id, tOpt);
+    if (unit) return { unit, type: 'apparel' };
+    return null;
+  }
+
+  // admin supplies / supplies
+  if (String(itemType).toLowerCase().includes('supply') || String(itemType).toLowerCase() === 'admin-supply') {
+    const inv = await db.AdminSupplyInventory.findByPk(id, tOpt);
+    if (inv) return { inv, type: 'supply' };
+    const unit = await db.AdminSupply.findByPk(id, tOpt);
+    if (unit) return { unit, type: 'supply' };
+    return null;
+  }
+
+  // gen items / IT / maintenance / general items
+  if (['genitem', 'gen-item', 'gen_item', 'gen item', 'it', 'maintenance'].includes(String(itemType).toLowerCase())) {
+    const inv = await db.GenItemInventory.findByPk(id, tOpt);
+    if (inv) return { inv, type: 'genitem' };
+    const unit = await db.GenItem.findByPk(id, tOpt);
+    if (unit) return { unit, type: 'genitem' };
+    return null;
+  }
+
+  // fallback: try to find by unit or inventory generically
+  // try apparel unit/inv as default
+  const inv = await db.ApparelInventory.findByPk(id, tOpt);
+  if (inv) return { inv, type: 'apparel' };
+  const unit = await db.Apparel.findByPk(id, tOpt);
+  if (unit) return { unit, type: 'apparel' };
+
+  return null;
+}
+async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo = '') {
+  const rid = Number(requestId);
+  if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid request id' };
+
+  const result = await db.sequelize.transaction(async (t) => {
+    const reqRow = await db.ItemRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!reqRow) throw { status: 404, message: 'Item request not found' };
+
+    // require released -> fulfill
+    if (String(reqRow.status) !== 'released') throw { status: 400, message: `Only released requests can be fulfilled. Current status: '${reqRow.status}'` };
+
+    // find the inventory/unit that was released (helper already in file)
+    const found = await findInventoryAndType(reqRow.itemId, reqRow.itemType);
+    if (!found || (!found.inv && !found.unit)) {
+      // mark failed and save
+      reqRow.status = 'failed_request';
+      await reqRow.save({ transaction: t });
+      throw { status: 404, message: 'Could not locate inventory item to fulfill request; request marked failed' };
+    }
+
+    const qty = Number(reqRow.quantity || 0);
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw { status: 400, message: 'Invalid request quantity' };
+    }
+
+    // Use requesterRoomId as destination room
+    const destRoomId = Number(reqRow.requesterRoomId);
+    if (!Number.isFinite(destRoomId) || destRoomId <= 0) {
+      throw { status: 400, message: 'Invalid requesterRoomId on request' };
+    }
+
+    // get an example inventory record for metadata (name/size/etc.)
+    const exampleInv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
+    if (!exampleInv) {
+      reqRow.status = 'failed_request';
+      await reqRow.save({ transaction: t });
+      throw { status: 404, message: 'Could not resolve inventory metadata for fulfillment' };
+    }
+
+    // small helper for unit status
+    function getUnitStatusForType(type) {
+      if (String(type) === 'apparel') return 'good';
+      return 'in_stock';
+    }
+
+    // create/update destination inventory and create receive batch + units (transactional)
+    let createdBatch = null;
+
+    if (String(found.type) === 'apparel') {
+      const where = {
+        roomId: destRoomId,
+        apparelName: exampleInv.apparelName,
+        apparelLevel: exampleInv.apparelLevel,
+        apparelType: exampleInv.apparelType,
+        apparelFor: exampleInv.apparelFor,
+        apparelSize: exampleInv.apparelSize
+      };
+      const [destInv] = await db.ApparelInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+      await destInv.save({ transaction: t });
+
+      createdBatch = await db.ReceiveApparel.create({
+        roomId: destRoomId,
+        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+        receivedBy: String(user?.accountId ?? user?.id ?? null),
+        apparelName: destInv.apparelName,
+        apparelLevel: destInv.apparelLevel,
+        apparelType: destInv.apparelType,
+        apparelFor: destInv.apparelFor,
+        apparelSize: destInv.apparelSize,
+        apparelQuantity: qty
+      }, { transaction: t });
+
+      if (db.Apparel && qty > 0) {
+        const apparelUnits = Array(qty).fill().map(() => ({
+          receiveApparelId: createdBatch.receiveApparelId,
+          apparelInventoryId: destInv.apparelInventoryId ?? destInv.id,
+          roomId: destRoomId,
+          status: getUnitStatusForType(found.type)
+        }));
+        await db.Apparel.bulkCreate(apparelUnits, { transaction: t });
+      }
+    }
+    else if (String(found.type) === 'supply' || String(found.type) === 'admin-supply') {
+      const where = {
+        roomId: destRoomId,
+        supplyName: exampleInv.supplyName,
+        supplyMeasure: exampleInv.supplyMeasure
+      };
+      const [destInv] = await db.AdminSupplyInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+      await destInv.save({ transaction: t });
+
+      createdBatch = await db.ReceiveAdminSupply.create({
+        roomId: destRoomId,
+        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+        receivedBy: String(user?.accountId ?? user?.id ?? null),
+        supplyName: destInv.supplyName,
+        supplyQuantity: qty,
+        supplyMeasure: destInv.supplyMeasure
+      }, { transaction: t });
+
+      if (db.AdminSupply && qty > 0) {
+        const units = Array(qty).fill().map(() => ({
+          receiveAdminSupplyId: createdBatch.receiveAdminSupplyId,
+          adminSupplyInventoryId: destInv.adminSupplyInventoryId ?? destInv.id,
+          roomId: destRoomId,
+          status: 'in_stock'
+        }));
+        await db.AdminSupply.bulkCreate(units, { transaction: t });
+      }
+    }
+    else if (String(found.type) === 'genitem' || String(found.type) === 'it' || String(found.type) === 'maintenance') {
+      const where = {
+        roomId: destRoomId,
+        genItemName: exampleInv.genItemName,
+        genItemSize: exampleInv.genItemSize ?? null,
+        genItemType: exampleInv.genItemType
+      };
+      const [destInv] = await db.GenItemInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+      await destInv.save({ transaction: t });
+
+      createdBatch = await db.ReceiveGenItem.create({
+        roomId: destRoomId,
+        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+        receivedBy: String(user?.accountId ?? user?.id ?? null),
+        genItemName: destInv.genItemName,
+        genItemSize: destInv.genItemSize ?? null,
+        genItemQuantity: qty,
+        genItemType: destInv.genItemType
+      }, { transaction: t });
+
+      if (db.GenItem && qty > 0) {
+        const units = Array(qty).fill().map(() => ({
+          receiveGenItemId: createdBatch.receiveGenItemId,
+          genItemInventoryId: destInv.genItemInventoryId ?? destInv.id,
+          roomId: destRoomId,
+          status: 'in_stock'
+        }));
+        await db.GenItem.bulkCreate(units, { transaction: t });
+      }
+    } else {
+      // unsupported type — mark failed
+      reqRow.status = 'failed_request';
+      await reqRow.save({ transaction: t });
+      throw { status: 400, message: `Unsupported item type for fulfillment: ${found.type}` };
+    }
+
+    // finally mark request fulfilled
+    reqRow.status = 'fulfilled';
+    reqRow.fulfilledBy = String(user?.accountId ?? user?.id ?? '');
+    reqRow.fulfilledAt = new Date();
+    await reqRow.save({ transaction: t });
+
+    return { request: reqRow, createdBatch };
+  });
+
+  // activity log (best-effort)
+  try {
+    await accountService.logActivity(
+      String(user?.accountId ?? user?.id ?? ''),
+      'itemrequest_fulfill',
+      ipAddress || '',
+      browserInfo || '',
+      `requestId:${result.request.itemRequestId || result.request.id}`
+    );
+  } catch (err) {
+    console.error('activity log failed (fulfillItemRequest log)', err);
+  }
+
+  return result;
+}
+
+
+
+
+
 
 /* ---------------- Helpers ---------------- */
 
 async function resolveInventory(req, opts = {}) {
-  // Prefer inventory aggregates; otherwise attempt unit -> inventory.
   const txOpt = opts.transaction ? { transaction: opts.transaction } : {};
   if (req.itemType === 'apparel') {
     let inv = await db.ApparelInventory.findByPk(req.itemId, txOpt);
@@ -4118,7 +5771,6 @@ async function resolveInventory(req, opts = {}) {
   return null;
 }
 async function createReleaseForType(req, inv, qty, requesterName, releaserAccountId, opts = {}) {
-  // opts can contain { transaction }
   const tx = opts.transaction ? { transaction: opts.transaction } : {};
   const releaserLabel = releaserAccountId ? String(releaserAccountId) : 'Stockroom';
 
@@ -4207,23 +5859,30 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
   throw { status: 500, message: 'Unsupported itemType for release' };
 }
-async function fulfillItemRequest(id, fulfillerAccountId) {
-  const req = await getItemRequestById(id);
-  if (req.status !== 'released') throw { status: 400, message: 'Only released requests can be fulfilled by the requester' };
+async function getInventoryModelForItemId(id, transaction) {
+  if (!id) return null;
+  const candidates = [
+    { key: 'apparel', model: db.ApparelInventory },
+    { key: 'supply',  model: db.AdminSupplyInventory },
+    { key: 'genitem', model: db.GenItemInventory }
+  ];
 
-  req.status = 'fulfilled';
-  req.fulfilledBy = fulfillerAccountId || null;
-  req.fulfilledAt = new Date();
-  await req.save();
-  return req;
+  for (const c of candidates) {
+    if (!c.model) continue;
+    const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};
+    const r = await c.model.findByPk(id, opts);
+    if (r) return { key: c.key, model: c.model, row: r };
+  }
+  return null;
 }
 
 ================================================================================
 File: _services\request.stock.service.js
-Size: 13.4 kB
+Size: 16.45 kB
 ================================================================================
 
 const db = require('_helpers/db-handler');
+const accountService = require('_services/account.service');
 
 module.exports = {
   createStockRequest,
@@ -4234,22 +5893,63 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ accountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
-  if (!accountId) throw { status: 400, message: 'acccountId is required' };
-  if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
+async function createStockRequest({ accountId, requesterRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+  if (!accountId) throw { status: 400, message: 'accountId is required' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
-  if (itemId) {
-    const model = getInventoryModel(itemType);
-    if (model) {
-      const found = await model.findByPk(itemId);
-      if (!found) throw { status: 400, message: `${itemType} id ${itemId} not found` };
+  // determine itemType by checking inventory tables first, then unit tables
+  let resolvedType = null;
+
+  // helper short-circuit checks (check inventories)
+  if (db.ApparelInventory) {
+    const inv = await db.ApparelInventory.findByPk(itemId);
+    if (inv) resolvedType = 'apparel';
+  }
+  if (!resolvedType && db.AdminSupplyInventory) {
+    const inv = await db.AdminSupplyInventory.findByPk(itemId);
+    if (inv) resolvedType = 'supply';
+  }
+  if (!resolvedType && db.GenItemInventory) {
+    const inv = await db.GenItemInventory.findByPk(itemId);
+    if (inv) resolvedType = 'genItem';
+  }
+
+  // if not inventory, check unit tables (individual items/units)
+  if (!resolvedType) {
+    if (db.Apparel) {
+      const unit = await db.Apparel.findByPk(itemId);
+      if (unit) resolvedType = 'apparel';
+    }
+    if (!resolvedType && db.AdminSupply) {
+      const unit = await db.AdminSupply.findByPk(itemId);
+      if (unit) resolvedType = 'supply';
+    }
+    if (!resolvedType && db.GenItem) {
+      const unit = await db.GenItem.findByPk(itemId);
+      if (unit) resolvedType = 'genItem';
     }
   }
 
+  if (!resolvedType) {
+    throw { status: 400, message: `Item id ${itemId} not found in inventories or units` };
+  }
+
+  // create stock request — store the resolved itemType for downstream flows
   const req = await db.StockRequest.create({
-    accountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
+    accountId,
+    requesterRoomId,
+    itemType: resolvedType,
+    itemId,
+    quantity,
+    note,
+    status: 'pending'
   });
+
+  try {
+    await accountService.logActivity(String(accountId), 'stock_request_create', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+  } catch (err) {
+    console.error('activity log failed (createStockRequest)', err);
+  }
 
   return req;
 }
@@ -4258,11 +5958,20 @@ async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
     where,
     order: [['stockRequestId','DESC']],
     limit,
-    offset
+    offset,
+    include: [
+      { model: db.Room, attributes: ['roomId','roomName'] },
+      { model: db.Account, attributes: ['accountId','firstName','lastName'] }
+    ]
   });
 }
 async function getStockRequestById(stockRequestId) {
-  const r = await db.StockRequest.findByPk(stockRequestId);
+  const r = await db.StockRequest.findByPk(stockRequestId, {
+    include: [{
+      model: db.Account,
+      attributes: ['accountId', 'firstName', 'lastName']
+    }]
+  });
   if (!r) throw { status: 404, message: 'StockRequest not found' };
 
   try {
@@ -4270,7 +5979,6 @@ async function getStockRequestById(stockRequestId) {
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', requestedItem);
     else r.requestedItem = requestedItem;
   } catch (err) {
-    // don't fail the whole request when item lookup fails; log for debugging.
     console.error('getStockRequestById - requested item load failed:', err);
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', null);
     else r.requestedItem = null;
@@ -4278,28 +5986,41 @@ async function getStockRequestById(stockRequestId) {
 
   return r;
 }
-async function approveStockRequest(id, approverAccountId = null) {
+async function approveStockRequest(id, approverAccountId = null, ipAddress, browserInfo) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
   req.status = 'approved';
-  // optionally: req.approvedBy = approverAccountId; req.approvedAt = new Date(); (add columns if desired)
   await req.save();
+
+  try {
+    await accountService.logActivity( String(approverAccountId), 'stock_request_approve', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+  } catch (err) {
+    console.error('activity log failed (approveStockRequest)', err);
+  }
+
   return req;
 }
-async function disapproveStockRequest(id, adminAccountId = null, reason = null) {
+async function disapproveStockRequest(id, adminAccountId = null, reason = null, ipAddress, browserInfo) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be disapproved' };
   req.status = 'disapproved';
   if (reason) req.note = (req.note ? req.note + ' | ' : '') + `Disapproved: ${reason}`;
   await req.save();
+
+  try {
+    await accountService.logActivity(String(adminAccountId), 'stock_request_disapprove', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId || req.id}${reason ? `, reason:${reason}` : ''}`);
+  } catch (err) {
+    console.error('activity log failed (disapproveStockRequest)', err);
+  }
+
   return req;
 }
-async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
+async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress, browserInfo) {
   const req = await db.StockRequest.findByPk(stockRequestId);
   if (!req) throw { status: 404, message: 'StockRequest not found' };
   if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
-  const found = await findInventoryAndType(req.itemId);
+  const found = await findInventoryAndType(req.itemId, req.itemType);
   if (!found || (!found.inv && !found.unit)) {
     req.status = 'failed_request';
     await req.save();
@@ -4310,13 +6031,10 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
 
   try {
-    // create the Receive batch and the per-unit rows
     const createdBatch = await createReceiveAndUnits(found, qty, fulfillerAccountId || req.acccountId || 0);
 
-    // update inventory aggregate (increase by qty)
     if (found.inv) await updateInventory(found.inv, qty);
     else {
-      // attempt to resolve inventory if we only had a unit
       if (found.unit) {
         const inv = await resolveInventoryFromUnit(found);
         if (inv) await updateInventory(inv, qty);
@@ -4326,9 +6044,14 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
     req.status = 'fulfilled';
     await req.save();
 
+    try {
+      await accountService.logActivity(String(fulfillerAccountId), 'stock_request_fulfill', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+    } catch (err) {
+      console.error('activity log failed (fulfillStockRequest - log)', err);
+    }
+
     return { request: req, createdBatch };
   } catch (err) {
-    // ensure request is marked failed if something went wrong during fulfillment
     if (req.status !== 'failed_request' && req.status !== 'fulfilled') {
       req.status = 'failed_request';
       await req.save();
@@ -4338,11 +6061,41 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
 }
 
 /* ---------- Helpers (kept local for drop-in) ---------- */
-
-async function findInventoryAndType(id) {
+async function findInventoryAndType(id, preferredType) {
   if (!id) return null;
 
-  // try inventory aggregates first
+  const normalizeType = t => (typeof t === 'string' ? String(t).toLowerCase() : t);
+
+  if (preferredType) {
+    const pref = normalizeType(preferredType);
+    const model = getInventoryModel(pref === 'genitem' ? 'genItem' : pref);
+    if (model) {
+      const inv = await model.findByPk(id);
+      if (inv) return { type: pref, inv };
+    }
+    if (pref === 'apparel' && db.Apparel) {
+      const u = await db.Apparel.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
+        return { type: 'apparel', unit: u, inv: inv || null };
+      }
+    }
+    if ((pref === 'supply' || pref === 'admin-supply') && db.AdminSupply) {
+      const u = await db.AdminSupply.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
+        return { type: 'supply', unit: u, inv: inv || null };
+      }
+    }
+    if ((pref === 'genitem' || pref === 'it' || pref === 'maintenance') && db.GenItem) {
+      const u = await db.GenItem.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
+        return { type: 'genitem', unit: u, inv: inv || null };
+      }
+    }
+  }
+
   if (db.ApparelInventory) {
     const inv = await db.ApparelInventory.findByPk(id);
     if (inv) return { type: 'apparel', inv };
@@ -4356,18 +6109,26 @@ async function findInventoryAndType(id) {
     if (inv) return { type: 'genitem', inv };
   }
 
-  // fallback: maybe it's a unit id (Apparel/AdminSupply/GenItem)
   if (db.Apparel) {
     const u = await db.Apparel.findByPk(id);
-    if (u) return { type: 'apparel', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
+      return { type: 'apparel', unit: u, inv: inv || null };
+    }
   }
   if (db.AdminSupply) {
     const u = await db.AdminSupply.findByPk(id);
-    if (u) return { type: 'supply', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
+      return { type: 'supply', unit: u, inv: inv || null };
+    }
   }
   if (db.GenItem) {
     const u = await db.GenItem.findByPk(id);
-    if (u) return { type: 'genitem', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
+      return { type: 'genitem', unit: u, inv: inv || null };
+    }
   }
 
   return null;
@@ -4395,7 +6156,6 @@ function getUnitStatusForType(type) {
   return 'in_stock';
 }
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
-  // Returns created batch row. Creates per-unit rows if unit model exists.
   if (found.type === 'apparel') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'Apparel inventory record not found' };
@@ -4414,13 +6174,12 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
 
     const unitStatus = getUnitStatusForType(found.type);
 
-// apparel units example
 if (db.Apparel && qty > 0) {
   const apparelUnits = Array(qty).fill().map(() => ({
     receiveApparelId: batch.receiveApparelId,
     apparelInventoryId: inv.apparelInventoryId ?? inv.id,
     roomId: inv.roomId,
-    status: unitStatus   // <-- use mapping
+    status: unitStatus
   }));
   await db.Apparel.bulkCreate(apparelUnits);
 }
@@ -4483,7 +6242,6 @@ if (db.Apparel && qty > 0) {
   throw { status: 500, message: 'Unsupported inventory type' };
 }
 async function updateInventory(inv, qty) {
-  // update the aggregate totalQuantity field (safe against different column names)
   if (!inv) return;
   if (typeof inv.totalQuantity !== 'undefined') {
     inv.totalQuantity = (inv.totalQuantity || 0) + qty;
@@ -4501,35 +6259,28 @@ async function updateInventory(inv, qty) {
     return;
   }
 
-  // If none of the expected fields are present, throw so caller can mark failed_request.
   throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
 function getInventoryModel(itemType) {
-  // your models use: ApparelInventory, AdminSupplyInventory, GenItemInventory (see _models)
-  if (itemType === 'apparel') return db.ApparelInventory || null;
-  if (itemType === 'supply') return db.AdminSupplyInventory || null;
-  if (itemType === 'genItem') return db.GenItemInventory || null;
-  return null;
+  if (itemType === 'apparel') return db.ApparelInventory;
+  if (itemType === 'supply') return db.AdminSupplyInventory;
+  if (itemType === 'genItem') return db.GenItemInventory;
+  return;
 }
-
 async function _loadRequestedItem(itemId, itemTypeRaw) {
   if (!itemId) return null;
 
-  // normalize label for 'type' only (for returned object)
   const typeNorm = String(itemTypeRaw || '').toLowerCase();
 
-  // 1) prefer inventory aggregate (uses your existing helper)
   const invModel = getInventoryModel(itemTypeRaw);
   if (invModel) {
     const inv = await invModel.findByPk(itemId);
     if (inv) return { kind: 'inventory', type: typeNorm || 'unknown', inventory: inv, unit: null };
   }
 
-  // 2) try unit model by type
   const unitResult = await _tryLoadUnitByType(itemId, typeNorm);
   if (unitResult) return unitResult;
 
-  // 3) fallback: try all unit models (best-effort)
   return await _tryLoadAnyUnit(itemId);
 }
 async function _tryLoadUnitByType(itemId, typeNorm) {
@@ -4560,7 +6311,6 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
       }
     }
   } catch (e) {
-    // bubble up (will be caught by caller)
     throw e;
   }
   return null;
@@ -4598,17 +6348,19 @@ async function _tryLoadAnyUnit(itemId) {
 
 ================================================================================
 File: _services\room.service.js
-Size: 27.33 kB
+Size: 31.54 kB
 ================================================================================
 
 const db        = require('_helpers/db-handler');
 const Role      = require('_helpers/role');
 const qrService = require('_services/qr.service');
+const accountService = require('_services/account.service');
 
 module.exports = {
   // POST -------------------------------------------------------------------------------------
   createRoomHandler,                  // create new room.
   ensureIsStockroomHandler,           // will check if the type of a room is stockroom or sub stockroom
+  ensureRoomExistsHandler,
 
   receiveInStockroomHandler,          // recieve in stockroom and it will route to the specific recieve functions depends on its payload.
   receiveApparelInRoomHandler,        // receive apparel function with its payload.
@@ -4631,6 +6383,7 @@ module.exports = {
 
   // GET -------------------------------------------------------------------------------------
   getRoomsHandler,                    // display all rooms.
+  listRoomsHandler,
   getRoomByIdHandler,                 // display a specific room.
 
   getReceiveApparelsByRoomHandler,
@@ -4651,6 +6404,8 @@ module.exports = {
 
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.
+
+  getItemsByRoomHandler,
 };
 
 // Room's CRUD Handler
@@ -4683,7 +6438,7 @@ async function getRoomsHandler(user) {
     include
   });
 }
-async function createRoomHandler(payload, user) {
+async function createRoomHandler(payload, user, ipAddress, browserInfo) {
   if (!isSuperAdmin(user)) {
     const err = new Error('Forbidden: only Super Admin can create rooms');
     err.status = 403;
@@ -4691,10 +6446,19 @@ async function createRoomHandler(payload, user) {
   }
 
   const created = await db.Room.create({
-    roomName: payload.roomName,
+    roomName:     payload.roomName,
+    roomFloor:    payload.roomFloor,
+    roomType:     payload.roomType,
+    stockroomType: payload.stockroomType ?? null, // <- add this line
     roomInCharge: payload.roomInCharge,
-    description: payload.description,
+    description:  payload.description,
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'room_create', ipAddress, browserInfo, `roomId:${created.roomId}`);
+  } catch (err) {
+    console.error('activity log failed (createRoom)', err);
+  }
 
   return created;
 }
@@ -4725,7 +6489,7 @@ async function getRoomByIdHandler(roomId, user) {
   err.status = 403;
   throw err;
 }
-async function updateRoomHandler(roomId, payload, user) {
+async function updateRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   if (!isSuperAdmin(user)) {
     const err = new Error('Forbidden: only Super Admin can edit rooms');
     err.status = 403;
@@ -4739,14 +6503,25 @@ async function updateRoomHandler(roomId, payload, user) {
     throw err;
   }
 
-  // apply updates (this pattern keeps it simple)
   Object.assign(room, {
-    roomName: payload.roomName ?? room.roomName,
+    roomName:     payload.roomName  ?? room.roomName,
+    roomFloor:    payload.roomFloor ?? room.roomFloor,
+    roomType:     payload.roomType  ?? room.roomType,
+    stockroomType: (payload.hasOwnProperty('stockroomType') ? payload.stockroomType : room.stockroomType),
     roomInCharge: payload.roomInCharge ?? room.roomInCharge,
-    description: payload.description ?? room.description,
+    description:  payload.description ?? room.description,
   });
 
+  try {
+    await accountService.logActivity(user.accountId, 'room_update', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (roomUpdate)', err);
+  }
+
   await room.save();
+
+  
+
   return room;
 }
 
@@ -4761,7 +6536,6 @@ async function ensureIsStockroomHandler(roomId) {
     err.status = 400;
     throw err;
   }
-  //const srt = (room.stockroomType).toString().toLowerCase();
   if (!room.stockroomType) {
     const err = new Error(`Can't receive these items in this room.`);
     err.status = 400;
@@ -4769,10 +6543,15 @@ async function ensureIsStockroomHandler(roomId) {
   }
   return room;
 }
+async function ensureRoomExistsHandler(roomId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw { status: 404, message: 'Room not found' };
+  return room;
+}
 
 // Receive Handler
 async function receiveInStockroomHandler(roomId, payload) {
-  // ensure room is stockroom/substockroom
   await ensureIsStockroomHandler(roomId);
 
   // normalize numeric fields
@@ -4795,15 +6574,19 @@ async function receiveInStockroomHandler(roomId, payload) {
     return await receiveGenItemInRoomHandler(roomId, payload);
   }
 
+  try {
+    await accountService.logActivity(user.accountId, 'room_create', ipAddress, browserInfo, `borrowId:${created.roomId}`);
+  } catch (err) {
+    console.error('activity log failed (createBorrow)', err);
+  }
+
   const err = new Error('Bad payload: must include either apparelName+apparelQuantity or supplyName+supplyQuantity');
   err.status = 400;
   throw err;
 }
-async function receiveApparelInRoomHandler(roomId, payload) {
-  // ensure room is stockroom (will throw if not)
+async function receiveApparelInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // 1) create the ReceiveApparel batch row (one row per batch)
   const batch = await db.ReceiveApparel.create({
     roomId,
     receivedFrom:     payload.receivedFrom,
@@ -4817,7 +6600,6 @@ async function receiveApparelInRoomHandler(roomId, payload) {
     notes:            payload.notes || null
   });
 
-  // 2) create or find the aggregate ApparelInventory BEFORE creating units
   const [inv] = await db.ApparelInventory.findOrCreate({
     where: {
       roomId,
@@ -4830,28 +6612,33 @@ async function receiveApparelInRoomHandler(roomId, payload) {
     defaults: { totalQuantity: 0 }
   });
 
-  // 3) increment inventory total and save
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.apparelQuantity;
   await inv.save();
 
-  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
   let createdUnits = [];
   if (db.Apparel) {
     const apparelUnits = Array(payload.apparelQuantity).fill().map(() => ({
-      receiveApparelId: batch.receiveApparelId,            // keep batch FK
-      apparelInventoryId: inv.apparelInventoryId ?? inv.id, // also point to aggregate inventory row
+      receiveApparelId: batch.receiveApparelId,
+      apparelInventoryId: inv.apparelInventoryId ?? inv.id,
       roomId: roomId,
       status: 'good'
     }));
     createdUnits = await db.Apparel.bulkCreate(apparelUnits);
   }
 
-  // 7) return the batch (with units if you want)
-  return db.ReceiveApparel.findByPk(batch.receiveApparelId, {
+  const res = db.ReceiveApparel.findByPk(batch.receiveApparelId, {
     include: [{ model: db.Apparel }]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveApparel)', err);
+  }
+
+  return res;
 }
-async function receiveAdminSupplyInRoomHandler(roomId, payload) {
+async function receiveAdminSupplyInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const batch = await db.ReceiveAdminSupply.create({
@@ -4876,27 +6663,32 @@ async function receiveAdminSupplyInRoomHandler(roomId, payload) {
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.supplyQuantity;
   await inv.save();
 
-  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
   let createdUnits = [];
   if (db.AdminSupply) {
     const adminSupplyUnits = Array(payload.supplyQuantity).fill().map(() => ({
-      receiveAdminSupplyId: batch.receiveAdminSupplyId,            // keep batch FK
-      adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, // also point to aggregate inventory row
+      receiveAdminSupplyId: batch.receiveAdminSupplyId,
+      adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, 
       roomId: roomId,
       status: 'in_stock'
     }));
     createdUnits = await db.AdminSupply.bulkCreate(adminSupplyUnits);
   }
 
-  return db.ReceiveAdminSupply.findByPk(batch.receiveAdminSupplyId, {
+  const res = db.ReceiveAdminSupply.findByPk(batch.receiveAdminSupplyId, {
     include: [{ model: db.AdminSupply}]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveAdminSupply)', err);
+  }
+
+  return res;
 }
-async function receiveGenItemInRoomHandler(roomId, payload) {
-  // will throw if not stockroom
+async function receiveGenItemInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // create batch
   const batch = await db.ReceiveGenItem.create({
     roomId,
     receivedFrom:     payload.receivedFrom,
@@ -4907,38 +6699,46 @@ async function receiveGenItemInRoomHandler(roomId, payload) {
     genItemType:      payload.genItemType,
     notes:            payload.notes || null
   });
-
-  // create per-unit apparel rows (Apparel table): one row per unit received
-  // Only create if you keep per-unit tracking (Apparel model exists)
-  if (db.GenItem) {
-    const genItemUnits = Array(payload.genItemQuantity).fill().map(() => ({
-      receiveGenItemId: batch.receiveGenItemId,
-      roomId: roomId,
-      status: 'in_stock'
-      // optionally add itemId if you create Item rows
-    }));
-    //await db.Apparel.bulkCreate(apparelUnits);
-    const createdUnits = await db.GenItem.bulkCreate(genItemUnits);
-  }
-
-  // update/create aggregate inventory (ApparelInventory)
+  
+  // FIND or CREATE inventory first (moved up)
   const [inv] = await db.GenItemInventory.findOrCreate({
     where: {
       roomId,
-      genItemName:      payload.genItemName,
-      genItemSize:      payload.genItemSize || null,
-      genItemType:      payload.genItemType,
+      genItemName: payload.genItemName,
+      genItemSize: payload.genItemSize || null,
+      genItemType: payload.genItemType,
     },
     defaults: { totalQuantity: 0 }
   });
-
+  
+  // Update inventory total and save
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.genItemQuantity;
   await inv.save();
-
-  // return the batch (include apparel units if you like)
-  return db.ReceiveGenItem.findByPk(batch.receiveGenItemId, {
+  
+  // Then create unit rows (and include genItemInventoryId)
+  let createdUnits = [];
+  if (db.GenItem) {
+    const genItemUnits = Array(payload.genItemQuantity).fill().map(() => ({
+      receiveGenItemId: batch.receiveGenItemId,
+      genItemInventoryId: inv.genItemInventoryId ?? inv.id, // <-- important
+      roomId: roomId,
+      status: 'in_stock'
+    }));
+    createdUnits = await db.GenItem.bulkCreate(genItemUnits);
+  }
+  
+  // return the batch (including generated units, same as before)
+  const res = db.ReceiveGenItem.findByPk(batch.receiveGenItemId, {
     include: [{ model: db.GenItem }]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_general-items', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveGenItems)', err);
+  }
+
+  return res;
 }
 
 // Get Received Handler
@@ -4956,15 +6756,24 @@ async function getReceiveApparelsByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getApparelUnitsByRoomHandler(roomId) {
+
+//   // await ensureIsStockroomHandler(roomId);
+//   await ensureRoomExistsHandler(roomId);
+
+//   const units = await db.Apparel.findAll({
+//     where: { roomId: roomId },
+//     order: [['apparelId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getApparelUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return apparel unit rows for any room (don't require stockroom check)
   const units = await db.Apparel.findAll({
     where: { roomId: roomId },
     order: [['apparelId', 'ASC']]
   });
-
   return units;
 }
 async function getApparelInventoryByRoomHandler(roomId) {
@@ -4993,15 +6802,23 @@ async function getReceiveAdminSupplyByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getAdminSupplyUnitsByRoomHandler(roomId) {
+
+//   await ensureIsStockroomHandler(roomId);
+
+//   const units = await db.AdminSupply.findAll({
+//     where: { roomId: roomId },
+//     order: [['adminSupplyId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getAdminSupplyUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return admin supply units for any room (don't require stockroom check)
   const units = await db.AdminSupply.findAll({
     where: { roomId: roomId },
     order: [['adminSupplyId', 'ASC']]
   });
-
   return units;
 }
 async function getAdminSupplyInventoryByRoomHandler(roomId) {
@@ -5030,15 +6847,23 @@ async function getReceiveGenItemByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getGenItemUnitsByRoomHandler(roomId) {
+
+//   // await ensureIsStockroomHandler(roomId);
+
+//   const units = await db.GenItem.findAll({
+//     where: { roomId: roomId },
+//     order: [['genItemId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getGenItemUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return general-item units for any room (don't require stockroom check)
   const units = await db.GenItem.findAll({
     where: { roomId: roomId },
     order: [['genItemId', 'ASC']]
   });
-
   return units;
 }
 async function getGenItemInventoryByRoomHandler(roomId) {
@@ -5055,12 +6880,9 @@ async function getGenItemInventoryByRoomHandler(roomId) {
 
 // Release Handler
 async function releaseInStockroomHandler(roomId, payload) {
-  // ensure room is stockroom/substockroom
   await ensureIsStockroomHandler(roomId);
 
-  // normalize numeric fields
   if (payload.releaseApparelQuantity != null) payload.releaseApparelQuantity = parseInt(payload.releaseApparelQuantity, 10);
-  //if (payload.supplyQuantity != null) payload.supplyQuantity = parseInt(payload.supplyQuantity, 10);
 
   // apparel path
   if (payload.apparelInventoryId && Number.isInteger(payload.releaseApparelQuantity) && payload.releaseApparelQuantity > 0) {
@@ -5081,10 +6903,9 @@ async function releaseInStockroomHandler(roomId, payload) {
   err.status = 400;
   throw err;
 }
-async function releaseApparelInRoomHandler(roomId, payload) {
+async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // require numeric quantity
   const qty = Number(payload.releaseApparelQuantity || 0);
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
@@ -5092,7 +6913,6 @@ async function releaseApparelInRoomHandler(roomId, payload) {
   const t = sequelize ? await sequelize.transaction() : null;
 
   try {
-    // find or create the aggregate inventory within transaction
     const [inv] = await db.ApparelInventory.findOrCreate({
       where: {
         roomId,
@@ -5104,12 +6924,10 @@ async function releaseApparelInRoomHandler(roomId, payload) {
 
     const available = inv.totalQuantity || 0;
     if (available < qty) {
-      // not enough stock -> do not create release, signal error
       if (t) await t.rollback();
       throw { status: 400, message: `Not enough stock to release (${available} available)` };
     }
 
-    // create batch
     const batch = await db.ReleaseApparel.create({
       roomId,
       apparelInventoryId: payload.apparelInventoryId,
@@ -5119,18 +6937,25 @@ async function releaseApparelInRoomHandler(roomId, payload) {
       notes: payload.notes || null
     }, { transaction: t });
 
-    // deduct and update status using helper
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
 
-    return db.ReleaseApparel.findByPk(batch.releaseApparelId);
+    const res = db.ReleaseApparel.findByPk(batch.releaseApparelId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseApparel)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
   }
 }
-async function releaseAdminSupplyInRoomHandler(roomId, payload) {
+async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const qty = Number(payload.releaseAdminSupplyQuantity || 0);
@@ -5167,13 +6992,21 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload) {
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
-    return db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+    const res = db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseAdminSupply)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
   }
 }
-async function releaseGenItemInRoomHandler(roomId, payload) {
+async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const qty = Number(payload.releaseItemQuantity || 0);
@@ -5211,7 +7044,15 @@ async function releaseGenItemInRoomHandler(roomId, payload) {
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
-    return db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+    const res = db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_general-tems', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseGenItem)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
@@ -5242,7 +7083,6 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
     });
   }
 
-  // fallback: return empty array
   return [];
 }
 async function getReleasedGenItemByRoomHandler(roomId) {
@@ -5262,44 +7102,42 @@ async function generateApparelBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.ApparelInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'ApparelInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'apparel', inventoryId });
-  return { inventoryId, ...result };
+
+  return { inventoryId, result};
 }
 async function generateAdminSupplyBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.AdminSupplyInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'AdminSupplyInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'supply', inventoryId });
+
+  
+
   return { inventoryId, ...result };
 }
 async function generateGenItemBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.GenItemInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'GenItemInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'it' || 'maintenance', inventoryId });
   return { inventoryId, ...result };
 }
@@ -5349,95 +7187,593 @@ function computeInventoryStatus(remaining) {
   if (remaining < 10) return 'low_stock';
   return 'high_stock';
 }
-async function updateInventory(inv, qtyChang, opts = {}) {
+async function updateInventory(inv, qtyChange, opts = {}) {
   if (!inv) return;
+
+  if (!Number.isFinite(Number(qtyChange))) {
+    throw { status: 500, message: 'Invalid qtyChange to updateInventory' };
+  }
+
+  const delta = Number(qtyChange);
   const transaction = opts.transaction;
 
-  // support different quantity column names across your models
   if (typeof inv.totalQuantity !== 'undefined') {
-    inv.totalQuantity = (inv.totalQuantity || 0) + qtyChange;
-    // ensure not negative
-    if (inv.totalQuantity < 0) inv.totalQuantity = 0;
-    // set status if model has the column
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) + delta);
+
     if (typeof inv.status !== 'undefined') {
       inv.status = computeInventoryStatus(inv.totalQuantity);
     }
+
     await inv.save({ transaction });
     return;
   }
 
-  // fallbacks if you used different names (supplyQuantity / quantity)
+  if (typeof inv.quantity !== 'undefined') {
+    inv.quantity = Math.max(0, (inv.quantity || 0) + delta);
+
+    if (typeof inv.status !== 'undefined') {
+      inv.status = computeInventoryStatus(inv.quantity);
+    }
+
+    await inv.save({ transaction });
+    return;
+  }
+
+  try {
+    const current = Number(inv.getDataValue('quantity') || 0);
+    inv.setDataValue('quantity', Math.max(0, current + delta));
+    await inv.save({ transaction });
+  } catch (err) {
+    throw { status: 500, message: 'Unable to update inventory quantity', detail: err.message || err };
+  }
+}
+
+// original method
+async function getItemsByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  // load per-type inventory lists in parallel (fall back to empty array)
+  const [apparelInv, supplyInv, genInv] = await Promise.all([
+    getApparelInventoryByRoomHandler(roomId).catch(() => []),
+    getAdminSupplyInventoryByRoomHandler(roomId).catch(() => []),
+    getGenItemInventoryByRoomHandler(roomId).catch(() => [])
+  ]);
+
+  const merged = [];
+
+  (apparelInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'apparel',
+      inventoryId: inv.apparelInventoryId ?? inv.id ?? null,
+      name: inv.apparelName ?? inv.name ?? `Apparel #${inv.apparelInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.apparelQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (supplyInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'supply',
+      inventoryId: inv.adminSupplyInventoryId ?? inv.id ?? null,
+      name: inv.supplyName ?? inv.name ?? `Supply #${inv.adminSupplyInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.supplyQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (genInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'genItem',
+      inventoryId: inv.genItemInventoryId ?? inv.id ?? null,
+      name: inv.genItemName ?? inv.name ?? `Item #${inv.genItemInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.genItemQuantity || 0),
+      raw: inv
+    });
+  });
+
+  // stable sort by name for consistent UI
+  merged.sort((a, b) => (a.name || '').toString().localeCompare((b.name || '').toString()));
+
+  return merged;
+}
+
+
+// ---------------------------added methods---------------------------
+async function listRoomsHandler() {
+  const include = [{
+    model: db.Account,
+    attributes: ['firstName', 'lastName', 'accountId']
+  }];
+
+  return await db.Room.findAll({ include });
+}
+
+================================================================================
+File: _services\transfer.service.js
+Size: 20.81 kB
+================================================================================
+
+const db = require('_helpers/db-handler');
+const Role = require('_helpers/role'); 
+const { Transaction }     = require('sequelize');
+const accountService = require('./account.service');
+
+module.exports = {
+  createTransfer,
+  acceptTransfer,
+  getById,
+  listTransfers
+};
+
+const ADMIN_ROLES = ['superAdmin'];
+
+async function createTransfer({ createdBy, fromRoomId, toRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+  try {
+    if (!createdBy) throw { status: 401, message: 'Unauthenticated' };
+    if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
+
+    // Defensive: ensure rooms exist
+    const fromRoom = await db.Room.findByPk(fromRoomId);
+    if (!fromRoom) throw { status: 400, message: 'Invalid fromRoomId' };
+
+    const toRoom = await db.Room.findByPk(toRoomId);
+    if (!toRoom) throw { status: 400, message: 'Invalid toRoomId' };
+
+    // Defensive: require toRoom.roomType to be stockroom or substockroom
+    const tr = String(toRoom.roomType || '').toLowerCase();
+    if (!['stockroom', 'substockroom'].includes(tr)) {
+      throw { status: 403, message: 'Transfers are allowed only to rooms of type stockroom or substockroom' };
+    }
+
+    // Helper: check an inventory table by PK and ensure its room-field matches fromRoomId
+    const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
+
+    async function checkInventoryModel(modelName) {
+      const M = db[modelName];
+      if (!M) return null;
+      const candidate = await M.findByPk(itemId);
+      if (!candidate) return null;
+      for (const f of roomFields) {
+        if (typeof candidate[f] !== 'undefined' && String(candidate[f]) === String(fromRoomId)) {
+          return { model: modelName, row: candidate };
+        }
+      }
+      return null;
+    }
+
+    // 1) Try inventory tables first
+    const inventoryModels = [
+      { model: 'ApparelInventory', type: 'apparel' },
+      { model: 'AdminSupplyInventory', type: 'supply' },
+      { model: 'GenItemInventory', type: 'genItem' }
+    ];
+
+    let resolvedType = null;
+    let itemRow = null;
+
+    for (const im of inventoryModels) {
+      const res = await checkInventoryModel(im.model);
+      if (res) { resolvedType = im.type; itemRow = res.row; break; }
+    }
+
+    // 2) If not found, try unit/item tables (individual units) and check room fields there
+    if (!resolvedType) {
+      const unitModels = [
+        { model: 'Apparel', type: 'apparel' },
+        { model: 'AdminSupply', type: 'supply' },
+        { model: 'GenItem', type: 'genItem' }
+      ];
+
+      for (const um of unitModels) {
+        const M = db[um.model];
+        if (!M) continue;
+        const unit = await M.findByPk(itemId);
+        if (!unit) continue;
+        for (const f of roomFields) {
+          if (typeof unit[f] !== 'undefined' && String(unit[f]) === String(fromRoomId)) {
+            resolvedType = um.type;
+            itemRow = unit;
+            break;
+          }
+        }
+        if (resolvedType) break;
+      }
+    }
+
+    if (!resolvedType) {
+      // No matching inventory or unit found that belongs to fromRoomId
+      throw { status: 400, message: `Item ${itemId} not found in room ${fromRoomId}` };
+    }
+
+    // Create the transfer record and store itemType for downstream compatibility
+    const transfer = await db.Transfer.create({
+      createdBy,
+      fromRoomId,
+      toRoomId,
+      itemType: resolvedType,
+      itemId,
+      quantity,
+      note,
+      status: 'pending'
+    });
+
+    try {
+      await accountService.logActivity(String(createdBy), 'transfer_create', ipAddress, browserInfo, `transferId:${transfer.transferId}`);
+    } catch (err) {
+      console.error('activity log failed (createTransfer)', err);
+    }
+
+    return transfer;
+  } catch (err) {
+    // Ensure errors are thrown as objects with .status and .message where possible
+    if (err && err.status && err.message) throw err;
+    console.error('createTransfer error:', err && (err.stack || err));
+    throw { status: 500, message: 'Server error while creating transfer' };
+  }
+}
+// async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, browserInfo) {
+//   if (!transferId) throw { status: 400, message: 'transferId required' };
+
+//   // normalize allowed admin roles (lowercase)
+//   const ADMIN_ROLES = ['superadmin', 'admin', 'super_admin'];
+
+//   const txn = await db.sequelize.transaction();
+//   try {
+//     // load transfer WITH txn
+//     const tr = await db.Transfer.findByPk(transferId, { transaction: txn });
+//     if (!tr) {
+//       await txn.rollback();
+//       throw { status: 404, message: 'Transfer not found' };
+//     }
+//     if (tr.status !== 'in_transfer') {
+//       await txn.rollback();
+//       throw { status: 400, message: 'Only in_transfer can be accepted' };
+//     }
+
+//     // load destination room to get roomInCharge
+//     let toRoom = null;
+//     if (tr.toRoomId) {
+//       toRoom = await db.Room.findByPk(tr.toRoomId, { transaction: txn });
+//     }
+//     const roomInCharge = toRoom?.roomInCharge ?? null;
+
+//     // normalize role and check authorization: admin OR room-in-charge
+//     const roleLower = String(accepterRole || '').toLowerCase();
+//     let isAdmin = ADMIN_ROLES.includes(roleLower);
+
+//     if (!isAdmin) {
+//       // try direct match first
+//       if (roomInCharge && String(roomInCharge) === String(accepterId)) {
+//         // allowed
+//       } else {
+//         // try resolving account/user to cover schema mismatch (accountId vs userId etc.)
+//         let accepterMatches = false;
+//         const acct = await db.Account.findByPk(accepterId, { transaction: txn }).catch(() => null);
+//         if (acct) {
+//           if (String(acct.accountId) === String(roomInCharge) || String(acct.id) === String(roomInCharge)) accepterMatches = true;
+//         }
+//         if (!accepterMatches && db.User) {
+//           const user = await db.User.findByPk(accepterId, { transaction: txn }).catch(() => null);
+//           if (user && (String(user.userId ?? user.id) === String(roomInCharge))) accepterMatches = true;
+//         }
+
+//         if (!accepterMatches) {
+//           await txn.rollback();
+//           throw {
+//             status: 403,
+//             message: `Only the room-in-charge or an admin can accept this transfer. accepterId=${accepterId}, role=${accepterRole}, roomInCharge=${roomInCharge}`
+//           };
+//         }
+//       }
+//     }
+
+//     // Authorized — now perform inventory move + receive creation in same transaction
+
+//     // 1) get inventory model for itemType
+//     const model = inventoryModelFor(tr.itemType);
+//     if (!model) {
+//       await txn.rollback();
+//       throw { status: 400, message: 'unknown itemType' };
+//     }
+
+//     // 2) find source inventory
+//     let srcInv = null;
+//     if (tr.itemId) {
+//       srcInv = await model.findByPk(tr.itemId, { transaction: txn }).catch(() => null);
+//     }
+//     if (!srcInv) {
+//       srcInv = await model.findOne({ where: { id: tr.itemId, roomId: tr.fromRoomId }, transaction: txn }).catch(() => null);
+//     }
+//     if (!srcInv) {
+//       await txn.rollback();
+//       throw { status: 404, message: 'Source inventory not found' };
+//     }
+
+//     // 3) check available qty
+//     const available = getQuantity(srcInv);
+//     if (available < tr.quantity) {
+//       await txn.rollback();
+//       throw { status: 400, message: 'Insufficient quantity in source' };
+//     }
+
+//     // 4) decrement source and increment destination using helpers (they save with transaction)
+//     await adjustInventory(srcInv, -Number(tr.quantity), txn);
+
+//     const destInv = await findOrCreateMatchingInventory(model, srcInv, tr.toRoomId, { transaction: txn });
+//     await adjustInventory(destInv, Number(tr.quantity), txn);
+
+//     // 5) update transfer record (inside txn)
+//     await tr.update({ status: 'transfer_accepted', acceptedBy: accepterId || null, acceptedAt: new Date() }, { transaction: txn });
+
+//     // 6) create receive batch & unit records (helper expects txn)
+//     const typeNorm = String(tr.itemType || '').toLowerCase();
+//     await createReceiveBatchAndUnits(typeNorm, destInv, Number(tr.quantity), tr, accepterId, txn);
+
+//     // commit and return (fresh tr)
+//     await txn.commit();
+
+//     try {
+//       await accountService.logActivity(String(accepterId), 'transfer_create', ipAddress, browserInfo, `transferId:${transferId}`);
+//     } catch (err) {
+//       console.error('activity log failed (createTransfer)', err);
+//     }
+
+//     // reload the transfer with any associations if you need them
+//     return await db.Transfer.findByPk(tr.transferId || tr.id);
+//   } catch (err) {
+//     // rollback if not already rolled back
+//     try { if (txn) await txn.rollback(); } catch (_) { /* ignore */ }
+//     throw err;
+//   }
+// }
+async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, browserInfo) {
+  if (!transferId) throw { status: 400, message: 'transferId required' };
+
+  const ADMIN_ROLES = ['superadmin', 'admin', 'super_admin'];
+  const txn = await db.sequelize.transaction();
+  try {
+    const tr = await db.Transfer.findByPk(transferId, { transaction: txn });
+    if (!tr) {
+      await txn.rollback();
+      throw { status: 404, message: 'Transfer not found' };
+    }
+
+    // allow both pending and in_transfer to be accepted
+    if (!['in_transfer', 'pending'].includes(String(tr.status || '').toLowerCase())) {
+      await txn.rollback();
+      throw { status: 400, message: 'Only pending or in_transfer can be accepted' };
+    }
+
+    // load toRoom to check roomInCharge
+    let toRoom = null;
+    if (tr.toRoomId) toRoom = await db.Room.findByPk(tr.toRoomId, { transaction: txn });
+    const roomInCharge = toRoom?.roomInCharge ?? null;
+
+    // normalize role; admin or room in charge allowed
+    const roleLower = String(accepterRole || '').toLowerCase();
+    const isAdmin = ADMIN_ROLES.includes(roleLower);
+
+    if (!isAdmin) {
+      // try matching accepterId === roomInCharge, or resolve via Account/User tables
+      let accepterMatches = false;
+      if (roomInCharge && String(roomInCharge) === String(accepterId)) accepterMatches = true;
+
+      const acct = await db.Account.findByPk(accepterId, { transaction: txn }).catch(() => null);
+      if (acct && (String(acct.accountId) === String(roomInCharge) || String(acct.id) === String(roomInCharge))) accepterMatches = true;
+
+      if (!accepterMatches && db.User) {
+        const user = await db.User.findByPk(accepterId, { transaction: txn }).catch(() => null);
+        if (user && (String(user.userId ?? user.id) === String(roomInCharge))) accepterMatches = true;
+      }
+
+      if (!accepterMatches) {
+        await txn.rollback();
+        throw { status: 403, message: `Only room-in-charge or admin can accept this transfer (accepterId=${accepterId})` };
+      }
+    }
+
+    // perform inventory adjustments (existing logic)...
+    // (keep the existing inventory move code here unchanged)
+
+    await tr.update({ status: 'transfer_accepted', acceptedBy: accepterId || null, acceptedAt: new Date() }, { transaction: txn });
+    await txn.commit();
+
+    // best-effort log (use your account service logger)
+    try {
+      await accountService.logActivity(String(accepterId), 'transfer_accept', ipAddress, browserInfo, `transferId:${tr.transferId || tr.id}`);
+    } catch (e) {
+      console.error('activity log failed (acceptTransfer)', e);
+    }
+
+    return tr;
+  } catch (err) {
+    if (txn && !txn.finished) await txn.rollback().catch(()=>{});
+    throw err;
+  }
+}
+
+/* ---------- helpers ---------- */
+
+function getQuantity(inv) {
+  if (!inv) return 0;
+  if (typeof inv.totalQuantity !== 'undefined') return Number(inv.totalQuantity || 0);
+  if (typeof inv.supplyQuantity !== 'undefined') return Number(inv.supplyQuantity || 0);
+  if (typeof inv.quantity !== 'undefined') return Number(inv.quantity || 0);
+  // fallback to sequelize getter if present
+  try { return Number(inv.getDataValue && inv.getDataValue('quantity') || 0); } catch (_) { return 0; }
+}
+
+async function adjustInventory(inv, delta, txn) {
+  if (!inv) throw { status: 500, message: 'Invalid inventory' };
+  if (!Number.isFinite(Number(delta))) throw { status: 500, message: 'Invalid delta to adjustInventory' };
+  const d = Number(delta);
+
+  if (typeof inv.totalQuantity !== 'undefined') {
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) + d);
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.totalQuantity);
+    await inv.save({ transaction: txn });
+    return inv;
+  }
+
   if (typeof inv.supplyQuantity !== 'undefined') {
-    inv.supplyQuantity = (inv.supplyQuantity || 0) + qtyChange;
-    if (inv.supplyQuantity < 0) inv.supplyQuantity = 0;
+    inv.supplyQuantity = Math.max(0, (inv.supplyQuantity || 0) + d);
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.supplyQuantity);
+    await inv.save({ transaction: txn });
+    return inv;
+  }
+
+  if (typeof inv.quantity !== 'undefined') {
+    inv.quantity = Math.max(0, (inv.quantity || 0) + d);
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.quantity);
+    await inv.save({ transaction: txn });
+    return inv;
+  }
+
+  // fallback using generic setters
+  try {
+    const curr = Number(inv.getDataValue && inv.getDataValue('quantity') || 0);
+    inv.setDataValue('quantity', Math.max(0, curr + d));
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.getDataValue('quantity'));
+    await inv.save({ transaction: txn });
+    return inv;
+  } catch (err) {
+    throw { status: 500, message: 'Unable to adjust inventory', detail: err.message || err };
+  }
+}
+
+async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId, txn) {
+  if (!qty || qty <= 0) return; // nothing to create
+
+  // apparel
+  if (typeNorm === 'apparel') {
+    const batch = await db.ReceiveApparel.create({
+      roomId:          destInv.roomId,
+      receivedFrom:    `Transfer #${tr.transferId}`,
+      receivedBy:      accepterId || null,
+      apparelName:     destInv.apparelName,
+      apparelLevel:    destInv.apparelLevel,
+      apparelType:     destInv.apparelType,
+      apparelFor:      destInv.apparelFor,
+      apparelSize:     destInv.apparelSize,
+      apparelQuantity: qty
+    }, { transaction: txn });
+
+    if (db.Apparel) {
+      const units = Array(qty).fill().map(() => ({
+        receiveApparelId: batch.receiveApparelId,
+        apparelInventoryId: destInv.apparelInventoryId ?? destInv.id,
+        roomId: destInv.roomId,
+        status: 'good'
+      }));
+      await db.Apparel.bulkCreate(units, { transaction: txn });
+    }
+    return;
+  }
+
+  // supplies (AdminSupply)
+  if (typeNorm.includes('supply')) {
+    const batch = await db.ReceiveAdminSupply.create({
+      roomId:         destInv.roomId,
+      receivedFrom:   `Transfer #${tr.transferId}`,
+      receivedBy:     accepterId || null,
+      supplyName:     destInv.supplyName,
+      supplyQuantity: qty,
+      supplyMeasure:  destInv.supplyMeasure
+    }, { transaction: txn });
+
+    if (db.AdminSupply) {
+      const units = Array(qty).fill().map(() => ({
+        receiveAdminSupplyId: batch.receiveAdminSupplyId,
+        adminSupplyInventoryId: destInv.adminSupplyInventoryId ?? destInv.id,
+        roomId: destInv.roomId,
+        status: 'in_stock'
+      }));
+      await db.AdminSupply.bulkCreate(units, { transaction: txn });
+    }
+    return;
+  }
+
+  // gen items
+  if (typeNorm.includes('gen')) {
+    const batch = await db.ReceiveGenItem.create({
+      roomId:          destInv.roomId,
+      receivedFrom:    `Transfer #${tr.transferId}`,
+      receivedBy:      accepterId || null,
+      genItemName:     destInv.genItemName,
+      genItemSize:     destInv.genItemSize ?? null,
+      genItemQuantity: qty,
+      genItemType:     destInv.genItemType
+    }, { transaction: txn });
+
+    if (db.GenItem) {
+      const units = Array(qty).fill().map(() => ({
+        receiveGenItemId: batch.receiveGenItemId,
+        roomId: destInv.roomId,
+        status: 'in_stock'
+      }));
+      await db.GenItem.bulkCreate(units, { transaction: txn });
+    }
+    return;
+  }
+
+  // unsupported type -> no-op
+  return;
+}
+
+// ---- add these helpers if they don't exist already in this file ----
+function computeInventoryStatus(remaining) {
+  if (remaining <= 1) return 'out_of_stock';
+  if (remaining < 10) return 'low_stock';
+  return 'high_stock';
+}
+
+async function updateInventory(inv, qtyChange, opts = {}) {
+  if (!inv) return;
+  if (!Number.isFinite(Number(qtyChange))) {
+    throw { status: 500, message: 'Invalid qtyChange to updateInventory' };
+  }
+  const delta = Number(qtyChange);
+  const transaction = opts.transaction;
+
+  if (typeof inv.totalQuantity !== 'undefined') {
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) + delta);
+    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.totalQuantity);
+    await inv.save({ transaction });
+    return;
+  }
+
+  if (typeof inv.supplyQuantity !== 'undefined') {
+    inv.supplyQuantity = Math.max(0, (inv.supplyQuantity || 0) + delta);
     if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.supplyQuantity);
     await inv.save({ transaction });
     return;
   }
+
   if (typeof inv.quantity !== 'undefined') {
-    inv.quantity = (inv.quantity || 0) + qtyChange;
-    if (inv.quantity < 0) inv.quantity = 0;
+    inv.quantity = Math.max(0, (inv.quantity || 0) + delta);
     if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.quantity);
     await inv.save({ transaction });
     return;
   }
 
-  throw { status: 500, message: 'Inventory does not have known quantity field' };
+  // fallback for weird models
+  try {
+    const current = Number(inv.getDataValue('quantity') || 0);
+    inv.setDataValue('quantity', Math.max(0, current + delta));
+    await inv.save({ transaction });
+  } catch (err) {
+    throw { status: 500, message: 'Unable to update inventory quantity', detail: err.message || err };
+  }
 }
 
-================================================================================
-File: _services\transfer.service.js
-Size: 3.81 kB
-================================================================================
-
-// _services/transfer.service.js
-const db = require('_helpers/db-handler');
-const { Transaction }     = require('sequelize');
-
-module.exports = {
-  createTransfer,
-  acceptTransfer,
-  returnTransfer,
-  acceptReturned,
-  getById,
-  listTransfers
-};
-
-async function createTransfer({ fromRoomId, toRoomId, createdBy, itemType, itemId = null, quantity = 1, note = null }) {
-  if (!fromRoomId || !toRoomId || !createdBy) throw { status: 400, message: 'Missing required fields' };
-  if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
-  quantity = parseInt(quantity, 10);
-  if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive' };
-
-  const transfer = await db.Transfer.create({
-    fromRoomId, toRoomId, createdBy, itemType, itemId, quantity, note, status: 'in_transfer'
-  });
-
-  return transfer;
+function pickQuantity(inv) {
+  if (!inv) return 0;
+  if (typeof inv.totalQuantity !== 'undefined') return inv.totalQuantity || 0;
+  if (typeof inv.supplyQuantity !== 'undefined') return inv.supplyQuantity || 0;
+  if (typeof inv.quantity !== 'undefined') return inv.quantity || 0;
+  return 0;
 }
-async function acceptTransfer(transferId, accepterId) {
-  const transfer = await db.Transfer.findByPk(transferId);
-  await transfer.update({ status: 'transfer_accepted', acceptedBy: accepterId });
 
-  return transfer;
-}
-async function returnTransfer(transferId, returnerAccountId) {
-  const tr = await db.Transfer.findByPk(transferId);
-  if (!tr) throw { status: 404, message: 'Transfer not found' };
-  if (tr.status !== 'transfer_accepted') throw { status: 400, message: 'Only accepted transfers can be returned' };
-
-  tr.status = 'returning';
-  tr.returningBy = returnerAccountId || null;
-  tr.returnedAt = null;
-  await tr.save();
-  return tr;
-}
-async function acceptReturned(transferId, accepterId) {
-  const transfer = await db.Transfer.findByPk(transferId);
-  await transfer.update({ status: 'return_accepted', acceptedBy: accepterId });
-
-  return transfer;
-}
 function inventoryModelFor(itemType) {
   if (itemType === 'apparel') return db.ApparelInventory;
   if (itemType === 'supply') return db.AdminSupplyInventory;
@@ -5472,16 +7808,22 @@ async function findOrCreateMatchingInventory(model, exampleInv, roomId, opts = {
     return inv;
   }
 
-  // fallback: try primary key copy
   const [fallback] = await model.findOrCreate({ where: { roomId }, defaults: { totalQuantity: 0, roomId }, transaction });
   return fallback;
 }
 
-/* small helpers to fetch transfers */
 async function getById(id) {
   return db.Transfer.findByPk(id);
 }
 async function listTransfers({ where = {}, limit = 200, offset = 0 } = {}) {
-  return db.Transfer.findAll({ where, order: [['transferId','DESC']], limit, offset });
+  return db.Transfer.findAll({
+    where,
+    order: [['transferId','DESC']],
+    limit,
+    offset,
+    include: [
+      { model: db.Room, as: 'fromRoom', attributes: ['roomId','roomName','roomInCharge'], required: false },
+      { model: db.Room, as: 'toRoom', attributes: ['roomId','roomName','roomInCharge'], required: false }
+    ]
+  });
 }
-

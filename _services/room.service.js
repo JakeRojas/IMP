@@ -1,11 +1,13 @@
 const db        = require('_helpers/db-handler');
 const Role      = require('_helpers/role');
 const qrService = require('_services/qr.service');
+const accountService = require('_services/account.service');
 
 module.exports = {
   // POST -------------------------------------------------------------------------------------
   createRoomHandler,                  // create new room.
   ensureIsStockroomHandler,           // will check if the type of a room is stockroom or sub stockroom
+  ensureRoomExistsHandler,
 
   receiveInStockroomHandler,          // recieve in stockroom and it will route to the specific recieve functions depends on its payload.
   receiveApparelInRoomHandler,        // receive apparel function with its payload.
@@ -28,6 +30,7 @@ module.exports = {
 
   // GET -------------------------------------------------------------------------------------
   getRoomsHandler,                    // display all rooms.
+  listRoomsHandler,
   getRoomByIdHandler,                 // display a specific room.
 
   getReceiveApparelsByRoomHandler,
@@ -48,6 +51,8 @@ module.exports = {
 
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.
+
+  getItemsByRoomHandler,
 };
 
 // Room's CRUD Handler
@@ -80,7 +85,7 @@ async function getRoomsHandler(user) {
     include
   });
 }
-async function createRoomHandler(payload, user) {
+async function createRoomHandler(payload, user, ipAddress, browserInfo) {
   if (!isSuperAdmin(user)) {
     const err = new Error('Forbidden: only Super Admin can create rooms');
     err.status = 403;
@@ -88,10 +93,19 @@ async function createRoomHandler(payload, user) {
   }
 
   const created = await db.Room.create({
-    roomName: payload.roomName,
+    roomName:     payload.roomName,
+    roomFloor:    payload.roomFloor,
+    roomType:     payload.roomType,
+    stockroomType: payload.stockroomType ?? null, // <- add this line
     roomInCharge: payload.roomInCharge,
-    description: payload.description,
+    description:  payload.description,
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'room_create', ipAddress, browserInfo, `roomId:${created.roomId}`);
+  } catch (err) {
+    console.error('activity log failed (createRoom)', err);
+  }
 
   return created;
 }
@@ -122,7 +136,7 @@ async function getRoomByIdHandler(roomId, user) {
   err.status = 403;
   throw err;
 }
-async function updateRoomHandler(roomId, payload, user) {
+async function updateRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   if (!isSuperAdmin(user)) {
     const err = new Error('Forbidden: only Super Admin can edit rooms');
     err.status = 403;
@@ -136,14 +150,25 @@ async function updateRoomHandler(roomId, payload, user) {
     throw err;
   }
 
-  // apply updates (this pattern keeps it simple)
   Object.assign(room, {
-    roomName: payload.roomName ?? room.roomName,
+    roomName:     payload.roomName  ?? room.roomName,
+    roomFloor:    payload.roomFloor ?? room.roomFloor,
+    roomType:     payload.roomType  ?? room.roomType,
+    stockroomType: (payload.hasOwnProperty('stockroomType') ? payload.stockroomType : room.stockroomType),
     roomInCharge: payload.roomInCharge ?? room.roomInCharge,
-    description: payload.description ?? room.description,
+    description:  payload.description ?? room.description,
   });
 
+  try {
+    await accountService.logActivity(user.accountId, 'room_update', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (roomUpdate)', err);
+  }
+
   await room.save();
+
+  
+
   return room;
 }
 
@@ -158,7 +183,6 @@ async function ensureIsStockroomHandler(roomId) {
     err.status = 400;
     throw err;
   }
-  //const srt = (room.stockroomType).toString().toLowerCase();
   if (!room.stockroomType) {
     const err = new Error(`Can't receive these items in this room.`);
     err.status = 400;
@@ -166,10 +190,15 @@ async function ensureIsStockroomHandler(roomId) {
   }
   return room;
 }
+async function ensureRoomExistsHandler(roomId) {
+  if (!roomId) throw { status: 400, message: 'roomId required' };
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw { status: 404, message: 'Room not found' };
+  return room;
+}
 
 // Receive Handler
 async function receiveInStockroomHandler(roomId, payload) {
-  // ensure room is stockroom/substockroom
   await ensureIsStockroomHandler(roomId);
 
   // normalize numeric fields
@@ -192,15 +221,19 @@ async function receiveInStockroomHandler(roomId, payload) {
     return await receiveGenItemInRoomHandler(roomId, payload);
   }
 
+  try {
+    await accountService.logActivity(user.accountId, 'room_create', ipAddress, browserInfo, `borrowId:${created.roomId}`);
+  } catch (err) {
+    console.error('activity log failed (createBorrow)', err);
+  }
+
   const err = new Error('Bad payload: must include either apparelName+apparelQuantity or supplyName+supplyQuantity');
   err.status = 400;
   throw err;
 }
-async function receiveApparelInRoomHandler(roomId, payload) {
-  // ensure room is stockroom (will throw if not)
+async function receiveApparelInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // 1) create the ReceiveApparel batch row (one row per batch)
   const batch = await db.ReceiveApparel.create({
     roomId,
     receivedFrom:     payload.receivedFrom,
@@ -214,7 +247,6 @@ async function receiveApparelInRoomHandler(roomId, payload) {
     notes:            payload.notes || null
   });
 
-  // 2) create or find the aggregate ApparelInventory BEFORE creating units
   const [inv] = await db.ApparelInventory.findOrCreate({
     where: {
       roomId,
@@ -227,28 +259,33 @@ async function receiveApparelInRoomHandler(roomId, payload) {
     defaults: { totalQuantity: 0 }
   });
 
-  // 3) increment inventory total and save
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.apparelQuantity;
   await inv.save();
 
-  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
   let createdUnits = [];
   if (db.Apparel) {
     const apparelUnits = Array(payload.apparelQuantity).fill().map(() => ({
-      receiveApparelId: batch.receiveApparelId,            // keep batch FK
-      apparelInventoryId: inv.apparelInventoryId ?? inv.id, // also point to aggregate inventory row
+      receiveApparelId: batch.receiveApparelId,
+      apparelInventoryId: inv.apparelInventoryId ?? inv.id,
       roomId: roomId,
       status: 'good'
     }));
     createdUnits = await db.Apparel.bulkCreate(apparelUnits);
   }
 
-  // 7) return the batch (with units if you want)
-  return db.ReceiveApparel.findByPk(batch.receiveApparelId, {
+  const res = db.ReceiveApparel.findByPk(batch.receiveApparelId, {
     include: [{ model: db.Apparel }]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveApparel)', err);
+  }
+
+  return res;
 }
-async function receiveAdminSupplyInRoomHandler(roomId, payload) {
+async function receiveAdminSupplyInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const batch = await db.ReceiveAdminSupply.create({
@@ -273,27 +310,32 @@ async function receiveAdminSupplyInRoomHandler(roomId, payload) {
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.supplyQuantity;
   await inv.save();
 
-  // 4) create per-unit rows and set apparelInventoryId so unit-level QR refers to inventory/batch aggregate
   let createdUnits = [];
   if (db.AdminSupply) {
     const adminSupplyUnits = Array(payload.supplyQuantity).fill().map(() => ({
-      receiveAdminSupplyId: batch.receiveAdminSupplyId,            // keep batch FK
-      adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, // also point to aggregate inventory row
+      receiveAdminSupplyId: batch.receiveAdminSupplyId,
+      adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, 
       roomId: roomId,
       status: 'in_stock'
     }));
     createdUnits = await db.AdminSupply.bulkCreate(adminSupplyUnits);
   }
 
-  return db.ReceiveAdminSupply.findByPk(batch.receiveAdminSupplyId, {
+  const res = db.ReceiveAdminSupply.findByPk(batch.receiveAdminSupplyId, {
     include: [{ model: db.AdminSupply}]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveAdminSupply)', err);
+  }
+
+  return res;
 }
-async function receiveGenItemInRoomHandler(roomId, payload) {
-  // will throw if not stockroom
+async function receiveGenItemInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // create batch
   const batch = await db.ReceiveGenItem.create({
     roomId,
     receivedFrom:     payload.receivedFrom,
@@ -304,38 +346,46 @@ async function receiveGenItemInRoomHandler(roomId, payload) {
     genItemType:      payload.genItemType,
     notes:            payload.notes || null
   });
-
-  // create per-unit apparel rows (Apparel table): one row per unit received
-  // Only create if you keep per-unit tracking (Apparel model exists)
-  if (db.GenItem) {
-    const genItemUnits = Array(payload.genItemQuantity).fill().map(() => ({
-      receiveGenItemId: batch.receiveGenItemId,
-      roomId: roomId,
-      status: 'in_stock'
-      // optionally add itemId if you create Item rows
-    }));
-    //await db.Apparel.bulkCreate(apparelUnits);
-    const createdUnits = await db.GenItem.bulkCreate(genItemUnits);
-  }
-
-  // update/create aggregate inventory (ApparelInventory)
+  
+  // FIND or CREATE inventory first (moved up)
   const [inv] = await db.GenItemInventory.findOrCreate({
     where: {
       roomId,
-      genItemName:      payload.genItemName,
-      genItemSize:      payload.genItemSize || null,
-      genItemType:      payload.genItemType,
+      genItemName: payload.genItemName,
+      genItemSize: payload.genItemSize || null,
+      genItemType: payload.genItemType,
     },
     defaults: { totalQuantity: 0 }
   });
-
+  
+  // Update inventory total and save
   inv.totalQuantity = (inv.totalQuantity || 0) + payload.genItemQuantity;
   await inv.save();
-
-  // return the batch (include apparel units if you like)
-  return db.ReceiveGenItem.findByPk(batch.receiveGenItemId, {
+  
+  // Then create unit rows (and include genItemInventoryId)
+  let createdUnits = [];
+  if (db.GenItem) {
+    const genItemUnits = Array(payload.genItemQuantity).fill().map(() => ({
+      receiveGenItemId: batch.receiveGenItemId,
+      genItemInventoryId: inv.genItemInventoryId ?? inv.id, // <-- important
+      roomId: roomId,
+      status: 'in_stock'
+    }));
+    createdUnits = await db.GenItem.bulkCreate(genItemUnits);
+  }
+  
+  // return the batch (including generated units, same as before)
+  const res = db.ReceiveGenItem.findByPk(batch.receiveGenItemId, {
     include: [{ model: db.GenItem }]
   });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_general-items', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveGenItems)', err);
+  }
+
+  return res;
 }
 
 // Get Received Handler
@@ -353,15 +403,24 @@ async function getReceiveApparelsByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getApparelUnitsByRoomHandler(roomId) {
+
+//   // await ensureIsStockroomHandler(roomId);
+//   await ensureRoomExistsHandler(roomId);
+
+//   const units = await db.Apparel.findAll({
+//     where: { roomId: roomId },
+//     order: [['apparelId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getApparelUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return apparel unit rows for any room (don't require stockroom check)
   const units = await db.Apparel.findAll({
     where: { roomId: roomId },
     order: [['apparelId', 'ASC']]
   });
-
   return units;
 }
 async function getApparelInventoryByRoomHandler(roomId) {
@@ -390,15 +449,23 @@ async function getReceiveAdminSupplyByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getAdminSupplyUnitsByRoomHandler(roomId) {
+
+//   await ensureIsStockroomHandler(roomId);
+
+//   const units = await db.AdminSupply.findAll({
+//     where: { roomId: roomId },
+//     order: [['adminSupplyId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getAdminSupplyUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return admin supply units for any room (don't require stockroom check)
   const units = await db.AdminSupply.findAll({
     where: { roomId: roomId },
     order: [['adminSupplyId', 'ASC']]
   });
-
   return units;
 }
 async function getAdminSupplyInventoryByRoomHandler(roomId) {
@@ -427,15 +494,23 @@ async function getReceiveGenItemByRoomHandler(roomId) {
 
   return batches;
 }
+// async function getGenItemUnitsByRoomHandler(roomId) {
+
+//   // await ensureIsStockroomHandler(roomId);
+
+//   const units = await db.GenItem.findAll({
+//     where: { roomId: roomId },
+//     order: [['genItemId', 'ASC']]
+//   });
+
+//   return units;
+// }
 async function getGenItemUnitsByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  // Return general-item units for any room (don't require stockroom check)
   const units = await db.GenItem.findAll({
     where: { roomId: roomId },
     order: [['genItemId', 'ASC']]
   });
-
   return units;
 }
 async function getGenItemInventoryByRoomHandler(roomId) {
@@ -452,12 +527,9 @@ async function getGenItemInventoryByRoomHandler(roomId) {
 
 // Release Handler
 async function releaseInStockroomHandler(roomId, payload) {
-  // ensure room is stockroom/substockroom
   await ensureIsStockroomHandler(roomId);
 
-  // normalize numeric fields
   if (payload.releaseApparelQuantity != null) payload.releaseApparelQuantity = parseInt(payload.releaseApparelQuantity, 10);
-  //if (payload.supplyQuantity != null) payload.supplyQuantity = parseInt(payload.supplyQuantity, 10);
 
   // apparel path
   if (payload.apparelInventoryId && Number.isInteger(payload.releaseApparelQuantity) && payload.releaseApparelQuantity > 0) {
@@ -478,10 +550,9 @@ async function releaseInStockroomHandler(roomId, payload) {
   err.status = 400;
   throw err;
 }
-async function releaseApparelInRoomHandler(roomId, payload) {
+async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
-  // require numeric quantity
   const qty = Number(payload.releaseApparelQuantity || 0);
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
@@ -489,7 +560,6 @@ async function releaseApparelInRoomHandler(roomId, payload) {
   const t = sequelize ? await sequelize.transaction() : null;
 
   try {
-    // find or create the aggregate inventory within transaction
     const [inv] = await db.ApparelInventory.findOrCreate({
       where: {
         roomId,
@@ -501,12 +571,10 @@ async function releaseApparelInRoomHandler(roomId, payload) {
 
     const available = inv.totalQuantity || 0;
     if (available < qty) {
-      // not enough stock -> do not create release, signal error
       if (t) await t.rollback();
       throw { status: 400, message: `Not enough stock to release (${available} available)` };
     }
 
-    // create batch
     const batch = await db.ReleaseApparel.create({
       roomId,
       apparelInventoryId: payload.apparelInventoryId,
@@ -516,18 +584,25 @@ async function releaseApparelInRoomHandler(roomId, payload) {
       notes: payload.notes || null
     }, { transaction: t });
 
-    // deduct and update status using helper
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
 
-    return db.ReleaseApparel.findByPk(batch.releaseApparelId);
+    const res = db.ReleaseApparel.findByPk(batch.releaseApparelId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseApparel)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
   }
 }
-async function releaseAdminSupplyInRoomHandler(roomId, payload) {
+async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const qty = Number(payload.releaseAdminSupplyQuantity || 0);
@@ -564,13 +639,21 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload) {
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
-    return db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+    const res = db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseAdminSupply)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
   }
 }
-async function releaseGenItemInRoomHandler(roomId, payload) {
+async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
   await ensureIsStockroomHandler(roomId);
 
   const qty = Number(payload.releaseItemQuantity || 0);
@@ -608,7 +691,15 @@ async function releaseGenItemInRoomHandler(roomId, payload) {
     await updateInventory(inv, -qty, { transaction: t });
 
     if (t) await t.commit();
-    return db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+    const res = db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+
+    try {
+      await accountService.logActivity(user.accountId, 'release_general-tems', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseGenItem)', err);
+    }
+
+    return res;
   } catch (e) {
     if (t) await t.rollback();
     throw e;
@@ -639,7 +730,6 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
     });
   }
 
-  // fallback: return empty array
   return [];
 }
 async function getReleasedGenItemByRoomHandler(roomId) {
@@ -659,44 +749,42 @@ async function generateApparelBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.ApparelInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'ApparelInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'apparel', inventoryId });
-  return { inventoryId, ...result };
+
+  return { inventoryId, result};
 }
 async function generateAdminSupplyBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.AdminSupplyInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'AdminSupplyInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'supply', inventoryId });
+
+  
+
   return { inventoryId, ...result };
 }
 async function generateGenItemBatchForRoom(roomId, inventoryId) {
   if (!roomId) throw { status: 400, message: 'roomId required' };
   if (!inventoryId) throw { status: 400, message: 'inventoryId required' };
 
-  // ensure room is stockroom/substockroom (will throw if not)
   await ensureIsStockroomHandler(roomId);
 
   const inv = await db.GenItemInventory.findByPk(inventoryId);
   if (!inv) throw { status: 404, message: 'GenItemInventory not found' };
   if (String(inv.roomId) !== String(roomId)) throw { status: 403, message: 'Inventory does not belong to this room' };
 
-  // Use apparel as stockroomType
   const result = await qrService.generateBatchQR({ stockroomType: 'it' || 'maintenance', inventoryId });
   return { inventoryId, ...result };
 }
@@ -746,38 +834,103 @@ function computeInventoryStatus(remaining) {
   if (remaining < 10) return 'low_stock';
   return 'high_stock';
 }
-async function updateInventory(inv, qtyChang, opts = {}) {
+async function updateInventory(inv, qtyChange, opts = {}) {
   if (!inv) return;
+
+  if (!Number.isFinite(Number(qtyChange))) {
+    throw { status: 500, message: 'Invalid qtyChange to updateInventory' };
+  }
+
+  const delta = Number(qtyChange);
   const transaction = opts.transaction;
 
-  // support different quantity column names across your models
   if (typeof inv.totalQuantity !== 'undefined') {
-    inv.totalQuantity = (inv.totalQuantity || 0) + qtyChange;
-    // ensure not negative
-    if (inv.totalQuantity < 0) inv.totalQuantity = 0;
-    // set status if model has the column
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) + delta);
+
     if (typeof inv.status !== 'undefined') {
       inv.status = computeInventoryStatus(inv.totalQuantity);
     }
+
     await inv.save({ transaction });
     return;
   }
 
-  // fallbacks if you used different names (supplyQuantity / quantity)
-  if (typeof inv.supplyQuantity !== 'undefined') {
-    inv.supplyQuantity = (inv.supplyQuantity || 0) + qtyChange;
-    if (inv.supplyQuantity < 0) inv.supplyQuantity = 0;
-    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.supplyQuantity);
-    await inv.save({ transaction });
-    return;
-  }
   if (typeof inv.quantity !== 'undefined') {
-    inv.quantity = (inv.quantity || 0) + qtyChange;
-    if (inv.quantity < 0) inv.quantity = 0;
-    if (typeof inv.status !== 'undefined') inv.status = computeInventoryStatus(inv.quantity);
+    inv.quantity = Math.max(0, (inv.quantity || 0) + delta);
+
+    if (typeof inv.status !== 'undefined') {
+      inv.status = computeInventoryStatus(inv.quantity);
+    }
+
     await inv.save({ transaction });
     return;
   }
 
-  throw { status: 500, message: 'Inventory does not have known quantity field' };
+  try {
+    const current = Number(inv.getDataValue('quantity') || 0);
+    inv.setDataValue('quantity', Math.max(0, current + delta));
+    await inv.save({ transaction });
+  } catch (err) {
+    throw { status: 500, message: 'Unable to update inventory quantity', detail: err.message || err };
+  }
+}
+
+// original method
+async function getItemsByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+
+  // load per-type inventory lists in parallel (fall back to empty array)
+  const [apparelInv, supplyInv, genInv] = await Promise.all([
+    getApparelInventoryByRoomHandler(roomId).catch(() => []),
+    getAdminSupplyInventoryByRoomHandler(roomId).catch(() => []),
+    getGenItemInventoryByRoomHandler(roomId).catch(() => [])
+  ]);
+
+  const merged = [];
+
+  (apparelInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'apparel',
+      inventoryId: inv.apparelInventoryId ?? inv.id ?? null,
+      name: inv.apparelName ?? inv.name ?? `Apparel #${inv.apparelInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.apparelQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (supplyInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'supply',
+      inventoryId: inv.adminSupplyInventoryId ?? inv.id ?? null,
+      name: inv.supplyName ?? inv.name ?? `Supply #${inv.adminSupplyInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.supplyQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (genInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'genItem',
+      inventoryId: inv.genItemInventoryId ?? inv.id ?? null,
+      name: inv.genItemName ?? inv.name ?? `Item #${inv.genItemInventoryId || inv.id || ''}`,
+      totalQuantity: Number(inv.totalQuantity || inv.genItemQuantity || 0),
+      raw: inv
+    });
+  });
+
+  // stable sort by name for consistent UI
+  merged.sort((a, b) => (a.name || '').toString().localeCompare((b.name || '').toString()));
+
+  return merged;
+}
+
+
+// ---------------------------added methods---------------------------
+async function listRoomsHandler() {
+  const include = [{
+    model: db.Account,
+    attributes: ['firstName', 'lastName', 'accountId']
+  }];
+
+  return await db.Room.findAll({ include });
 }

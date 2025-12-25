@@ -11,11 +11,13 @@ module.exports = (sequelize) => {
         apparelId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:      { type: DataTypes.ENUM(
-                                'released','damaged',
-                                'lost','good'
+        status:             { type: DataTypes.ENUM(
+                                'good','working',
+                                'damage',
                                 ), defaultValue: 'good'
-                            }
+                            },
+        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
+        apparelInventoryId: { type: DataTypes.INTEGER, allowNull: false },
     };
 
     const options = {

@@ -24,7 +24,10 @@ function authorize(roles = []) {
                     return res.status(403).json({ message: 'Forbidden: insufficient permissions' });
                 }
 
-                req.user = { accountId: account.accountId, email: account.email, role: account.role };
+                req.user = { 
+                    accountId: account.accountId, 
+                    email: account.email, 
+                    role: account.role };
                 next();
             } catch (error) {
                 console.error('Authorization error:', error);

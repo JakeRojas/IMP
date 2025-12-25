@@ -1,4 +1,5 @@
 const db = require('_helpers/db-handler');
+const accountService = require('_services/account.service');
 
 module.exports = {
   createStockRequest,
@@ -9,22 +10,63 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ accountId, requesterRoomId = null, itemId = null, itemType = 'apparel', quantity = 1, note = null }) {
-  if (!accountId) throw { status: 400, message: 'acccountId is required' };
-  if (!['apparel','supply','genItem'].includes(itemType)) throw { status: 400, message: 'invalid itemType' };
+async function createStockRequest({ accountId, requesterRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+  if (!accountId) throw { status: 400, message: 'accountId is required' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
-  if (itemId) {
-    const model = getInventoryModel(itemType);
-    if (model) {
-      const found = await model.findByPk(itemId);
-      if (!found) throw { status: 400, message: `${itemType} id ${itemId} not found` };
+  // determine itemType by checking inventory tables first, then unit tables
+  let resolvedType = null;
+
+  // helper short-circuit checks (check inventories)
+  if (db.ApparelInventory) {
+    const inv = await db.ApparelInventory.findByPk(itemId);
+    if (inv) resolvedType = 'apparel';
+  }
+  if (!resolvedType && db.AdminSupplyInventory) {
+    const inv = await db.AdminSupplyInventory.findByPk(itemId);
+    if (inv) resolvedType = 'supply';
+  }
+  if (!resolvedType && db.GenItemInventory) {
+    const inv = await db.GenItemInventory.findByPk(itemId);
+    if (inv) resolvedType = 'genItem';
+  }
+
+  // if not inventory, check unit tables (individual items/units)
+  if (!resolvedType) {
+    if (db.Apparel) {
+      const unit = await db.Apparel.findByPk(itemId);
+      if (unit) resolvedType = 'apparel';
+    }
+    if (!resolvedType && db.AdminSupply) {
+      const unit = await db.AdminSupply.findByPk(itemId);
+      if (unit) resolvedType = 'supply';
+    }
+    if (!resolvedType && db.GenItem) {
+      const unit = await db.GenItem.findByPk(itemId);
+      if (unit) resolvedType = 'genItem';
     }
   }
 
+  if (!resolvedType) {
+    throw { status: 400, message: `Item id ${itemId} not found in inventories or units` };
+  }
+
+  // create stock request — store the resolved itemType for downstream flows
   const req = await db.StockRequest.create({
-    accountId, requesterRoomId, itemId, itemType, quantity, note, status: 'pending'
+    accountId,
+    requesterRoomId,
+    itemType: resolvedType,
+    itemId,
+    quantity,
+    note,
+    status: 'pending'
   });
+
+  try {
+    await accountService.logActivity(String(accountId), 'stock_request_create', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+  } catch (err) {
+    console.error('activity log failed (createStockRequest)', err);
+  }
 
   return req;
 }
@@ -33,11 +75,20 @@ async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
     where,
     order: [['stockRequestId','DESC']],
     limit,
-    offset
+    offset,
+    include: [
+      { model: db.Room, attributes: ['roomId','roomName'] },
+      { model: db.Account, attributes: ['accountId','firstName','lastName'] }
+    ]
   });
 }
 async function getStockRequestById(stockRequestId) {
-  const r = await db.StockRequest.findByPk(stockRequestId);
+  const r = await db.StockRequest.findByPk(stockRequestId, {
+    include: [{
+      model: db.Account,
+      attributes: ['accountId', 'firstName', 'lastName']
+    }]
+  });
   if (!r) throw { status: 404, message: 'StockRequest not found' };
 
   try {
@@ -45,7 +96,6 @@ async function getStockRequestById(stockRequestId) {
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', requestedItem);
     else r.requestedItem = requestedItem;
   } catch (err) {
-    // don't fail the whole request when item lookup fails; log for debugging.
     console.error('getStockRequestById - requested item load failed:', err);
     if (typeof r.setDataValue === 'function') r.setDataValue('requestedItem', null);
     else r.requestedItem = null;
@@ -53,28 +103,41 @@ async function getStockRequestById(stockRequestId) {
 
   return r;
 }
-async function approveStockRequest(id, approverAccountId = null) {
+async function approveStockRequest(id, approverAccountId = null, ipAddress, browserInfo) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
   req.status = 'approved';
-  // optionally: req.approvedBy = approverAccountId; req.approvedAt = new Date(); (add columns if desired)
   await req.save();
+
+  try {
+    await accountService.logActivity( String(approverAccountId), 'stock_request_approve', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+  } catch (err) {
+    console.error('activity log failed (approveStockRequest)', err);
+  }
+
   return req;
 }
-async function disapproveStockRequest(id, adminAccountId = null, reason = null) {
+async function disapproveStockRequest(id, adminAccountId = null, reason = null, ipAddress, browserInfo) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be disapproved' };
   req.status = 'disapproved';
   if (reason) req.note = (req.note ? req.note + ' | ' : '') + `Disapproved: ${reason}`;
   await req.save();
+
+  try {
+    await accountService.logActivity(String(adminAccountId), 'stock_request_disapprove', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId || req.id}${reason ? `, reason:${reason}` : ''}`);
+  } catch (err) {
+    console.error('activity log failed (disapproveStockRequest)', err);
+  }
+
   return req;
 }
-async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
+async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress, browserInfo) {
   const req = await db.StockRequest.findByPk(stockRequestId);
   if (!req) throw { status: 404, message: 'StockRequest not found' };
   if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
-  const found = await findInventoryAndType(req.itemId);
+  const found = await findInventoryAndType(req.itemId, req.itemType);
   if (!found || (!found.inv && !found.unit)) {
     req.status = 'failed_request';
     await req.save();
@@ -85,13 +148,10 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
 
   try {
-    // create the Receive batch and the per-unit rows
     const createdBatch = await createReceiveAndUnits(found, qty, fulfillerAccountId || req.acccountId || 0);
 
-    // update inventory aggregate (increase by qty)
     if (found.inv) await updateInventory(found.inv, qty);
     else {
-      // attempt to resolve inventory if we only had a unit
       if (found.unit) {
         const inv = await resolveInventoryFromUnit(found);
         if (inv) await updateInventory(inv, qty);
@@ -101,9 +161,14 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
     req.status = 'fulfilled';
     await req.save();
 
+    try {
+      await accountService.logActivity(String(fulfillerAccountId), 'stock_request_fulfill', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+    } catch (err) {
+      console.error('activity log failed (fulfillStockRequest - log)', err);
+    }
+
     return { request: req, createdBatch };
   } catch (err) {
-    // ensure request is marked failed if something went wrong during fulfillment
     if (req.status !== 'failed_request' && req.status !== 'fulfilled') {
       req.status = 'failed_request';
       await req.save();
@@ -113,11 +178,41 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId) {
 }
 
 /* ---------- Helpers (kept local for drop-in) ---------- */
-
-async function findInventoryAndType(id) {
+async function findInventoryAndType(id, preferredType) {
   if (!id) return null;
 
-  // try inventory aggregates first
+  const normalizeType = t => (typeof t === 'string' ? String(t).toLowerCase() : t);
+
+  if (preferredType) {
+    const pref = normalizeType(preferredType);
+    const model = getInventoryModel(pref === 'genitem' ? 'genItem' : pref);
+    if (model) {
+      const inv = await model.findByPk(id);
+      if (inv) return { type: pref, inv };
+    }
+    if (pref === 'apparel' && db.Apparel) {
+      const u = await db.Apparel.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
+        return { type: 'apparel', unit: u, inv: inv || null };
+      }
+    }
+    if ((pref === 'supply' || pref === 'admin-supply') && db.AdminSupply) {
+      const u = await db.AdminSupply.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
+        return { type: 'supply', unit: u, inv: inv || null };
+      }
+    }
+    if ((pref === 'genitem' || pref === 'it' || pref === 'maintenance') && db.GenItem) {
+      const u = await db.GenItem.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
+        return { type: 'genitem', unit: u, inv: inv || null };
+      }
+    }
+  }
+
   if (db.ApparelInventory) {
     const inv = await db.ApparelInventory.findByPk(id);
     if (inv) return { type: 'apparel', inv };
@@ -131,18 +226,26 @@ async function findInventoryAndType(id) {
     if (inv) return { type: 'genitem', inv };
   }
 
-  // fallback: maybe it's a unit id (Apparel/AdminSupply/GenItem)
   if (db.Apparel) {
     const u = await db.Apparel.findByPk(id);
-    if (u) return { type: 'apparel', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
+      return { type: 'apparel', unit: u, inv: inv || null };
+    }
   }
   if (db.AdminSupply) {
     const u = await db.AdminSupply.findByPk(id);
-    if (u) return { type: 'supply', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
+      return { type: 'supply', unit: u, inv: inv || null };
+    }
   }
   if (db.GenItem) {
     const u = await db.GenItem.findByPk(id);
-    if (u) return { type: 'genitem', unit: u };
+    if (u) {
+      const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
+      return { type: 'genitem', unit: u, inv: inv || null };
+    }
   }
 
   return null;
@@ -170,7 +273,6 @@ function getUnitStatusForType(type) {
   return 'in_stock';
 }
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
-  // Returns created batch row. Creates per-unit rows if unit model exists.
   if (found.type === 'apparel') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'Apparel inventory record not found' };
@@ -189,13 +291,12 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
 
     const unitStatus = getUnitStatusForType(found.type);
 
-// apparel units example
 if (db.Apparel && qty > 0) {
   const apparelUnits = Array(qty).fill().map(() => ({
     receiveApparelId: batch.receiveApparelId,
     apparelInventoryId: inv.apparelInventoryId ?? inv.id,
     roomId: inv.roomId,
-    status: unitStatus   // <-- use mapping
+    status: unitStatus
   }));
   await db.Apparel.bulkCreate(apparelUnits);
 }
@@ -258,7 +359,6 @@ if (db.Apparel && qty > 0) {
   throw { status: 500, message: 'Unsupported inventory type' };
 }
 async function updateInventory(inv, qty) {
-  // update the aggregate totalQuantity field (safe against different column names)
   if (!inv) return;
   if (typeof inv.totalQuantity !== 'undefined') {
     inv.totalQuantity = (inv.totalQuantity || 0) + qty;
@@ -276,35 +376,28 @@ async function updateInventory(inv, qty) {
     return;
   }
 
-  // If none of the expected fields are present, throw so caller can mark failed_request.
   throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
 function getInventoryModel(itemType) {
-  // your models use: ApparelInventory, AdminSupplyInventory, GenItemInventory (see _models)
-  if (itemType === 'apparel') return db.ApparelInventory || null;
-  if (itemType === 'supply') return db.AdminSupplyInventory || null;
-  if (itemType === 'genItem') return db.GenItemInventory || null;
-  return null;
+  if (itemType === 'apparel') return db.ApparelInventory;
+  if (itemType === 'supply') return db.AdminSupplyInventory;
+  if (itemType === 'genItem') return db.GenItemInventory;
+  return;
 }
-
 async function _loadRequestedItem(itemId, itemTypeRaw) {
   if (!itemId) return null;
 
-  // normalize label for 'type' only (for returned object)
   const typeNorm = String(itemTypeRaw || '').toLowerCase();
 
-  // 1) prefer inventory aggregate (uses your existing helper)
   const invModel = getInventoryModel(itemTypeRaw);
   if (invModel) {
     const inv = await invModel.findByPk(itemId);
     if (inv) return { kind: 'inventory', type: typeNorm || 'unknown', inventory: inv, unit: null };
   }
 
-  // 2) try unit model by type
   const unitResult = await _tryLoadUnitByType(itemId, typeNorm);
   if (unitResult) return unitResult;
 
-  // 3) fallback: try all unit models (best-effort)
   return await _tryLoadAnyUnit(itemId);
 }
 async function _tryLoadUnitByType(itemId, typeNorm) {
@@ -335,7 +428,6 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
       }
     }
   } catch (e) {
-    // bubble up (will be caught by caller)
     throw e;
   }
   return null;

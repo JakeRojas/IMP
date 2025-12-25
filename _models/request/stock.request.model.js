@@ -6,7 +6,6 @@ module.exports = (sequelize) => {
     accountId: { type: DataTypes.INTEGER, allowNull: false },
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true },
-    itemType: { type: DataTypes.ENUM('apparel','supply','genItem'), allowNull: false, defaultValue: 'apparel' },
     quantity: { type: DataTypes.INTEGER, defaultValue: 1 },
     status: { 
       type: DataTypes.ENUM('pending','approved','failed_request','disapproved','fulfilled'),

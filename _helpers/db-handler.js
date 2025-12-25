@@ -7,12 +7,6 @@
 
 // module.exports = db = {};
 
-// const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
-// const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
-// const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
-// const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || '';
-// const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
-
 // initialize();
 // async function initialize() { 
 //     // const { host, port, user, password, database } = config.database;
@@ -20,87 +14,6 @@
 //     // await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
 //     // await connection.end();
 //     // const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
-
-//     try {
-//       // Build connection options for mysql2
-//       const connOptions = {
-//         host: DB_HOST,
-//         port: DB_PORT,
-//         user: DB_USER,
-//         password: DB_PASSWORD,
-//       };
-  
-//       // If DB_CA is provided (for providers requiring SSL), attach it
-//       if (process.env.DB_CA) {
-//         connOptions.ssl = { ca: process.env.DB_CA };
-//       }
-  
-//       console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
-//       const connection = await mysql.createConnection(connOptions);
-  
-//       // create database if not exists
-//       await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
-//       await connection.end();
-  
-//       // use the same DB_HOST variable for Sequelize (important — previously hardcoded 'localhost')
-//       const sequelizeOptions = {
-//         host: DB_HOST,
-//         dialect: 'mysql',
-//         port: DB_PORT,
-//         logging: false,
-//       };
-  
-//       if (process.env.DB_CA) {
-//         sequelizeOptions.dialectOptions = { ssl: { ca: process.env.DB_CA } };
-//       }
-  
-//       const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
-
-// // Initialize models and add them to the exported `db` object
-// db.Room             = require('../_models/room.model')(sequelize);
-// db.Account          = require('../_models/account.model')(sequelize);
-// db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
-// db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
-
-// // Apparel models
-// db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
-// db.ReceiveApparel     = require('../_models/apparel/receiveApparel.model')(sequelize);
-// db.ReleaseApparel     = require('../_models/apparel/releaseApparel.model')(sequelize);
-// db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(sequelize);
-
-// // Admin Supply models
-// db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
-// db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
-// db.ReleaseAdminSupply      = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
-// db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
-
-// // Item models
-// db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
-// db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
-// db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
-// db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
-
-// // Qr code models
-// db.Qr = require('../_models/qr.model')(sequelize);
-
-// // Request models
-// db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
-// db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
-
-// // Transfer models
-// db.Transfer = require('../_models/transfer.model')(sequelize);
-
-// if (process.env.NODE_ENV !== 'production') {
-//   await sequelize.sync();
-// }
-
-// console.log('Database initialized successfully.');
-// } catch (err) {
-// console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
-// // fail fast so Render shows the error in logs (you can change to retries if you prefer)
-// process.exit(1);
-// }
-
 
 const config = require('config.json');
 const mysql = require('mysql2/promise');
@@ -112,7 +25,7 @@ module.exports = db = {};
 const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
 const DB_PORT = process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : (config.database && config.database.port) || 3306;
 const DB_USER = process.env.DB_USER || (config.database && config.database.user) || 'root';
-const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || '';
+const DB_PASSWORD = process.env.DB_PASSWORD || (config.database && config.database.password) || 'root';
 const DB_NAME = process.env.DB_NAME || (config.database && config.database.database) || 'IMP_db';
 
 let sequelize; // declared in module scope so it's available after initialization
@@ -121,7 +34,6 @@ initialize();
 
 async function initialize() {
   try {
-    // Build connection options for mysql2 (used to create database if missing)
     const connOptions = {
       host: DB_HOST,
       port: DB_PORT,
@@ -129,7 +41,6 @@ async function initialize() {
       password: DB_PASSWORD,
     };
 
-    // Optional: pass CA for providers that require TLS (paste PEM text into DB_CA env var)
     if (process.env.DB_CA) {
       connOptions.ssl = { ca: process.env.DB_CA };
     }
@@ -138,11 +49,9 @@ async function initialize() {
 
     const connection = await mysql.createConnection(connOptions);
 
-    // Create database if it doesn't exist
     await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
     await connection.end();
 
-    // Build Sequelize options and instance (use DB_HOST, not hardcoded 'localhost')
     const sequelizeOptions = {
       host: DB_HOST,
       dialect: 'mysql',
@@ -156,43 +65,43 @@ async function initialize() {
 
     sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
 
-    // Attach sequelize to exported db object for external usage
     db.sequelize = sequelize;
     db.Sequelize = Sequelize;
 
-// // Initialize models and add them to the exported `db` object
+// Initialize models and add them to the exported `db` object
 db.Room             = require('../_models/room.model')(sequelize);
 db.Account          = require('../_models/account.model')(sequelize);
 db.ActivityLog      = require('../_models/activitylog.model')(sequelize);
 db.RefreshToken     = require('../_models/refresh-token.model')(sequelize);
 
-// // Apparel models
+// Apparel models
 db.Apparel            = require('../_models/apparel/apparel.model')(sequelize);
 db.ReceiveApparel     = require('../_models/apparel/receiveApparel.model')(sequelize);
 db.ReleaseApparel     = require('../_models/apparel/releaseApparel.model')(sequelize);
 db.ApparelInventory   = require('../_models/apparel/apparelInventory.model')(sequelize);
 
-// // Admin Supply models
+// Admin Supply models
 db.AdminSupply              = require('../_models/adminSupply/adminSupply.model')(sequelize);
 db.ReceiveAdminSupply       = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
 db.ReleaseAdminSupply      = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
 db.AdminSupplyInventory     = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
 
-// // Item models
+// Item models
 db.GenItem            = require('../_models/genItem/genItem.model')(sequelize);
 db.ReceiveGenItem     = require('../_models/genItem/receiveGenItem.model')(sequelize);
 db.ReleaseGenItem     = require('../_models/genItem/releaseGenItem.model')(sequelize);
 db.GenItemInventory   = require('../_models/genItem/genItemInventory.model')(sequelize);
 
-// // Qr code models
+// Qr code models
 db.Qr = require('../_models/qr.model')(sequelize);
 
-// // Request models
+// Request models
 db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
 db.ItemRequest  = require('../_models/request/item.request.model')(sequelize);
 
-// // Transfer models
+// Transfer models
 db.Transfer = require('../_models/transfer.model')(sequelize);
+db.Borrow = require('../_models/borrow.model')(sequelize);
 
     // If any models define associations, call them now
     Object.keys(db).forEach((modelName) => {
@@ -287,8 +196,8 @@ function dbAssociations() {
 
   // ---------------- STOCK REQUEST associations ----------------
   // StockRequest -> Account (who requested)
-  db.Account.hasMany(db.StockRequest, { foreignKey: 'acccountId' });
-  db.StockRequest.belongsTo(db.Account, { foreignKey: 'acccountId' });
+  db.Account.hasMany(db.StockRequest, { foreignKey: 'accountId' });
+  db.StockRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
 
   // StockRequest -> Room (which room/stockroom requested it)
   db.Room.hasMany(db.StockRequest, { foreignKey: 'requesterRoomId' });
@@ -303,6 +212,8 @@ function dbAssociations() {
   db.StockRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
 
+
+  
   // ---------- ITEM REQUEST associations ----------
   db.Account.hasMany(db.ItemRequest, { foreignKey: 'accountId' });
   db.ItemRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
@@ -320,15 +231,57 @@ function dbAssociations() {
   db.ItemRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
 
+
+
+  // ---------- TRANSFER associations ----------
   db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy' });
   db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy' });    // who accepted transfer
   db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy' });   // who initiated return
 
   // Transfer <> Room (rooms)
-  db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId' });
-  db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId' });
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId', as: 'fromRoom' });
+  db.Transfer.belongsTo(db.Room, { foreignKey: 'toRoomId', as: 'toRoom' });
 
   db.Transfer.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+
+
+
+  // ---------- BORROW associations ----------
+  // requester -> Borrow
+  db.Account.hasMany(db.Borrow, { foreignKey: 'requesterId' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'requesterId', as: 'requester' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'approvedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'approvedBy', as: 'approver' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'declinedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'declinedBy', as: 'decliner' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'cancelledBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'cancelledBy', as: 'canceller' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'acquiredBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'acquiredBy', as: 'acquirer' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'returnedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'returnedBy', as: 'returner' });
+
+  db.Account.hasMany(db.Borrow, { foreignKey: 'acceptedBy' });
+  db.Borrow.belongsTo(db.Account, { foreignKey: 'acceptedBy', as: 'acceptor' });
+
+  // room -> Borrow (owner room)
+  db.Room.hasMany(db.Borrow, { foreignKey: 'roomId' });
+  db.Borrow.belongsTo(db.Room, { foreignKey: 'roomId', as: 'room' });
+
+  // polymorphic item joins (no FK constraints)
+  db.Borrow.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.ApparelInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
+
+  db.Borrow.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.AdminSupplyInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
+
+  db.Borrow.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.GenItemInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 }

@@ -17,9 +17,10 @@ module.exports = {
   generateUnitQR,
 
   scanItem,
+  releaseUnit,
   updateItemStatus,
 
-  markInventoryQrGenerated
+  markInventoryQrGenerated,
 };
 
 function pickFirst(obj, ...keys) {
@@ -212,6 +213,7 @@ async function generateBatchQR(argsOrStockroom) {
   const batch = await loadBatchRecord(stockroomType, inventoryId);
   if (!batch) throw new Error(`Batch not found for ${stockroomType} id=${inventoryId}`);
 
+
   // build payload object (use your existing builder)
   const payloadObj = buildBatchPayloadObject(stockroomType, batch);
   const payload = JSON.stringify(payloadObj);
@@ -272,43 +274,75 @@ async function generateUnitQR(argsOrStockroom) {
 async function scanItem(qrPayloadText) {
   if (!qrPayloadText) throw { status: 400, message: 'qr payload required' };
 
-  // Try exact match (if you stored payload or file path in a Qr table)
+  // previously you attempted exact QR matches first — keep that
   if (db.Qr) {
     const record = await db.Qr.findOne({ where: { qrFilePath: qrPayloadText } });
     if (record) return { qrRecord: record };
   }
 
-  // Try JSON decode (most of our generated QRs are JSON payloads)
   try {
     const parsed = JSON.parse(qrPayloadText);
 
-    // If parsed contains inventoryId -> try to load inventory row
-    if (parsed.inventoryId || parsed.id) {
-      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
-      const inventoryId = parsed.inventoryId || parsed.id;
+    // helper tries explicit type first, otherwise tries common types
+    async function findBatch(parsedObj) {
+      const id = Number(parsedObj.inventoryId || parsedObj.id);
+      if (!id) return null;
+      const explicit = (parsedObj.stockroomType || parsedObj.itemType || parsedObj.type);
+      const tryOrder = explicit ? [String(explicit).toLowerCase()] : ['apparel','supply','genitem','it','maintenance'];
+      for (const t of tryOrder) {
+        const inv = await loadBatchRecord(t, id);
+        if (inv) return { inv, type: t };
+      }
+      return null;
+    }
 
-      const inv = await loadBatchRecord(itemType, Number(inventoryId));
-      if (inv) {
-        // build a clean response: include parsed payload and the loaded inventory row (for frontend usage)
-        return { payload: parsed, inventory: inv };
+    if (parsed.inventoryId || parsed.id) {
+      const found = await findBatch(parsed);
+      if (found) {
+        parsed._detectedItemType = parsed._detectedItemType || found.type;
+        return { payload: parsed, inventory: found.inv };
       }
     }
 
-    // If parsed contains unitId -> try to load unit row
     if (parsed.unitId) {
-      const itemType = (parsed.stockroomType || parsed.itemType || parsed.type || 'apparel').toString().toLowerCase();
-      const unit = await loadUnitRecord(itemType, Number(parsed.unitId));
-      if (unit) return { payload: parsed, unit };
+      const tryOrder = [(parsed.stockroomType || parsed.itemType || parsed.type), 'apparel','supply','genitem','it','maintenance']
+                       .filter(Boolean).map(x => String(x).toLowerCase());
+      for (const t of tryOrder) {
+        const u = await loadUnitRecord(t, Number(parsed.unitId));
+        if (u) { parsed._detectedItemType = parsed._detectedItemType || t; return { payload: parsed, unit: u }; }
+      }
     }
 
-    // otherwise return the parsed payload for the frontend to handle (no db row found)
     return { payload: parsed };
   } catch (e) {
-    // not JSON — the payload is a plain string (maybe an old style code)
-    // Try match on QR table again by code fields (if you have them), else 404
     throw { status: 404, message: 'QR code not found' };
   }
 }
+
+// new helper: centralize unit release logic so controller can be tiny
+async function releaseUnit(stockroomType, unitId, opts = {}) {
+  if (!stockroomType || !unitId) throw { status: 400, message: 'Invalid params' };
+  const t = String(stockroomType).toLowerCase();
+  const actorId = opts.actorId || null;
+
+  if (t === 'apparel') {
+    const apparelService = require('_services/apparel.service');
+    return apparelService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  if (['admin-supply','supply','adminsupply','admin-supply'].includes(t)) {
+    const supplyService = require('_services/adminSupply.service');
+    return supplyService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  if (['genitem','general-item','general','it','maintenance'].includes(t)) {
+    const genService = require('_services/genItem.service');
+    return genService.releaseUnitById(Number(unitId), { actorId });
+  }
+
+  throw { status: 400, message: 'Unsupported stockroomType for unit release' };
+}
+
 
 async function updateItemStatus(stockroomType, id) {
   if (!stockroomType || !id) return null;

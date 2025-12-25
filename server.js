@@ -70,6 +70,7 @@ app.use('/qr',          require('./_controllers/qr.controller'));
 app.use('/req-stock',   require('./_controllers/request.stock.controller'));
 app.use('/req-item',    require('./_controllers/request.item.controller'));
 app.use('/transfers',   require('./_controllers/transfer.controller'));
+app.use('/borrows',     require('./_controllers/borrow.controller'));
 
 // ─── SWAGGER DOCS ROUTES ────────────────────────────────────────────────
 app.use('/api-docs',    require('./_helpers/swagger'));

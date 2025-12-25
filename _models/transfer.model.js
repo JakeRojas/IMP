@@ -8,7 +8,6 @@ function model(sequelize) {
         fromRoomId:      { type: DataTypes.INTEGER, allowNull: false },
         toRoomId:        { type: DataTypes.INTEGER, allowNull: false },
         createdBy:       { type: DataTypes.INTEGER, allowNull: false },
-        itemType:        { type: DataTypes.STRING, allowNull: false },
         itemId:          { type: DataTypes.INTEGER, allowNull: true },
         quantity:        { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
 

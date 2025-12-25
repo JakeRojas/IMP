@@ -11,6 +11,7 @@ const Role              = require('_helpers/role');
 
 // POST -------------------------------------------------------------------------------------
 router.post('/create-room',               authorize(Role.SuperAdmin), createRoomschema, createRoom);
+router.post('/create-array',               authorize(Role.SuperAdmin), createAsArraySchema, createAsArray);
 router.post('/:roomId/receive/apparel',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveApparelSchema,      receiveApparel);
 router.post('/:roomId/receive/supply',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema,  receiveAdminSupply);
 router.post('/:roomId/receive/item',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema,      receiveGenItem);
@@ -29,21 +30,23 @@ router.get('/:roomId/qr/apparel/unit/:unitId',            authorize([Role.SuperA
 router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnitQr);
 
 // GET -------------------------------------------------------------------------------------
-router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRooms);
+router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRooms);
+router.get('/list',     listRooms);
+router.get('/:roomId/room-items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getItemsByRoom);
 router.get('/:roomId',  authorize(), getRoomById);
 // Apparel
 router.get('/:roomId/receive-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveApparels);
-router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelUnits);
+router.get('/:roomId/apparels',           authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getApparelUnits);
 router.get('/:roomId/apparel-inventory',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelInventory);
 router.get('/:roomId/release-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleaseApparels);
 // Admin Supply
 router.get('/:roomId/receive-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveAdminSupply);
-router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyUnits);
+router.get('/:roomId/supply',             authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getAdminSupplyUnits);
 router.get('/:roomId/supply-inventory',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getAdminSupplyInventory);
 router.get('/:roomId/release-supply',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedBatchAdminSupply);
 // General Items
 router.get('/:roomId/receive-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveGenItem);
-router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemUnits);
+router.get('/:roomId/items',              authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getGenItemUnits);
 router.get('/:roomId/items-inventory',    authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemInventory);
 router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
 
@@ -54,12 +57,10 @@ function resolveQrFilePath(result) {
   if (!result) return null;
   if (result.absolutePath && fs.existsSync(result.absolutePath)) return path.resolve(result.absolutePath);
 
-  // fallback: try uploads/qrcodes/<filename>
   const projectRoot = path.join(__dirname, '../uploads');
   const try1 = path.join(projectRoot, 'uploads', 'qrcodes', result.filename || '');
   if (fs.existsSync(try1)) return try1;
 
-  // fallback: try uploads/<filename>
   const try2 = path.join(projectRoot, 'uploads', result.filename || '');
   if (fs.existsSync(try2)) return try2;
 
@@ -159,24 +160,27 @@ function receiveGenItemSchema(req, res, next) {
     notes:            Joi.string().trim().allow('', null).optional()
   });
 
-  // validate params first
   const { error: paramsErr } = paramsSchema.validate(req.params);
   if (paramsErr) return next(paramsErr);
 
-  // validate body
   validateRequest(req, next, bodySchema);
 }
 
 // Management part
 function createRoom(req, res, next) {
-  // pass user to service for extra checks/logging
-  roomService.createRoomHandler(req.body, req.user)
+  const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const browserInfo = req.headers['user-agent'] || '';
+
+  roomService.createRoomHandler(req.body, req.user, ipAddress, browserInfo)
     .then(created => res.status(201).json(created))
     .catch(next);
 }
 function updateRoom(req, res, next) {
   const roomId = Number(req.params.roomId);
-  roomService.updateRoomHandler(roomId, req.body, req.user)
+  const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+  const browserInfo = req.headers['user-agent'] || '';
+
+  roomService.updateRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo)
     .then(updated => res.json(updated))
     .catch(next);
 }
@@ -196,21 +200,30 @@ function getRoomById(req, res, next) {
 async function receiveApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveApparelInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveApparelInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
 async function receiveAdminSupply(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveAdminSupplyInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveAdminSupplyInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
 async function receiveGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
@@ -219,14 +232,12 @@ async function receiveGenItem(req, res, next) {
 async function releaseInStockroom(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    // normalize fields so room.service gets the expected names
     if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
       req.body.releaseApparelQuantity = req.body.releaseQuantity;
     }
     if (req.body.claimedBy == null) {
       req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
     }
-    // support both claimedBy / releasedBy fields already present in your release schema
     const result = await roomService.releaseInStockroomHandler(roomId, req.body);
     res.status(201).json(result);
   } catch (err) { next(err); }
@@ -234,13 +245,13 @@ async function releaseInStockroom(req, res, next) {
 async function releaseApparel(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
 
-    // Normalize same as releaseInStockroom: accept releaseQuantity alias
     if (req.body.releaseQuantity != null && req.body.releaseApparelQuantity == null) {
       req.body.releaseApparelQuantity = req.body.releaseQuantity;
     }
 
-    // Provide defaults for claimedBy/releasedBy so DB non-null constraints don't fail
     if (req.body.claimedBy == null) {
       req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
     }
@@ -248,7 +259,7 @@ async function releaseApparel(req, res, next) {
       req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
     }
 
-    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body);
+    const result = await roomService.releaseApparelInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -257,18 +268,49 @@ async function releaseApparel(req, res, next) {
 async function releaseAdminSupply(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    if (req.body.releaseQuantity != null && req.body.releaseAdminSupplyQuantity == null) {
+      req.body.releaseAdminSupplyQuantity = req.body.releaseQuantity;
+    }
+
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
+    const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
-  } catch (err) { next(err); }
+  } catch (err) {
+    next(err);
+  }
 }
 async function releaseGenItem(req, res, next) {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body);
-    res.status(201).json(result);
-  } catch (err) { next(err); }
-}
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
 
+    if (req.body.releaseQuantity != null && req.body.releaseItemQuantity == null) {
+      req.body.releaseItemQuantity = req.body.releaseQuantity;
+    }
+
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+    }
+
+    const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Get Received part
 function getReceiveApparels(req, res, next) {
@@ -354,13 +396,11 @@ async function getApparelBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateApparelBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -373,13 +413,11 @@ async function getAdminSupplyBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateAdminSupplyBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -392,13 +430,11 @@ async function getGenItemBatchQr(req, res, next) {
     const roomId = req.params.roomId;
     const inventoryId = req.params.inventoryId;
 
-    // service will generate if missing (idempotent)
     const result = await roomService.generateGenItemBatchForRoom(roomId, inventoryId);
 
     const absolute = resolveQrFilePath(result);
     if (!absolute) return res.status(404).json({ message: 'QR file not found' });
 
-    // Always return the PNG image
     return res.type('png').sendFile(absolute);
   } catch (err) {
     if (err && err.status && err.message)
@@ -406,6 +442,7 @@ async function getGenItemBatchQr(req, res, next) {
     next(err);
   }
 }
+
 
 async function getApparelUnitQr(req, res, next) {
   try {
@@ -440,4 +477,55 @@ async function getAdminSupplyUnitQr(req, res, next) {
       return res.status(err.status).json({ message: err.message });
     next(err);
   }
+}
+
+//===================Lazy Style Methods=======================================
+function createAsArraySchema(req, res, next) {
+  const roomSchema = Joi.object({
+    roomName: Joi.string().required().min(1).max(30),
+    roomFloor: Joi.string().required().min(1).max(5),
+    roomType: Joi.string()
+      .valid('stockroom', 'subStockroom', 'office', 'classroom', 'openarea')
+      .required(),
+    stockroomType: Joi.string()
+      .valid('apparel', 'supply', 'general')
+      .allow(null)
+      .optional(),
+    roomInCharge: Joi.number().integer().min(0),
+    description: Joi.string().allow('', null)
+  });
+
+  const schema = Joi.alternatives().try(
+    roomSchema,
+    Joi.array().items(roomSchema)
+  );
+
+  validateRequest(req, next, schema);
+}
+async function createAsArray(req, res, next) {
+  try {
+    if (Array.isArray(req.body)) {
+      const createdRooms = await Promise.all(
+        req.body.map(room => roomService.createRoomHandler(room, req.user))
+      );
+      return res.status(201).json(createdRooms);
+    }
+
+    const created = await roomService.createRoomHandler(req.body, req.user);
+    res.status(201).json(created);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function listRooms(req, res, next) {
+  roomService.listRoomsHandler()
+    .then(rooms => res.json(rooms))
+    .catch(next);
+}
+function getItemsByRoom(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getItemsByRoomHandler(roomId)
+    .then(rows => res.json(rows))
+    .catch(next);
 }

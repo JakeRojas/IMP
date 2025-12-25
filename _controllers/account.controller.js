@@ -23,6 +23,7 @@ router.get('/activity-logs',            authorize(Role.SuperAdmin), getAllActivi
 router.get('/exists',                   existsAccount);
 
 router.post('/create-user',             authorize (Role.SuperAdmin), createSchema, create);
+router.post('/create-array',            authorize (Role.SuperAdmin), createAsArraySchema, createAsArray);
 router.get('/',                         authorize (Role.SuperAdmin), getAll);
 router.get('/:accountId',               authorize(), getById);
 router.put('/:accountId',               authorize(Role.SuperAdmin), updateSchema, update);
@@ -45,14 +46,12 @@ try {
     const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
 
-    // accountService.authenticate returns { ...basicDetails(account), jwtToken, refreshToken: token }
     const account = await accountService.authenticate({ email, password, ipAddress, browserInfo });
 
     if (account.status === 'deactivated') {
       return res.status(403).json({ message: 'Account is deactivated. Contact administrator.' });
     }
 
-    // set jwt cookie (if you want a jwt cookie) — keep same options as before
     res.cookie('token', account.jwtToken, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -60,10 +59,8 @@ try {
     maxAge: 60 * 60 * 1000, // 1h
     });
 
-    // set refresh-token cookie (httpOnly) — setTokenCookie already does this
     setTokenCookie(res, account.refreshToken);
 
-    // return the account object (frontend expects account + jwtToken)
     return res.json(account);
 } catch (err) {
     next(err);
@@ -97,42 +94,34 @@ function getAllActivityLogs(req, res, next) {
 }
 async function refreshToken(req, res, next) {
     try {
-      // try common locations for the refresh token
       const token =
         (req.cookies && req.cookies.refreshToken) ||
         req.body?.token ||
         req.get('x-refresh-token') ||
         req.headers['x-refresh-token'];
   
-      // No token -> not logged in (choose 204 to avoid console noise)
       if (!token) {
-        return res.status(204).end(); // or res.status(401).json({ message: 'No refresh token' });
+        return res.status(204).end();
       }
   
-      // call service — wrap in try so service errors are handled
       let accountPayload;
       try {
         accountPayload = await accountService.refreshToken({ token, ipAddress: req.ip });
       } catch (serviceErr) {
-        // service-level failure (invalid token / DB error). Distinguish if possible:
         if (serviceErr && serviceErr.message && serviceErr.message.toLowerCase().includes('invalid')) {
           return res.status(401).json({ message: 'Invalid or expired refresh token' });
         }
-        // unexpected service error: log and forward
         console.error('refreshToken service error:', serviceErr);
         return res.status(500).json({ message: 'Internal error while refreshing token' });
       }
   
-      // No payload => treat as unauthorized
       if (!accountPayload) {
         return res.status(401).json({ message: 'Invalid or expired refresh token' });
       }
   
-      // success: return payload (tokens/account)
       return res.json(accountPayload);
     } catch (err) {
       console.error('refreshToken handler unexpected error:', err);
-      // fallback: don't expose internal errors
       return res.status(500).json({ message: 'Unexpected server error' });
     }
 }
@@ -149,19 +138,15 @@ async function revokeToken (req, res, next) {
 
         if (!token) return res.status(400).json({ message: 'Token is required' });
 
-        // Find refresh token (validate it)
         const refreshToken = await db.RefreshToken.findOne({ where: { token } });
         if (!refreshToken || !refreshToken.isActive) {
-            // Keep response consistent with service errors
             return res.status(400).json({ message: 'Invalid token' });
         }
 
-        // Ensure token belongs to caller or caller is SuperAdmin
         if (refreshToken.accountId !== req.user.accountId && req.user.role !== Role.SuperAdmin) {
             return res.status(401).json({ message: 'Unauthorized' });
         }
 
-        // Revoke via service (keeps single place for revoke logic)
         await accountService.revokeToken({ token, ipAddress });
         return res.json({ message: 'Token revoked' });
     } catch (err) {
@@ -307,7 +292,6 @@ async function _delete(req, res, next) {
       const accountId = parseInt(req.params.accountId || req.params.accountId, 10);
       if (Number.isNaN(accountId)) return res.status(400).json({ message: 'Invalid id' });
   
-      // soft delete
       await accountService.update(accountId, { status: 'deactivated' });
       res.json({ message: 'Account deactivated' });
     } catch (err) {
@@ -322,4 +306,38 @@ function setTokenCookie(res, token) {
     expires: new Date(Date.now() + 7*24*60*60*1000)
   };
   res.cookie('refreshToken', token, cookieOptions);
+}
+
+//===================Lazy Style Methods=======================================
+function createAsArraySchema(req, res, next) {
+    const accountSchema = Joi.object({
+      title: Joi.string().empty(''),
+      firstName: Joi.string().empty(''),
+      lastName: Joi.string().empty(''),
+      email: Joi.string().email().empty(''),
+      password: Joi.string().min(6).empty(''),
+      confirmPassword: Joi.string().valid(Joi.ref('password')).empty(''),
+      status: Joi.string().valid('active', 'deactivated').empty(''),
+      role: Joi.string().valid(Role.SuperAdmin, Role.Admin, Role.User, Role.StockroomAdmin, Role.Teacher).empty('')
+    });
+  
+    const schema = Joi.alternatives().try(
+      accountSchema,
+      Joi.array().items(accountSchema)
+    );
+  
+    validateRequest(req, next, schema);
+}
+async function createAsArray(req, res, next) {
+    try {
+      if (Array.isArray(req.body)) {
+        const accounts = await Promise.all(req.body.map(data => accountService.create(data)));
+        return res.json(accounts);
+      }
+  
+      const account = await accountService.create(req.body);
+      res.json(account);
+    } catch (err) {
+      next(err);
+    }
 }

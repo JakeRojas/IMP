@@ -6,6 +6,7 @@ const validateRequest = require('_middlewares/validate-request');
 const authorize       = require('_middlewares/authorize');
 const Role            = require('_helpers/role');
 const stockService    = require('_services/request.stock.service');
+const roomService     = require('_services/room.service');
 
 router.post('/',  authorize([Role.SuperAdmin, Role.StockroomAdmin]),              createSchema, createStockRequestHandler);
 router.get('/',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]),  listRequests);
@@ -18,12 +19,17 @@ router.post('/:id/fulfill',     authorize([Role.SuperAdmin, Role.StockroomAdmin]
 
 module.exports = router;
 
+function _extractIpAndBrowser(req) {
+  const ipAddress = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'Unknown IP';
+  const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  return { ipAddress, browserInfo };
+}
+
 function createSchema(req, res, next) {
+  // accountId and itemType removed from client payload
   const schema = Joi.object({
-    accountId: Joi.number().integer().required(), // if auth sets req.user you may not need to pass acccountId
-    requesterRoomId: Joi.number().integer().optional(),
-    itemId: Joi.number().integer().optional(),
-    itemType: Joi.string().valid('apparel','supply','genItem').required(),
+    requesterRoomId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().required(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).allow('', null).optional(),
   });
@@ -31,24 +37,40 @@ function createSchema(req, res, next) {
 }
 async function createStockRequestHandler(req, res) {
   try {
-    console.log('POST /req-stock body:', req.body, 'user:', req.user && { id: req.user.accountId || req.user.id, role: req.user.role });
-    const created = await stockService.createStockRequest(req.body);
-    return res.json({ data: created });
-  } catch (err) {
-    // Log full error to server console for debugging
-    console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);
+    // take accountId from logged-in user
+    const payload = req.body || {};
+    payload.accountId = req.user && req.user.accountId;
 
-    // Normalize response so frontend receives a helpful JSON on failure
+    // basic presence check (validateRequest already checked requesterRoomId is a number)
+    if (!payload.accountId) return res.status(401).json({ message: 'Unauthenticated' });
+
+    // verify requesterRoomId exists and is a stockroom (only stockroom-type rooms can create stock requests)
+    const room = await db.Room.findByPk(payload.requesterRoomId);
+    if (!room) return res.status(400).json({ message: 'Invalid requesterRoomId' });
+
+    // normalize roomType (some of your code uses roomType fields like 'stockroom' / 'substockroom' / 'room')
+    if (String(room.roomType || '').toLowerCase() !== 'stockroom') {
+      return res.status(403).json({ message: 'Only rooms with roomType \"stockroom\" can create stock requests' });
+    }
+
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    // delegate to service (service will infer itemType from itemId)
+    const created = await stockService.createStockRequest(payload, ipAddress, browserInfo);
+    return res.status(201).json({ success: true, data: created });
+  } catch (err) {
+    console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);
     const status = (err && err.status) || 500;
     const message = (err && (err.message || err.error || err.toString())) || 'Server error';
     return res.status(status).json({ message, details: process.env.NODE_ENV === 'development' ? (err && err.stack ? err.stack : err) : undefined });
   }
 }
+
 async function listRequests(req, res, next) {
   try {
     const where = {};
     if (req.query.status) where.status = req.query.status;
-    if (req.query.acccountId) where.acccountId = req.query.acccountId;
+    if (req.query.accountId) where.accountId = req.query.accountId;
     const rows = await stockService.listStockRequests({ where });
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -63,7 +85,9 @@ async function getRequestById(req, res, next) {
 async function approveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const r = await stockService.approveStockRequest(id, req.user?.accountId);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.approveStockRequest(id, req.user?.accountId, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
@@ -71,14 +95,18 @@ async function disapproveRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
     const reason = req.body.reason || null;
-    const r = await stockService.disapproveStockRequest(id, req.user?.accountId, reason);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.disapproveStockRequest(id, req.user?.accountId, reason, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }
 async function fulfillRequest(req, res, next) {
   try {
     const id = parseInt(req.params.id, 10);
-    const r = await stockService.fulfillStockRequest(id, req.user?.accountId);
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
+    const r = await stockService.fulfillStockRequest(id, req.user?.accountId, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }

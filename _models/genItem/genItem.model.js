@@ -9,9 +9,16 @@ module.exports = (sequelize) => {
 
     const attributes = {
         genItemId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-        roomId:          { type: DataTypes.INTEGER,  allowNull: false },
+        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveGenItemId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:          { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' }
+        // status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        status: {
+            type: DataTypes.ENUM('good', 'working', 'damage'),
+            allowNull: false,
+            defaultValue: 'good'
+          },
+        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
+        genItemInventoryId: { type: DataTypes.INTEGER,  allowNull: false },
     };
 
     const options = {
