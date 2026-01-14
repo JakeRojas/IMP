@@ -51,8 +51,22 @@ async function listBorrows(req, res, next) {
     if (req.query.requesterId) where.requesterId = req.query.requesterId;
     if (req.query.roomId) where.roomId = req.query.roomId;
 
-    const rows = await borrowService.listBorrows({ where });
-    res.json({ success: true, data: rows });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { rows, count } = await borrowService.listBorrows({ where, limit, offset });
+
+    res.json({
+      success: true,
+      data: rows,
+      meta: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
+    });
   } catch (err) { next(err); }
 }
 async function getById(req, res, next) {

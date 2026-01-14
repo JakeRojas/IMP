@@ -1,8 +1,8 @@
-const fs      = require('fs');
-const path    = require('path');
-const crypto  = require('crypto');
-const QRCode  = require('qrcode');
-const db      = require('_helpers/db-handler');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const QRCode = require('qrcode');
+const db = require('_helpers/db-handler');
 
 const UPLOADS_DIR = path.join(__dirname, '../uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -65,7 +65,7 @@ async function loadBatchRecord(stockroomType, id) {
   }
 
   // generalitem
-  if (stockroomType === 'it' || stockroomType === 'maintenance') {
+  if (stockroomType === 'it' || stockroomType === 'maintenance' || stockroomType === 'genitem' || stockroomType === 'general') {
     if (db.GenItemInventory) {
       const inv = await db.GenItemInventory.findByPk(id);
       if (inv) return inv;
@@ -107,9 +107,17 @@ async function loadUnitRecord(stockroomType, id) {
     return null;
   }
 
-  if (stockroomType === 'supply') {
+  if (stockroomType === 'supply' || stockroomType === 'admin-supply') {
     if (db.AdminSupply) {
       const u = await db.AdminSupply.findByPk(id);
+      if (u) return u;
+    }
+    return null;
+  }
+
+  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') {
+    if (db.GenItem) {
+      const u = await db.GenItem.findByPk(id);
       if (u) return u;
     }
     return null;
@@ -160,27 +168,37 @@ function buildBatchPayloadObject(stockroomType, batch) {
 function buildUnitPayloadObject(stockroomType, unit) {
   if (stockroomType === 'apparel') {
     return {
-      unitId:     unit.apparelId          ?? null,
-      batchId:    unit.receiveApparelId   ?? unit.apparelInventoryId ?? null,
-      status:     unit.apparelStatus      ?? null,
-      roomId:     unit.roomId             ?? null,
-      createdAt:  unit.createdAt          ?? null,
+      unitId: unit.apparelId ?? null,
+      batchId: unit.receiveApparelId ?? unit.apparelInventoryId ?? null,
+      status: unit.apparelStatus ?? null,
+      roomId: unit.roomId ?? null,
+      createdAt: unit.createdAt ?? null,
     };
   }
 
-  if (stockroomType === 'supply') {
+  if (stockroomType === 'supply' || stockroomType === 'admin-supply') {
     return {
-      unitId:     unit.adminSupplyId          ?? null,
-      batchId:    unit.receiveAdminSupplyId   ?? unit.adminSupplyInventoryId ?? null,
-      status:     unit.status                 ?? null,
-      roomId:     unit.roomId                 ?? null,
-      createdAt:  unit.createdAt              ?? null
+      unitId: unit.adminSupplyId ?? null,
+      batchId: unit.receiveAdminSupplyId ?? unit.adminSupplyInventoryId ?? null,
+      status: unit.status ?? null,
+      roomId: unit.roomId ?? null,
+      createdAt: unit.createdAt ?? null
+    };
+  }
+
+  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') {
+    return {
+      unitId: unit.genItemId ?? null,
+      batchId: unit.receiveGenItemId ?? unit.genItemInventoryId ?? null,
+      status: unit.status ?? null,
+      roomId: unit.roomId ?? null,
+      createdAt: unit.createdAt ?? null
     };
   }
 
   return {
-    unitId: unit.id   ?? null,
-    name:   unit.name ?? null
+    unitId: unit.id ?? null,
+    name: unit.name ?? null
   };
 }
 
@@ -206,7 +224,7 @@ async function generateBatchQR(argsOrStockroom) {
     inventoryId = arguments[1];
   }
 
-  if (!stockroomType || !inventoryId) 
+  if (!stockroomType || !inventoryId)
     throw new Error('stockroomType and inventoryId required');
 
   // load batch record (reuse your existing loader)
@@ -232,7 +250,7 @@ async function generateBatchQR(argsOrStockroom) {
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
   // optional: update DB rows with qr path info (if you do that elsewhere)
-  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) { }
 
   return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, batch };
 }
@@ -245,7 +263,7 @@ async function generateUnitQR(argsOrStockroom) {
     unitId = arguments[1];
   }
 
-  if (!stockroomType || !unitId) 
+  if (!stockroomType || !unitId)
     throw new Error('stockroomType and unitId required');
 
   const unit = await loadUnitRecord(stockroomType, unitId);
@@ -266,7 +284,7 @@ async function generateUnitQR(argsOrStockroom) {
   const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
-  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) {}
+  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) { }
 
   return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, unit };
 }
@@ -288,7 +306,7 @@ async function scanItem(qrPayloadText) {
       const id = Number(parsedObj.inventoryId || parsedObj.id);
       if (!id) return null;
       const explicit = (parsedObj.stockroomType || parsedObj.itemType || parsedObj.type);
-      const tryOrder = explicit ? [String(explicit).toLowerCase()] : ['apparel','supply','genitem','it','maintenance'];
+      const tryOrder = explicit ? [String(explicit).toLowerCase()] : ['apparel', 'supply', 'genitem', 'it', 'maintenance'];
       for (const t of tryOrder) {
         const inv = await loadBatchRecord(t, id);
         if (inv) return { inv, type: t };
@@ -305,8 +323,8 @@ async function scanItem(qrPayloadText) {
     }
 
     if (parsed.unitId) {
-      const tryOrder = [(parsed.stockroomType || parsed.itemType || parsed.type), 'apparel','supply','genitem','it','maintenance']
-                       .filter(Boolean).map(x => String(x).toLowerCase());
+      const tryOrder = [(parsed.stockroomType || parsed.itemType || parsed.type), 'apparel', 'supply', 'genitem', 'it', 'maintenance']
+        .filter(Boolean).map(x => String(x).toLowerCase());
       for (const t of tryOrder) {
         const u = await loadUnitRecord(t, Number(parsed.unitId));
         if (u) { parsed._detectedItemType = parsed._detectedItemType || t; return { payload: parsed, unit: u }; }
@@ -330,12 +348,12 @@ async function releaseUnit(stockroomType, unitId, opts = {}) {
     return apparelService.releaseUnitById(Number(unitId), { actorId });
   }
 
-  if (['admin-supply','supply','adminsupply','admin-supply'].includes(t)) {
+  if (['admin-supply', 'supply', 'adminsupply', 'admin-supply'].includes(t)) {
     const supplyService = require('_services/adminSupply.service');
     return supplyService.releaseUnitById(Number(unitId), { actorId });
   }
 
-  if (['genitem','general-item','general','it','maintenance'].includes(t)) {
+  if (['genitem', 'general-item', 'general', 'it', 'maintenance'].includes(t)) {
     const genService = require('_services/genItem.service');
     return genService.releaseUnitById(Number(unitId), { actorId });
   }

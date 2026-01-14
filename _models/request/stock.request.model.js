@@ -7,12 +7,13 @@ module.exports = (sequelize) => {
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true },
     quantity: { type: DataTypes.INTEGER, defaultValue: 1 },
-    status: { 
-      type: DataTypes.ENUM('pending','approved','failed_request','disapproved','fulfilled'),
+    status: {
+      type: DataTypes.ENUM('pending', 'approved', 'failed_request', 'disapproved', 'fulfilled'),
       defaultValue: 'pending'
     },
     note: { type: DataTypes.STRING(500), allowNull: true },
-  };  
+    otherItemName: { type: DataTypes.STRING(255), allowNull: true },
+  };
 
   const options = {
     timestamps: false

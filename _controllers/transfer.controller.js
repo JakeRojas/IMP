@@ -1,16 +1,16 @@
 const express = require('express');
-const router  = express.Router();
-const Joi     = require('joi');
+const router = express.Router();
+const Joi = require('joi');
 
 const transferService = require('_services/transfer.service');
 const validateRequest = require('_middlewares/validate-request');
-const authorize       = require('_middlewares/authorize');
-const Role            = require('_helpers/role');
+const authorize = require('_middlewares/authorize');
+const Role = require('_helpers/role');
 
 router.post('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), createSchema, createTransfer);
 
-router.get('/',     authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), listTransfers);
-router.get('/:id',  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), getById);
+router.get('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), listTransfers);
+router.get('/:id', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), getById);
 
 router.post('/:id/accept', authorize(), acceptTransfer);
 
@@ -78,7 +78,7 @@ async function createTransfer(req, res) {
 }
 function isUserInCharge(room, accountId) {
   if (!room || !accountId) return false;
-  const possibleFields = ['inChargeId','inChargeUserId','roomInCharge','managerId','accountId','createdBy'];
+  const possibleFields = ['inChargeId', 'inChargeUserId', 'roomInCharge', 'managerId', 'accountId', 'createdBy'];
   for (const f of possibleFields) {
     if (typeof room[f] !== 'undefined' && String(room[f]) === String(accountId)) return true;
   }
@@ -92,8 +92,24 @@ async function listTransfers(req, res, next) {
   try {
     const where = {};
     if (req.query.status) where.status = req.query.status;
-    const rows = await transferService.listTransfers({ where });
-    res.json({ success: true, data: rows });
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { rows, count } = await transferService.listTransfers({ where, limit, offset });
+
+    res.json({
+      success: true,
+      data: rows,
+      meta: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
+    });
+
   } catch (err) { next(err); }
 }
 async function getById(req, res, next) {

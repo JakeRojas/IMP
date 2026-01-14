@@ -1463,7 +1463,7 @@ async function acceptReturnHandler(req, res, next) {
 
 ================================================================================
 File: _controllers\qr.controller.js
-Size: 7.64 kB
+Size: 13.12 kB
 ================================================================================
 
 const PDFDocument = require('pdfkit');
@@ -1484,6 +1484,9 @@ router.get('/:stockroomType/:inventoryId/qrcode', getBatchQr);
 router.get('/:stockroomType/unit/:unitId/qrcode', qrGeneratorUnit);
 
 router.get('/:stockroomType/room/:roomId/pdf-all', generateAllPdf);
+router.get('/:stockroomType/room/:roomId/pdf-units', generateAllUnitsPdf);
+
+router.put('/:stockroomType/unit/:unitId/status', updateUnitStatus);
 
 module.exports = router;
 
@@ -1658,6 +1661,130 @@ async function generateAllPdf(req, res, next) {
   } catch (err) {
     console.error('generateAllPdf error:', err && err.stack ? err.stack : err);
     return res.status(500).json({ message: 'Internal server error while generating PDF' });
+  }
+}
+async function generateAllUnitsPdf(req, res, next) {
+  try {
+    const stockroomType = String(req.params.stockroomType || '').toLowerCase();
+    const roomId = parseInt(req.params.roomId, 10);
+    if (!stockroomType || Number.isNaN(roomId)) return res.status(400).json({ message: 'Invalid params' });
+
+    // load unit rows for room depending on type
+    let units = [];
+    if (stockroomType === 'apparel') {
+      units = await db.Apparel.findAll({ where: { roomId } });
+    } else if (stockroomType === 'supply') {
+      units = await db.AdminSupply.findAll({ where: { roomId } });
+    } else if (stockroomType === 'genitem' || stockroomType === 'it' || stockroomType === 'maintenance') {
+      units = await db.GenItem.findAll({ where: { roomId } });
+    } else {
+      // try generic model name (singular)
+      const modelName = stockroomType.charAt(0).toUpperCase() + stockroomType.slice(1);
+      if (db[modelName]) units = await db[modelName].findAll({ where: { roomId } });
+    }
+
+    if (!units || units.length === 0) return res.status(404).json({ message: 'No units found for this room/type' });
+
+    // small helper to pick candidate label fields
+    const tryFields = (obj, ...keys) => {
+      if (!obj) return null;
+      for (const k of keys) {
+        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+        if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
+      }
+      return null;
+    };
+
+    // build QR item list (generate per-unit PNG if needed)
+    const qrItems = [];
+    for (let u of units) {
+      const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId') || null;
+      if (!unitId) continue;
+      const out = await qrService.generateUnitQR({ stockroomType, unitId });
+      const pngPath = out && (out.absolutePath || out.path || out.filepath) || null;
+
+      const labelCandidate = tryFields(u,
+        'name','apparelName','supplyName','genItemName','sku','code','serialNumber','description'
+      );
+      const label = labelCandidate ? String(labelCandidate) : `Unit #${unitId}`;
+
+      qrItems.push({ imgPath: pngPath, label, unitId });
+    }
+
+    if (!qrItems.length) return res.status(404).json({ message: 'No QR images generated' });
+
+    // --- PDF layout (same simple grid used in generateAllPdf) ---
+    const doc = new PDFDocument({ autoFirstPage: false, size: 'LETTER', margin: 0 });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="qrcodes-${stockroomType}-room-${roomId}-units.pdf"`);
+    doc.pipe(res);
+
+    const POINTS_PER_INCH = 72;
+    const PAGE_WIDTH = 8.5 * POINTS_PER_INCH;
+    const PAGE_HEIGHT = 11 * POINTS_PER_INCH;
+    const MARGIN = 0.5 * POINTS_PER_INCH;
+    const QR_SIDE = 1 * POINTS_PER_INCH;
+    const LABEL_HEIGHT = 12;
+    const CELL_HEIGHT = QR_SIDE + LABEL_HEIGHT;
+
+    const usableWidth = PAGE_WIDTH - 2 * MARGIN;
+    const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
+
+    const cols = Math.max(1, Math.floor(usableWidth / QR_SIDE));
+    const rows = Math.max(1, Math.floor(usableHeight / CELL_HEIGHT));
+    const perPage = cols * rows;
+
+    const gapX = (usableWidth - cols * QR_SIDE) / (cols + 1);
+    const gapY = (usableHeight - rows * CELL_HEIGHT) / (rows + 1);
+    const hGap = Math.max(0, gapX);
+    const vGap = Math.max(0, gapY);
+
+    doc.font('Helvetica');
+
+    for (let i = 0; i < qrItems.length; i++) {
+      const indexInPage = i % perPage;
+      if (indexInPage === 0) doc.addPage({ size: 'LETTER', margin: 0 });
+
+      const col = indexInPage % cols;
+      const row = Math.floor(indexInPage / cols);
+      const x = MARGIN + hGap + col * (QR_SIDE + hGap);
+      const y = MARGIN + vGap + row * (CELL_HEIGHT + vGap);
+
+      const { imgPath, label } = qrItems[i];
+
+      if (imgPath && fs.existsSync(imgPath)) {
+        try { doc.image(imgPath, x, y, { width: QR_SIDE, height: QR_SIDE }); }
+        catch (imgErr) { doc.fontSize(8).text('QR image load error', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' }); }
+      } else {
+        doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
+      }
+
+      const labelY = y + QR_SIDE + 4;
+      doc.fontSize(10).text(label, x, labelY, { width: QR_SIDE, align: 'center' });
+    }
+
+    doc.end();
+  } catch (err) {
+    console.error('generateAllUnitsPdf error:', err && err.stack ? err.stack : err);
+    return res.status(500).json({ message: 'Internal server error while generating units PDF' });
+  }
+}
+
+
+async function updateUnitStatus(req, res, next) {
+  try {
+    const stockroomType = String(req.params.stockroomType || '').toLowerCase();
+    const unitId = parseInt(req.params.unitId, 10);
+    const { status } = req.body;
+    const actorId = req.body?.actorId || null;
+
+    if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
+    if (!status) return res.status(400).json({ message: 'Missing status in body' });
+
+    const result = await qrService.updateItemStatus(stockroomType, Number(unitId), status, { actorId });
+    return res.json({ success: true, result });
+  } catch (err) {
+    next(err);
   }
 }
 
@@ -1963,7 +2090,7 @@ async function fulfillRequest(req, res, next) {
 
 ================================================================================
 File: _controllers\room.controller.js
-Size: 22.32 kB
+Size: 23.27 kB
 ================================================================================
 
 const express   = require('express');
@@ -2000,7 +2127,10 @@ router.get('/:roomId/qr/admin-supply/unit/:unitId',       authorize([Role.SuperA
 // GET -------------------------------------------------------------------------------------
 router.get('/',         authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRooms);
 router.get('/list',     listRooms);
-router.get('/:roomId/room-items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getItemsByRoom);
+router.get('/:roomId/all-units', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getAllUnits);
+router.get('/:roomId/all-units',
+  authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]),
+  getAllUnits);
 router.get('/:roomId',  authorize(), getRoomById);
 // Apparel
 router.get('/:roomId/receive-apparels',   authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveApparels);
@@ -2020,6 +2150,7 @@ router.get('/:roomId/release-items',      authorize([Role.SuperAdmin, Role.Admin
 
 // PUT -------------------------------------------------------------------------------------
 router.put('/:roomId',  authorize(Role.SuperAdmin),  updateRoomSchema, updateRoom);
+router.put('/:roomId/apparel/unit/:unitId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), updateApparelUnit);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -2157,11 +2288,6 @@ function getRooms(req, res, next) {
     .then(rooms => res.json(rooms))
     .catch(next);
 }
-// function listRooms(req, res, next) {
-//   roomService.listRoomsHandler()
-//     .then(rooms => res.json(rooms))
-//     .catch(next);
-// }
 function getRoomById(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   roomService.getRoomByIdHandler(roomId, req.user)
@@ -2503,6 +2629,32 @@ function getItemsByRoom(req, res, next) {
     .catch(next);
 }
 
+
+async function updateApparelUnit(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const unitId = parseInt(req.params.unitId, 10);
+    const { description, status } = req.body;
+
+    if (!Number.isFinite(roomId) || !Number.isFinite(unitId)) {
+      return res.status(400).json({ message: 'Invalid params' });
+    }
+
+    // delegate to service (keeps controller thin)
+    const updated = await roomService.updateApparelUnitByRoomHandler(roomId, unitId, { description, status }, req.user);
+    return res.json({ success: true, data: updated });
+  } catch (err) {
+    next(err);
+  }
+}
+
+function getAllUnits(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getAllUnitsByRoomHandler(roomId)
+    .then(units => res.json(units))
+    .catch(next);
+}
+
 ================================================================================
 File: _controllers\transfer.controller.js
 Size: 5.33 kB
@@ -2636,7 +2788,7 @@ async function acceptTransfer(req, res, next) {
 
 ================================================================================
 File: _helpers\db-handler.js
-Size: 13.45 kB
+Size: 15.58 kB
 ================================================================================
 
 // const config            = require('config.json');
@@ -2808,18 +2960,8 @@ function dbAssociations() {
   db.ApparelInventory.hasMany(db.Apparel, { foreignKey: 'apparelInventoryId' });
   db.Apparel.belongsTo(db.ApparelInventory, { foreignKey: 'apparelInventoryId' });
 
-  // ---------- ADMIN SUPPLY associations ----------
-  db.ReceiveAdminSupply.hasMany(db.AdminSupply, { foreignKey: 'receiveAdminSupplyId' });
-  db.AdminSupply.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId' });
-
   db.Account.hasMany(db.ReceiveApparel, { foreignKey: 'accountId'});
   db.ReceiveApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
-
-  db.Account.hasMany(db.ReceiveAdminSupply, { foreignKey: 'accountId'});
-  db.ReceiveAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
-
-  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId'});
-  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId'});
 
   db.Account.hasMany(db.ReleaseApparel, { foreignKey: 'accountId'});
   db.ReleaseApparel.belongsTo(db.Account, { foreignKey: 'accountId'});
@@ -2827,11 +2969,71 @@ function dbAssociations() {
   db.ReleaseApparel.belongsTo(db.Room, { foreignKey: 'roomId' });
   db.Room.hasMany(db.ReleaseApparel, { foreignKey: 'roomId' });
 
+// ---------- ADMIN SUPPLY / BATCH / ROOM associations ----------
+  // ReceiveApparel -> Apparel (per-unit), keep alias 'apparel' (matches prior code)
+  db.ReceiveAdminSupply.hasMany(db.AdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+  db.AdminSupply.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+
+  // ReceiveApparel -> Room (batch belongs to room) and Room -> ReceiveApparel
+  db.ReceiveAdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReceiveAdminSupply, { foreignKey: 'roomId' });
+
+  // Apparel may optionally belong to a Room directly (if your model has roomId)
+  // Keep these so code that queries by Apparel.roomId keeps working if the attribute exists.
+  db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
+
+  // ApparelInventory (aggregate) belongs to Room and Room has many ApparelInventory rows
+  db.Room.hasMany(db.AdminSupplyInventory, { foreignKey: 'roomId' });
+  db.AdminSupplyInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+  // ApparelInventory <-> ReleaseApparel
+  db.AdminSupplyInventory.hasMany(db.ReceiveAdminSupply, { foreignKey: 'adminSupplyInventoryId' });
+  db.ReceiveAdminSupply.belongsTo(db.AdminSupplyInventory, { foreignKey: 'adminSupplyInventoryId'  });
+
+  // ApparelInventory -> Apparel (optional relation if your model uses apparelInventoryId)
+  db.AdminSupplyInventory.hasMany(db.AdminSupply, { foreignKey: 'adminSupplyInventoryId' });
+  db.AdminSupply.belongsTo(db.AdminSupplyInventory, { foreignKey: 'adminSupplyInventoryId' });
+
+  db.Account.hasMany(db.ReceiveAdminSupply, { foreignKey: 'accountId'});
+  db.ReceiveAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.Account.hasMany(db.ReleaseAdminSupply, { foreignKey: 'accountId'});
+  db.ReleaseAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.ReleaseAdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReleaseAdminSupply, { foreignKey: 'roomId' });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // ---------- ADMIN SUPPLY associations ----------
+  // db.ReceiveAdminSupply.hasMany(db.AdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+  // db.AdminSupply.belongsTo(db.ReceiveAdminSupply, { foreignKey: 'receiveAdminSupplyId' });
+
+  // db.Account.hasMany(db.ReceiveAdminSupply, { foreignKey: 'accountId'});
+  // db.ReceiveAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
+
+  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId'});
+  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId'});
+
   db.ReceiveGenItem.hasMany(db.GenItem, { foreignKey: 'receiveGenItemId' });
   db.GenItem.belongsTo(db.ReceiveGenItem, { foreignKey: 'receiveGenItemId' });
 
-  db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
-  db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
+  // db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
+  // db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
 
 
 
@@ -3157,7 +3359,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\adminSupply\adminSupply.model.js
-Size: 691 B
+Size: 948 B
 ================================================================================
 
 const { DataTypes } = require('sequelize');
@@ -3168,7 +3370,13 @@ module.exports = (sequelize) => {
         adminSupplyId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
         receiveAdminSupplyId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        // status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        status: {
+            type: DataTypes.ENUM('good', 'working', 'damage'),
+            allowNull: false,
+            defaultValue: 'good'
+          },
+        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
         adminSupplyInventoryId: { type: DataTypes.INTEGER,  allowNull: false },
     };
 
@@ -3280,7 +3488,7 @@ module.exports = (sequelize) => {
 
 ================================================================================
 File: _models\apparel\apparel.model.js
-Size: 1.06 kB
+Size: 1.14 kB
 ================================================================================
 
 /* 
@@ -3297,10 +3505,11 @@ module.exports = (sequelize) => {
         roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
         status:             { type: DataTypes.ENUM(
-                                'released','damaged',
-                                'lost','good'
+                                'good','working',
+                                'damage',
                                 ), defaultValue: 'good'
                             },
+        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
         apparelInventoryId: { type: DataTypes.INTEGER, allowNull: false },
     };
 
@@ -3520,7 +3729,7 @@ function model(sequelize) {
 
 ================================================================================
 File: _models\genItem\genItem.model.js
-Size: 916 B
+Size: 1.17 kB
 ================================================================================
 
 /* 
@@ -3536,7 +3745,13 @@ module.exports = (sequelize) => {
         genItemId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
         roomId:             { type: DataTypes.INTEGER,  allowNull: false },
         receiveGenItemId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        // status:             { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
+        status: {
+            type: DataTypes.ENUM('good', 'working', 'damage'),
+            allowNull: false,
+            defaultValue: 'good'
+          },
+        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
         genItemInventoryId: { type: DataTypes.INTEGER,  allowNull: false },
     };
 
@@ -6348,7 +6563,7 @@ async function _tryLoadAnyUnit(itemId) {
 
 ================================================================================
 File: _services\room.service.js
-Size: 31.54 kB
+Size: 33.67 kB
 ================================================================================
 
 const db        = require('_helpers/db-handler');
@@ -6383,7 +6598,6 @@ module.exports = {
 
   // GET -------------------------------------------------------------------------------------
   getRoomsHandler,                    // display all rooms.
-  listRoomsHandler,
   getRoomByIdHandler,                 // display a specific room.
 
   getReceiveApparelsByRoomHandler,
@@ -6406,6 +6620,10 @@ module.exports = {
   updateRoomHandler,                  // update a specific room.
 
   getItemsByRoomHandler,
+
+  listRoomsHandler,
+  updateApparelUnitByRoomHandler,
+  getAllUnitsByRoomHandler
 };
 
 // Room's CRUD Handler
@@ -6669,7 +6887,7 @@ async function receiveAdminSupplyInRoomHandler(roomId, payload, user, ipAddress,
       receiveAdminSupplyId: batch.receiveAdminSupplyId,
       adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, 
       roomId: roomId,
-      status: 'in_stock'
+      status: 'good'
     }));
     createdUnits = await db.AdminSupply.bulkCreate(adminSupplyUnits);
   }
@@ -6722,7 +6940,7 @@ async function receiveGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
       receiveGenItemId: batch.receiveGenItemId,
       genItemInventoryId: inv.genItemInventoryId ?? inv.id, // <-- important
       roomId: roomId,
-      status: 'in_stock'
+      status: 'good'
     }));
     createdUnits = await db.GenItem.bulkCreate(genItemUnits);
   }
@@ -7286,6 +7504,64 @@ async function listRoomsHandler() {
   }];
 
   return await db.Room.findAll({ include });
+}
+
+
+
+async function updateApparelUnitByRoomHandler(roomId, unitId, payload = {}, user = null) {
+  if (!Number.isFinite(roomId) || !Number.isFinite(unitId)) {
+    throw { status: 400, message: 'Invalid params' };
+  }
+
+  // optional: ensure room exists (you already have ensureRoomExistsHandler in file)
+  await ensureRoomExistsHandler(roomId);
+
+  const unit = await db.Apparel.findByPk(unitId);
+  if (!unit) throw { status: 404, message: 'Apparel unit not found' };
+  if (String(unit.roomId) !== String(roomId)) throw { status: 403, message: 'Unit does not belong to this room' };
+
+  // Only accept description and status updates
+  const updates = {};
+  if (typeof payload.description !== 'undefined') updates.description = payload.description;
+  if (typeof payload.status !== 'undefined') updates.status = payload.status;
+
+  if (Object.keys(updates).length === 0) throw { status: 400, message: 'Nothing to update' };
+
+  // persist
+  await unit.update(updates);
+
+  // optional: log activity (accountService.logActivity) — follow your existing pattern if needed
+
+  return unit; // returns updated unit row
+}
+
+async function getAllUnitsByRoomHandler(roomId) {
+  await ensureRoomExistsHandler(roomId);
+
+  const [apparelUnits, supplyUnits, genUnits] = await Promise.all([
+    getApparelUnitsByRoomHandler(roomId).catch(() => []),
+    getAdminSupplyUnitsByRoomHandler(roomId).catch(() => []),
+    getGenItemUnitsByRoomHandler(roomId).catch(() => []),
+  ]);
+
+  const normalized = [];
+
+  (apparelUnits || []).forEach(u => {
+    const row = (typeof u.get === 'function') ? u.get() : u;
+    normalized.push(Object.assign({ unitType: 'apparel' }, row));
+  });
+
+  (supplyUnits || []).forEach(u => {
+    const row = (typeof u.get === 'function') ? u.get() : u;
+    normalized.push(Object.assign({ unitType: 'supply' }, row));
+  });
+
+  (genUnits || []).forEach(u => {
+    const row = (typeof u.get === 'function') ? u.get() : u;
+    normalized.push(Object.assign({ unitType: 'genitem' }, row));
+  });
+
+  return normalized;
 }
 
 ================================================================================

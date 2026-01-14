@@ -10,45 +10,51 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ accountId, requesterRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+async function createStockRequest({ accountId, requesterRoomId, itemId, otherItemName, quantity = 1, note = null, ipAddress, browserInfo }) {
   if (!accountId) throw { status: 400, message: 'accountId is required' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
   // determine itemType by checking inventory tables first, then unit tables
   let resolvedType = null;
 
-  // helper short-circuit checks (check inventories)
-  if (db.ApparelInventory) {
-    const inv = await db.ApparelInventory.findByPk(itemId);
-    if (inv) resolvedType = 'apparel';
-  }
-  if (!resolvedType && db.AdminSupplyInventory) {
-    const inv = await db.AdminSupplyInventory.findByPk(itemId);
-    if (inv) resolvedType = 'supply';
-  }
-  if (!resolvedType && db.GenItemInventory) {
-    const inv = await db.GenItemInventory.findByPk(itemId);
-    if (inv) resolvedType = 'genItem';
-  }
+  if (itemId) {
+    // helper short-circuit checks (check inventories)
+    if (db.ApparelInventory) {
+      const inv = await db.ApparelInventory.findByPk(itemId);
+      if (inv) resolvedType = 'apparel';
+    }
+    if (!resolvedType && db.AdminSupplyInventory) {
+      const inv = await db.AdminSupplyInventory.findByPk(itemId);
+      if (inv) resolvedType = 'supply';
+    }
+    if (!resolvedType && db.GenItemInventory) {
+      const inv = await db.GenItemInventory.findByPk(itemId);
+      if (inv) resolvedType = 'genItem';
+    }
 
-  // if not inventory, check unit tables (individual items/units)
-  if (!resolvedType) {
-    if (db.Apparel) {
-      const unit = await db.Apparel.findByPk(itemId);
-      if (unit) resolvedType = 'apparel';
+    // if not inventory, check unit tables (individual items/units)
+    if (!resolvedType) {
+      if (db.Apparel) {
+        const unit = await db.Apparel.findByPk(itemId);
+        if (unit) resolvedType = 'apparel';
+      }
+      if (!resolvedType && db.AdminSupply) {
+        const unit = await db.AdminSupply.findByPk(itemId);
+        if (unit) resolvedType = 'supply';
+      }
+      if (!resolvedType && db.GenItem) {
+        const unit = await db.GenItem.findByPk(itemId);
+        if (unit) resolvedType = 'genItem';
+      }
     }
-    if (!resolvedType && db.AdminSupply) {
-      const unit = await db.AdminSupply.findByPk(itemId);
-      if (unit) resolvedType = 'supply';
-    }
-    if (!resolvedType && db.GenItem) {
-      const unit = await db.GenItem.findByPk(itemId);
-      if (unit) resolvedType = 'genItem';
-    }
-  }
 
-  if (!resolvedType) {
-    throw { status: 400, message: `Item id ${itemId} not found in inventories or units` };
+    if (!resolvedType) {
+      throw { status: 400, message: `Item id ${itemId} not found in inventories or units` };
+    }
+  } else if (otherItemName) {
+    resolvedType = 'other';
+  } else {
+    throw { status: 400, message: 'Must provide either itemId or otherItemName' };
   }
 
   // create stock request — store the resolved itemType for downstream flows
@@ -56,7 +62,8 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, quantity
     accountId,
     requesterRoomId,
     itemType: resolvedType,
-    itemId,
+    itemId: itemId || null,
+    otherItemName: otherItemName || null,
     quantity,
     note,
     status: 'pending'
@@ -71,16 +78,17 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, quantity
   return req;
 }
 async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
-  return await db.StockRequest.findAll({
+  const { count, rows } = await db.StockRequest.findAndCountAll({
     where,
-    order: [['stockRequestId','DESC']],
+    order: [['stockRequestId', 'DESC']],
     limit,
     offset,
     include: [
-      { model: db.Room, attributes: ['roomId','roomName'] },
-      { model: db.Account, attributes: ['accountId','firstName','lastName'] }
+      { model: db.Room, attributes: ['roomId', 'roomName'] },
+      { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
     ]
   });
+  return { rows, count };
 }
 async function getStockRequestById(stockRequestId) {
   const r = await db.StockRequest.findByPk(stockRequestId, {
@@ -103,18 +111,39 @@ async function getStockRequestById(stockRequestId) {
 
   return r;
 }
-async function approveStockRequest(id, approverAccountId = null, ipAddress, browserInfo) {
+// async function approveStockRequest(id, approverAccountId = null, ipAddress, browserInfo) {
+//   const req = await getStockRequestById(id);
+//   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
+//   req.status = 'approved';
+//   await req.save();
+
+//   try {
+//     await accountService.logActivity( String(approverAccountId), 'stock_request_approve', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+//   } catch (err) {
+//     console.error('activity log failed (approveStockRequest)', err);
+//   }
+
+//   return req;
+// }
+async function approveStockRequest(id, approverAccountId = null, ipAddress, browserInfo, updatedQuantity = null) {
   const req = await getStockRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be approved' };
+
+  // [NEW] Update quantity if valid
+  if (updatedQuantity !== null && updatedQuantity !== undefined) {
+    const qty = parseInt(updatedQuantity, 10);
+    if (Number.isInteger(qty) && qty > 0) {
+      req.quantity = qty;
+    }
+  }
   req.status = 'approved';
   await req.save();
-
   try {
-    await accountService.logActivity( String(approverAccountId), 'stock_request_approve', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
+    // ... existing logging
+    await accountService.logActivity(String(approverAccountId), 'stock_request_approve', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
   } catch (err) {
     console.error('activity log failed (approveStockRequest)', err);
   }
-
   return req;
 }
 async function disapproveStockRequest(id, adminAccountId = null, reason = null, ipAddress, browserInfo) {
@@ -278,28 +307,28 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     if (!inv) throw { status: 404, message: 'Apparel inventory record not found' };
 
     const batch = await db.ReceiveApparel.create({
-      roomId:          inv.roomId,
-      receivedFrom:    'Administration',
-      receivedBy:      fulfillerAccountId,
-      apparelName:     inv.apparelName,
-      apparelLevel:    inv.apparelLevel,
-      apparelType:     inv.apparelType,
-      apparelFor:      inv.apparelFor,
-      apparelSize:     inv.apparelSize,
+      roomId: inv.roomId,
+      receivedFrom: 'Administration',
+      receivedBy: fulfillerAccountId,
+      apparelName: inv.apparelName,
+      apparelLevel: inv.apparelLevel,
+      apparelType: inv.apparelType,
+      apparelFor: inv.apparelFor,
+      apparelSize: inv.apparelSize,
       apparelQuantity: qty
     });
 
     const unitStatus = getUnitStatusForType(found.type);
 
-if (db.Apparel && qty > 0) {
-  const apparelUnits = Array(qty).fill().map(() => ({
-    receiveApparelId: batch.receiveApparelId,
-    apparelInventoryId: inv.apparelInventoryId ?? inv.id,
-    roomId: inv.roomId,
-    status: unitStatus
-  }));
-  await db.Apparel.bulkCreate(apparelUnits);
-}
+    if (db.Apparel && qty > 0) {
+      const apparelUnits = Array(qty).fill().map(() => ({
+        receiveApparelId: batch.receiveApparelId,
+        apparelInventoryId: inv.apparelInventoryId ?? inv.id,
+        roomId: inv.roomId,
+        status: unitStatus
+      }));
+      await db.Apparel.bulkCreate(apparelUnits);
+    }
 
     return batch;
   }
@@ -309,10 +338,10 @@ if (db.Apparel && qty > 0) {
     if (!inv) throw { status: 404, message: 'AdminSupply inventory record not found' };
 
     const batch = await db.ReceiveAdminSupply.create({
-      roomId:        inv.roomId,
-      receivedFrom:  'Administration',
-      receivedBy:    fulfillerAccountId,
-      supplyName:    inv.supplyName,
+      roomId: inv.roomId,
+      receivedFrom: 'Administration',
+      receivedBy: fulfillerAccountId,
+      supplyName: inv.supplyName,
       supplyQuantity: qty,
       supplyMeasure: inv.supplyMeasure
     });
@@ -335,13 +364,13 @@ if (db.Apparel && qty > 0) {
     if (!inv) throw { status: 404, message: 'GenItem inventory record not found' };
 
     const batch = await db.ReceiveGenItem.create({
-      roomId:         inv.roomId,
-      receivedFrom:   'Administration',
-      receivedBy:     fulfillerAccountId,
-      genItemName:    inv.genItemName,
-      genItemSize:    inv.genItemSize ?? null,
+      roomId: inv.roomId,
+      receivedFrom: 'Administration',
+      receivedBy: fulfillerAccountId,
+      genItemName: inv.genItemName,
+      genItemSize: inv.genItemSize ?? null,
       genItemQuantity: qty,
-      genItemType:    inv.genItemType
+      genItemType: inv.genItemType
     });
 
     if (db.GenItem && qty > 0) {

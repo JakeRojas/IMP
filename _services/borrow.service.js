@@ -38,24 +38,18 @@ async function createBorrow(payload, ipAddress, browserInfo) {
   return created;
 }
 async function listBorrows({ where = {}, limit = 200, offset = 0 } = {}) {
-  const rows = await db.Borrow.findAll({
+  const { count, rows } = await db.Borrow.findAndCountAll({
     where,
     order: [['borrowId', 'DESC']],
     limit,
     offset,
     include: [
       { model: db.Account, as: 'requester', attributes: ['accountId', 'firstName', 'lastName'], required: false },
-      // { model: db.Room, foreignKey: 'roomId' },
       { model: db.Room, as: 'room', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
-
-      // polymorphic-ish item relations (no FK constraints)
-      // { model: db.ApparelInventory, foreignKey: 'itemId', constraints: false },
-      // { model: db.AdminSupplyInventory, foreignKey: 'itemId', constraints: false },
-      // { model: db.GenItemInventory, foreignKey: 'itemId', constraints: false },
     ]
   });
 
-  return rows;
+  return { rows, count };
 }
 async function getById(id) {
   if (!id) throw { status: 400, message: 'id required' };
@@ -87,7 +81,7 @@ async function getInventoryModelForItemId(db, id, transaction) {
   // Try each model; return the first that contains a row with this PK.
   const models = [
     { key: 'apparel', model: db.ApparelInventory },
-    { key: 'supply',  model: db.AdminSupplyInventory },
+    { key: 'supply', model: db.AdminSupplyInventory },
     { key: 'genitem', model: db.GenItemInventory }
   ];
 
@@ -336,7 +330,7 @@ async function returnBorrow(borrowId, user, opts = {}, ipAddress, browserInfo) {
 
   // allow only requester OR the one who acquired (acquiredBy)
   const isRequester = String(b.requesterId) === String(callerId);
-  const isAcquirer  = b.acquiredBy != null && String(b.acquiredBy) === String(callerId);
+  const isAcquirer = b.acquiredBy != null && String(b.acquiredBy) === String(callerId);
 
   if (!isRequester && !isAcquirer) {
     throw { status: 403, message: 'Only the requester or the acquirer can return this borrow' };

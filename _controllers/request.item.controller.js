@@ -1,18 +1,18 @@
 const express = require('express');
-const router  = express.Router();
-const Joi     = require('joi');
+const router = express.Router();
+const Joi = require('joi');
 
-const itemRequestService  = require('_services/request.item.service');
-const validateRequest     = require('_middlewares/validate-request');
-const authorize           = require('_middlewares/authorize');
-const Role                = require('_helpers/role');
+const itemRequestService = require('_services/request.item.service');
+const validateRequest = require('_middlewares/validate-request');
+const authorize = require('_middlewares/authorize');
+const Role = require('_helpers/role');
 
 router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSchema, createRequest);
 
-router.get('/',     authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
-router.get('/:id',  authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
+router.get('/', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
+router.get('/:id', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
 
-router.post('/:id/accept',  authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
+router.post('/:id/accept', authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
 router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin]), declineRequest);
 router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin]), releaseRequest);
 
@@ -31,7 +31,8 @@ function createSchema(req, res, next) {
   const schema = Joi.object({
     requesterRoomId: Joi.number().integer().required(),
     requestToRoomId: Joi.number().integer().required(),
-    itemId: Joi.number().integer().required(),
+    itemId: Joi.number().integer().allow(null).optional(),
+    otherItemName: Joi.string().max(255).allow('', null).optional(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).allow('', null).optional()
   });
@@ -41,7 +42,7 @@ function createSchema(req, res, next) {
 // Handlers
 function isUserInCharge(room, accountId) {
   if (!room || !accountId) return false;
-  const possibleFields = ['inChargeId','inChargeUserId','roomInCharge','managerId','accountId','createdBy'];
+  const possibleFields = ['inChargeId', 'inChargeUserId', 'roomInCharge', 'managerId', 'accountId', 'createdBy'];
   for (const f of possibleFields) {
     if (typeof room[f] !== 'undefined' && String(room[f]) === String(accountId)) return true;
   }
@@ -84,7 +85,8 @@ async function createRequest(req, res) {
       accountId,
       requesterRoomId: Number(payload.requesterRoomId),
       requestToRoomId: Number(payload.requestToRoomId),
-      itemId: Number(payload.itemId),
+      itemId: payload.itemId ? Number(payload.itemId) : null,
+      otherItemName: payload.otherItemName || null,
       quantity: Number(payload.quantity),
       note: payload.note || null,
       ipAddress, browserInfo
@@ -104,8 +106,23 @@ async function listRequests(req, res, next) {
     const where = {};
     if (req.query.status) where.status = req.query.status;
     if (req.query.accountId) where.accountId = req.query.accountId;
-    const rows = await itemRequestService.listItemRequests({ where });
-    res.json({ success: true, data: rows });
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { rows, count } = await itemRequestService.listItemRequests({ where, limit, offset });
+
+    res.json({
+      success: true,
+      data: rows,
+      meta: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
+    });
   } catch (err) { next(err); }
 }
 async function getRequestById(req, res, next) {

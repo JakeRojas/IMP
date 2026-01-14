@@ -12,7 +12,7 @@ module.exports = {
   fulfillItemRequest
 };
 
-async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, itemId, quantity = 1, note = null, ipAddress, browserInfo }) {
+async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, itemId, otherItemName, quantity = 1, note = null, ipAddress, browserInfo }) {
   if (!accountId) throw { status: 401, message: 'Unauthenticated' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive integer' };
 
@@ -33,7 +33,7 @@ async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, 
     if (!M) return null;
     const candidate = await M.findByPk(itemId);
     if (!candidate) return null;
-    const roomFields = ['roomId','locationRoomId','storedRoomId','room_id','stockRoomId'];
+    const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
     for (const f of roomFields) {
       if (typeof candidate[f] !== 'undefined' && String(candidate[f]) === String(requestToRoomId)) {
         return candidate;
@@ -42,42 +42,48 @@ async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, 
     return null;
   }
 
-  if (db.ApparelInventory) {
-    const r = await tryInventory('ApparelInventory');
-    if (r) { resolvedType = 'apparel'; itemRow = r; }
-  }
-  if (!resolvedType && db.AdminSupplyInventory) {
-    const r = await tryInventory('AdminSupplyInventory');
-    if (r) { resolvedType = 'supply'; itemRow = r; }
-  }
-  if (!resolvedType && db.GenItemInventory) {
-    const r = await tryInventory('GenItemInventory');
-    if (r) { resolvedType = 'genItem'; itemRow = r; }
-  }
-
-  if (!resolvedType) {
-    const unitCandidates = [
-      { model: 'Apparel', type: 'apparel' },
-      { model: 'AdminSupply', type: 'supply' },
-      { model: 'GenItem', type: 'genItem' }
-    ];
-    for (const cand of unitCandidates) {
-      const M = db[cand.model];
-      if (!M) continue;
-      const u = await M.findByPk(itemId);
-      if (!u) continue;
-      const roomFields = ['roomId','locationRoomId','storedRoomId','room_id','stockRoomId'];
-      for (const f of roomFields) {
-        if (typeof u[f] !== 'undefined' && String(u[f]) === String(requestToRoomId)) {
-          resolvedType = cand.type; itemRow = u; break;
-        }
-      }
-      if (resolvedType) break;
+  if (itemId) {
+    if (db.ApparelInventory) {
+      const r = await tryInventory('ApparelInventory');
+      if (r) { resolvedType = 'apparel'; itemRow = r; }
     }
-  }
+    if (!resolvedType && db.AdminSupplyInventory) {
+      const r = await tryInventory('AdminSupplyInventory');
+      if (r) { resolvedType = 'supply'; itemRow = r; }
+    }
+    if (!resolvedType && db.GenItemInventory) {
+      const r = await tryInventory('GenItemInventory');
+      if (r) { resolvedType = 'genItem'; itemRow = r; }
+    }
 
-  if (!resolvedType) {
-    throw { status: 400, message: `Item ${itemId} was not found in the inventory (or does not belong to room ${requestToRoomId})` };
+    if (!resolvedType) {
+      const unitCandidates = [
+        { model: 'Apparel', type: 'apparel' },
+        { model: 'AdminSupply', type: 'supply' },
+        { model: 'GenItem', type: 'genItem' }
+      ];
+      for (const cand of unitCandidates) {
+        const M = db[cand.model];
+        if (!M) continue;
+        const u = await M.findByPk(itemId);
+        if (!u) continue;
+        const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
+        for (const f of roomFields) {
+          if (typeof u[f] !== 'undefined' && String(u[f]) === String(requestToRoomId)) {
+            resolvedType = cand.type; itemRow = u; break;
+          }
+        }
+        if (resolvedType) break;
+      }
+    }
+
+    if (!resolvedType) {
+      throw { status: 400, message: `Item ${itemId} was not found in the inventory (or does not belong to room ${requestToRoomId})` };
+    }
+  } else if (otherItemName) {
+    resolvedType = 'other';
+  } else {
+    throw { status: 400, message: 'Must provide either itemId or otherItemName' };
   }
 
   // Create the ItemRequest record (store itemType for downstream compatibility)
@@ -86,7 +92,8 @@ async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, 
     requesterRoomId,
     requestToRoomId,
     itemType: resolvedType,
-    itemId,
+    itemId: itemId || null,
+    otherItemName: otherItemName || null,
     quantity,
     note,
     status: 'pending'
@@ -107,16 +114,17 @@ async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, 
 }
 
 async function listItemRequests({ where = {}, limit = 100, offset = 0 } = {}) {
-  return await db.ItemRequest.findAll({
+  const { count, rows } = await db.ItemRequest.findAndCountAll({
     where,
-    order: [['itemRequestId','DESC']],
+    order: [['itemRequestId', 'DESC']],
     limit,
     offset,
     include: [
-      { model: db.Room, attributes: ['roomId','roomName'] },
-      { model: db.Account, attributes: ['accountId','firstName','lastName'] }
+      { model: db.Room, attributes: ['roomId', 'roomName'] },
+      { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
     ]
   });
+  return { rows, count };
 }
 async function getItemRequestById(id) {
   const r = await db.ItemRequest.findByPk(id, {
@@ -617,10 +625,10 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
   if (req.itemType === 'apparel') {
     const release = await db.ReleaseApparel.create({
-      roomId:                 inv.roomId,
-      apparelInventoryId:     inv.apparelInventoryId ?? inv.id,
-      releasedBy:             releaserLabel,
-      claimedBy:              requesterName,
+      roomId: inv.roomId,
+      apparelInventoryId: inv.apparelInventoryId ?? inv.id,
+      releasedBy: releaserLabel,
+      claimedBy: requesterName,
       releaseApparelQuantity: qty
     }, tx);
 
@@ -646,10 +654,10 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
     let release = null;
     if (db.ReleaseAdminSupply) {
       release = await db.ReleaseAdminSupply.create({
-        roomId:                     inv.roomId,
-        adminSupplyInventoryId:     inv.adminSupplyInventoryId ?? inv.id,
-        releasedBy:                 releaserLabel,
-        claimedBy:                  requesterName,
+        roomId: inv.roomId,
+        adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id,
+        releasedBy: releaserLabel,
+        claimedBy: requesterName,
         releaseAdminSupplyQuantity: qty
       }, tx);
     } else {
@@ -674,12 +682,12 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
   if (req.itemType === 'genItem') {
     const release = await db.ReleaseGenItem.create({
-      roomId:                inv.roomId,
-      genItemInventoryId:    inv.genItemInventoryId ?? inv.id,
-      releasedBy:            releaserLabel,
-      claimedBy:             requesterName,
-      releaseItemQuantity:   qty,
-      genItemType:           inv.genItemType
+      roomId: inv.roomId,
+      genItemInventoryId: inv.genItemInventoryId ?? inv.id,
+      releasedBy: releaserLabel,
+      claimedBy: requesterName,
+      releaseItemQuantity: qty,
+      genItemType: inv.genItemType
     }, tx);
 
     inv.totalQuantity = (inv.totalQuantity || 0) - qty;
@@ -704,7 +712,7 @@ async function getInventoryModelForItemId(id, transaction) {
   if (!id) return null;
   const candidates = [
     { key: 'apparel', model: db.ApparelInventory },
-    { key: 'supply',  model: db.AdminSupplyInventory },
+    { key: 'supply', model: db.AdminSupplyInventory },
     { key: 'genitem', model: db.GenItemInventory }
   ];
 

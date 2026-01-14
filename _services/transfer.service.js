@@ -1,6 +1,6 @@
 const db = require('_helpers/db-handler');
-const Role = require('_helpers/role'); 
-const { Transaction }     = require('sequelize');
+const Role = require('_helpers/role');
+const { Transaction } = require('sequelize');
 const accountService = require('./account.service');
 
 module.exports = {
@@ -292,7 +292,7 @@ async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, b
 
     return tr;
   } catch (err) {
-    if (txn && !txn.finished) await txn.rollback().catch(()=>{});
+    if (txn && !txn.finished) await txn.rollback().catch(() => { });
     throw err;
   }
 }
@@ -352,14 +352,14 @@ async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId
   // apparel
   if (typeNorm === 'apparel') {
     const batch = await db.ReceiveApparel.create({
-      roomId:          destInv.roomId,
-      receivedFrom:    `Transfer #${tr.transferId}`,
-      receivedBy:      accepterId || null,
-      apparelName:     destInv.apparelName,
-      apparelLevel:    destInv.apparelLevel,
-      apparelType:     destInv.apparelType,
-      apparelFor:      destInv.apparelFor,
-      apparelSize:     destInv.apparelSize,
+      roomId: destInv.roomId,
+      receivedFrom: `Transfer #${tr.transferId}`,
+      receivedBy: accepterId || null,
+      apparelName: destInv.apparelName,
+      apparelLevel: destInv.apparelLevel,
+      apparelType: destInv.apparelType,
+      apparelFor: destInv.apparelFor,
+      apparelSize: destInv.apparelSize,
       apparelQuantity: qty
     }, { transaction: txn });
 
@@ -378,12 +378,12 @@ async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId
   // supplies (AdminSupply)
   if (typeNorm.includes('supply')) {
     const batch = await db.ReceiveAdminSupply.create({
-      roomId:         destInv.roomId,
-      receivedFrom:   `Transfer #${tr.transferId}`,
-      receivedBy:     accepterId || null,
-      supplyName:     destInv.supplyName,
+      roomId: destInv.roomId,
+      receivedFrom: `Transfer #${tr.transferId}`,
+      receivedBy: accepterId || null,
+      supplyName: destInv.supplyName,
       supplyQuantity: qty,
-      supplyMeasure:  destInv.supplyMeasure
+      supplyMeasure: destInv.supplyMeasure
     }, { transaction: txn });
 
     if (db.AdminSupply) {
@@ -401,13 +401,13 @@ async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId
   // gen items
   if (typeNorm.includes('gen')) {
     const batch = await db.ReceiveGenItem.create({
-      roomId:          destInv.roomId,
-      receivedFrom:    `Transfer #${tr.transferId}`,
-      receivedBy:      accepterId || null,
-      genItemName:     destInv.genItemName,
-      genItemSize:     destInv.genItemSize ?? null,
+      roomId: destInv.roomId,
+      receivedFrom: `Transfer #${tr.transferId}`,
+      receivedBy: accepterId || null,
+      genItemName: destInv.genItemName,
+      genItemSize: destInv.genItemSize ?? null,
       genItemQuantity: qty,
-      genItemType:     destInv.genItemType
+      genItemType: destInv.genItemType
     }, { transaction: txn });
 
     if (db.GenItem) {
@@ -521,14 +521,15 @@ async function getById(id) {
   return db.Transfer.findByPk(id);
 }
 async function listTransfers({ where = {}, limit = 200, offset = 0 } = {}) {
-  return db.Transfer.findAll({
+  const { count, rows } = await db.Transfer.findAndCountAll({
     where,
-    order: [['transferId','DESC']],
+    order: [['transferId', 'DESC']],
     limit,
     offset,
     include: [
-      { model: db.Room, as: 'fromRoom', attributes: ['roomId','roomName','roomInCharge'], required: false },
-      { model: db.Room, as: 'toRoom', attributes: ['roomId','roomName','roomInCharge'], required: false }
+      { model: db.Room, as: 'fromRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
+      { model: db.Room, as: 'toRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false }
     ]
   });
+  return { rows, count };
 }
