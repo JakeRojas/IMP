@@ -18,6 +18,8 @@
 const config = require('config.json');
 const mysql = require('mysql2/promise');
 const { Sequelize } = require('sequelize');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = db = {};
 
@@ -41,8 +43,28 @@ async function initialize() {
       password: DB_PASSWORD,
     };
 
-    if (process.env.DB_CA) {
-      connOptions.ssl = { ca: process.env.DB_CA };
+    let sslConfig = null;
+    if (process.env.DB_CA_PATH) {
+      try {
+        const caPath = path.resolve(process.env.DB_CA_PATH);
+        if (fs.existsSync(caPath)) {
+          sslConfig = { ca: fs.readFileSync(caPath) };
+          console.log(`Using CA certificate from: ${caPath}`);
+        } else {
+          console.warn(`CA certificate file not found at: ${caPath}`);
+          // Fallback to simple SSL if required but path is wrong? 
+          sslConfig = { rejectUnauthorized: false };
+        }
+      } catch (err) {
+        console.error('Error reading CA certificate:', err);
+        sslConfig = { rejectUnauthorized: false };
+      }
+    } else if (process.env.DB_SSL === 'REQUIRED' || process.env.DB_SSL === 'true') {
+      sslConfig = { rejectUnauthorized: false };
+    }
+
+    if (sslConfig) {
+      connOptions.ssl = sslConfig;
     }
 
     console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
@@ -59,8 +81,8 @@ async function initialize() {
       logging: false,
     };
 
-    if (process.env.DB_CA) {
-      sequelizeOptions.dialectOptions = { ssl: { ca: process.env.DB_CA } };
+    if (sslConfig) {
+      sequelizeOptions.dialectOptions = { ssl: sslConfig };
     }
 
     sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
