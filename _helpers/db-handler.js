@@ -15,7 +15,12 @@
 //     // await connection.end();
 //     // const sequelize = new Sequelize(database, user, password, { host: 'localhost', dialect: 'mysql' });
 
-const config = require('config.json');
+let config = {};
+try {
+  config = require('../config.json');
+} catch (e) {
+  // config.json not found
+}
 const mysql = require('mysql2/promise');
 const { Sequelize } = require('sequelize');
 const fs = require('fs');

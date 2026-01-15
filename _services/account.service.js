@@ -1,4 +1,9 @@
-const config = require('config.json');
+let config = {};
+try {
+  config = require('config.json');
+} catch (e) {
+  // config.json not found
+}
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require("crypto");
@@ -28,7 +33,8 @@ module.exports = {
 };
 
 async function authenticate({ email, password, ipAddress, browserInfo }) {
-  const account = await db.Account.scope('withHash').findOne({ where: { email } });
+  const normalizedEmail = email.trim().toLowerCase();
+  const account = await db.Account.scope('withHash').findOne({ where: { email: normalizedEmail } });
 
   if (!account || !account.isVerified || !(await bcrypt.compare(password, account.passwordHash))) {
     throw 'Email or password is incorrect';
@@ -231,6 +237,7 @@ async function revokeToken({ token, ipAddress }) {
   await refreshToken.save();
 }
 async function register(params, origin) {
+  params.email = params.email.trim().toLowerCase();
   if (await db.Account.findOne({ where: { email: params.email } })) {
     return await sendAlreadyRegisteredEmail(params.email, origin);
   }
@@ -239,7 +246,13 @@ async function register(params, origin) {
 
   const isFirstAccount = (await db.Account.count()) === 0;
   account.role = isFirstAccount ? Role.SuperAdmin : Role.Admin;
-  account.verificationToken = randomTokenString();
+
+  // Auto-verify if first account, otherwise standard token
+  if (isFirstAccount) {
+    account.verified = Date.now();
+  } else {
+    account.verificationToken = randomTokenString();
+  }
 
   account.passwordHash = await hash(params.password);
 
@@ -395,7 +408,8 @@ async function hash(password) {
   return await bcrypt.hash(password, 10);
 }
 function generateJwtToken(account) {
-  return jwt.sign({ sub: account.accountId, accountId: account.accountId }, config.secret, { expiresIn: '1h' });
+  const secret = process.env.SECRET || config.secret;
+  return jwt.sign({ sub: account.accountId, accountId: account.accountId }, secret, { expiresIn: '1h' });
 }
 function generateRefreshToken(account, ipAddress) {
   return new db.RefreshToken({

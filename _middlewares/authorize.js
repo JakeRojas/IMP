@@ -1,7 +1,13 @@
-const { expressjwt: jwt }   = require('express-jwt');
-const { secret }            = require('config.json');
-const db                    = require('_helpers/db-handler');
-const Role                  = require('_helpers/role');
+const { expressjwt: jwt } = require('express-jwt');
+let config = {};
+try {
+    config = require('../config.json');
+} catch (e) {
+    // config.json not found
+}
+const secret = process.env.SECRET || config.secret;
+const db = require('_helpers/db-handler');
+const Role = require('_helpers/role');
 
 module.exports = authorize;
 
@@ -9,6 +15,8 @@ function authorize(roles = []) {
     if (typeof roles === 'string') {
         roles = [roles];
     }
+
+    const secret = process.env.SECRET || require('config.json').secret;
 
     return [
         jwt({ secret, algorithms: ['HS256'], requestProperty: 'auth' }),
@@ -24,10 +32,11 @@ function authorize(roles = []) {
                     return res.status(403).json({ message: 'Forbidden: insufficient permissions' });
                 }
 
-                req.user = { 
-                    accountId: account.accountId, 
-                    email: account.email, 
-                    role: account.role };
+                req.user = {
+                    accountId: account.accountId,
+                    email: account.email,
+                    role: account.role
+                };
                 next();
             } catch (error) {
                 console.error('Authorization error:', error);

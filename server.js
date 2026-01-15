@@ -5,6 +5,15 @@ const app = express();
 const bodyParser = require('body-parser');
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
+
+// Try to load config.json safely
+let config = {};
+try {
+  config = require('./config.json');
+} catch (e) {
+  // config.json is likely ignored by git, which is correct for deployment
+}
+
 const errorHandler = require('_middlewares/error-handler');
 const path = require('path');
 
@@ -41,8 +50,9 @@ app.use(cookieParser());
 const allowedOrigins = [
   'http://localhost:4200',
   'http://localhost:3000',
-  'https://inventory-management-system-liard-eta.vercel.app', // <-- frontend on Vercel (include https)
-  'https://inventory-management-system-vy5y.onrender.com'     // <-- backend origin (if you need it)
+  'https://inventory-management-system-liard-eta.vercel.app',
+  /\.vercel\.app$/, // Allow all Vercel subdomains dynamically
+  'https://inventory-management-system-vy5y.onrender.com'
 ];
 
 app.use(cors({
