@@ -244,12 +244,17 @@ async function register(params, origin) {
 
   const account = new db.Account(params);
 
-  const isFirstAccount = (await db.Account.count()) === 0;
-  account.role = isFirstAccount ? Role.SuperAdmin : Role.Admin;
+  // Check if this is the first account EVER in the system
+  const totalAccountsFound = await db.Account.count();
+  const isFirstAccount = totalAccountsFound === 0;
+
+  account.role = isFirstAccount ? Role.SuperAdmin : (params.role || Role.User);
 
   // Auto-verify if first account, otherwise standard token
   if (isFirstAccount) {
-    account.verified = Date.now();
+    account.verified = new Date();
+    account.status = 'active';
+    console.log(`[AccountService] First account detected (${params.email}). Auto-verifying and assigning SuperAdmin role.`);
   } else {
     account.verificationToken = randomTokenString();
   }
@@ -257,7 +262,12 @@ async function register(params, origin) {
   account.passwordHash = await hash(params.password);
 
   await account.save();
-  await sendVerificationEmail(account, origin);
+
+  if (!isFirstAccount) {
+    await sendVerificationEmail(account, origin);
+  } else {
+    console.log(`[AccountService] Skipping verification email for first account (${params.email}).`);
+  }
 }
 async function verifyEmail({ token }) {
   const account = await db.Account.findOne({ where: { verificationToken: token } });

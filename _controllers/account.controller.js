@@ -175,24 +175,29 @@ function registerSchema(req, res, next) {
 }
 function register(req, res, next) {
   accountService.register(req.body, req.get('origin'))
-    .then(() => res.json({ message: 'Registration successful, please check your email for verification instructions' }))
+    .then(() => res.json({ message: 'Registration successful' }))
     .catch(next);
 }
 async function existsAccount(req, res, next) {
   try {
     const total = await db.Account.count();
-    // Explicitly return a boolean to avoid truthy/falsy confusion (e.g., if total is 0)
     const exists = total > 0;
 
-    // Log helpful for backend debugging if possible
-    console.log(`[accounts.exists] Total accounts found: ${total}, exists: ${exists}`);
+    if (exists) {
+      const accounts = await db.Account.findAll({ attributes: ['email', 'status'], limit: 5 });
+      console.log(`[AccountController] Found ${total} accounts. Samples:`, accounts.map(a => `${a.email} (${a.status})`));
+    } else {
+      console.log('[AccountController] No accounts found in database.');
+    }
 
     return res.json({ exists });
   } catch (err) {
-    console.error('accounts.exists error:', err && err.stack ? err.stack : err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error('existsAccount error:', err);
+    next(err);
   }
 }
+
+
 function verifyEmailSchema(req, res, next) {
   const schema = Joi.object({
     token: Joi.string().required()
