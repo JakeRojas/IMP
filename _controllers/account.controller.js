@@ -181,7 +181,12 @@ function register(req, res, next) {
 async function existsAccount(req, res, next) {
   try {
     const total = await db.Account.count();
-    const exists = (total && total > 0);
+    // Explicitly return a boolean to avoid truthy/falsy confusion (e.g., if total is 0)
+    const exists = total > 0;
+
+    // Log helpful for backend debugging if possible
+    console.log(`[accounts.exists] Total accounts found: ${total}, exists: ${exists}`);
+
     return res.json({ exists });
   } catch (err) {
     console.error('accounts.exists error:', err && err.stack ? err.stack : err);
