@@ -24,8 +24,8 @@ function authorize(roles = []) {
         async (req, res, next) => {
             try {
                 const account = await db.Account.findByPk(req.auth.accountId);
-                if (!account) {
-                    return res.status(401).json({ message: 'Account no longer exists' });
+                if (!account || account.status === 'deactivated') {
+                    return res.status(401).json({ message: 'Unauthorized' });
                 }
 
                 if (roles.length && !roles.includes(account.role)) {

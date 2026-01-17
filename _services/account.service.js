@@ -40,9 +40,9 @@ async function authenticate({ email, password, ipAddress, browserInfo }) {
     throw 'Email or password is incorrect';
   }
 
-  // if (!user.isActive) {
-  //   return res.status(401).json({ message: 'Account is deactivated. Please contact an administrator.' });
-  // }
+  if (account.status === 'deactivated') {
+    throw 'Account is deactivated. Please contact an administrator.';
+  }
 
   const jwtToken = generateJwtToken(account);
   const refreshToken = generateRefreshToken(account, ipAddress);
@@ -213,6 +213,9 @@ async function getAccountActivities(accountId, filters = {}) {
 async function refreshToken({ token, ipAddress }) {
   const refreshToken = await getRefreshToken(token);
   const account = await refreshToken.getAccount();
+  if (account.status === 'deactivated') {
+    throw 'Account is deactivated';
+  }
 
   const newRefreshToken = generateRefreshToken(account, ipAddress);
   refreshToken.revoked = Date.now();
@@ -402,7 +405,8 @@ async function update(accountId, params, ipAddress, browserInfo) {
 }
 async function _delete(accountId) {
   const account = await getAccount(accountId);
-  await account.status === 'deactivated';
+  account.status = 'deactivated';
+  await account.save();
 }
 async function getAccount(accountId) {
   const account = await db.Account.findByPk(accountId);
@@ -433,8 +437,8 @@ function randomTokenString() {
   return crypto.randomBytes(40).toString('hex');
 }
 function basicDetails(account) {
-  const { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified } = account;
-  return { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified };
+  const { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified, status } = account;
+  return { accountId, title, firstName, lastName, email, phoneNumber, role, created, updated, isVerified, status };
 }
 async function sendVerificationEmail(account, origin) {
   let message;

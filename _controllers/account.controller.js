@@ -48,10 +48,6 @@ async function authenticate(req, res, next) {
 
     const account = await accountService.authenticate({ email, password, ipAddress, browserInfo });
 
-    if (account.status === 'deactivated') {
-      return res.status(403).json({ message: 'Account is deactivated. Contact administrator.' });
-    }
-
     res.cookie('token', account.jwtToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
