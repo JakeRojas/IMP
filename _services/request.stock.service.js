@@ -162,74 +162,186 @@ async function disapproveStockRequest(id, adminAccountId = null, reason = null, 
   return req;
 }
 async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress, browserInfo) {
-  const req = await db.StockRequest.findByPk(stockRequestId);
-  if (!req) throw { status: 404, message: 'StockRequest not found' };
-  if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
+  const rid = Number(stockRequestId);
+  if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid stock request id' };
 
-  let found = null;
-  if (req.itemType === 'other' || (!req.itemId && req.otherItemName)) {
-    const otherName = req.otherItemName || 'Unspecified Item';
-    const roomId = req.requesterRoomId;
+  const result = await db.sequelize.transaction(async (t) => {
+    const req = await db.StockRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+    if (!req) throw { status: 404, message: 'StockRequest not found' };
+    if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
-    if (!roomId) throw { status: 400, message: 'Requester room ID is missing; cannot fulfill request' };
+    const qty = parseInt(req.quantity || 0, 10);
+    if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
 
-    // Try to find if a GenItemInventory already exists with this name in this room
-    let inv = await db.GenItemInventory.findOne({ where: { genItemName: otherName, roomId: roomId } });
-    if (!inv) {
-      inv = await db.GenItemInventory.create({
-        roomId: roomId,
-        genItemName: otherName,
-        genItemType: 'unknownType',
-        totalQuantity: 0
-      });
+    const destRoomId = req.requesterRoomId;
+    if (!destRoomId) throw { status: 400, message: 'Requester room ID is missing; cannot fulfill request' };
+
+    const room = await db.Room.findByPk(destRoomId, { transaction: t });
+    if (!room) throw { status: 400, message: 'Requester room not found' };
+
+    // 1. Resolve effective item type and metadata
+    let effectiveType = req.itemType;
+    let metadata = null;
+
+    if (req.itemType === 'other' || (!req.itemId && req.otherItemName)) {
+      // Resolve category from room's stockroomType
+      const srt = String(room.stockroomType || '').toLowerCase();
+      if (srt === 'apparel') effectiveType = 'apparel';
+      else if (srt === 'supply') effectiveType = 'supply';
+      else effectiveType = 'genitem';
+
+      metadata = {
+        name: req.otherItemName || 'Unspecified Item'
+      };
+    } else {
+      const found = await findInventoryAndType(req.itemId, req.itemType, { transaction: t });
+      if (!found || (!found.inv && !found.unit)) {
+        req.status = 'failed_request';
+        await req.save({ transaction: t });
+        throw { status: 404, message: 'Could not locate source inventory/item details to fulfill request' };
+      }
+      effectiveType = found.type;
+      const itemData = found.inv || found.unit;
+
+      // Normalize metadata based on type
+      if (effectiveType === 'apparel') {
+        metadata = {
+          name: itemData.apparelName || itemData.name,
+          level: itemData.apparelLevel,
+          type: itemData.apparelType,
+          for: itemData.apparelFor,
+          size: itemData.apparelSize
+        };
+      } else if (effectiveType === 'supply') {
+        metadata = {
+          name: itemData.supplyName || itemData.name,
+          measure: itemData.supplyMeasure
+        };
+      } else {
+        metadata = {
+          name: itemData.genItemName || itemData.name,
+          size: itemData.genItemSize,
+          type: itemData.genItemType || 'unknownType'
+        };
+      }
     }
-    found = { type: 'genitem', inv: inv };
-  } else {
-    found = await findInventoryAndType(req.itemId, req.itemType);
-  }
 
-  if (!found || (!found.inv && !found.unit)) {
-    req.status = 'failed_request';
-    await req.save();
-    throw { status: 404, message: 'Could not locate inventory item to fulfill request; marked as failed' };
-  }
+    // 2. Find or Create Inventory and Batch
+    let createdBatch = null;
+    if (effectiveType === 'apparel') {
+      const where = {
+        roomId: destRoomId,
+        apparelName: metadata.name,
+        apparelLevel: metadata.level || 'Unknown',
+        apparelType: metadata.type || 'Unknown',
+        apparelFor: metadata.for || 'Unknown',
+        apparelSize: metadata.size || 'Unknown'
+      };
+      const [inv] = await db.ApparelInventory.findOrCreate({ where, defaults: { ...where, totalQuantity: 0 }, transaction: t });
+      inv.totalQuantity = (inv.totalQuantity || 0) + qty;
+      await inv.save({ transaction: t });
 
-  const qty = parseInt(req.quantity || 0, 10);
-  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
+      createdBatch = await db.ReceiveApparel.create({
+        roomId: destRoomId,
+        receivedFrom: 'Administration (Stock Request)',
+        receivedBy: fulfillerAccountId || req.accountId,
+        apparelName: inv.apparelName,
+        apparelLevel: inv.apparelLevel,
+        apparelType: inv.apparelType,
+        apparelFor: inv.apparelFor,
+        apparelSize: inv.apparelSize,
+        apparelQuantity: qty
+      }, { transaction: t });
 
-  try {
-    const createdBatch = await createReceiveAndUnits(found, qty, fulfillerAccountId || req.acccountId || 0);
+      if (db.Apparel && qty > 0) {
+        const units = Array(qty).fill().map(() => ({
+          receiveApparelId: createdBatch.receiveApparelId,
+          apparelInventoryId: inv.apparelInventoryId || inv.id,
+          roomId: destRoomId,
+          status: 'good'
+        }));
+        await db.Apparel.bulkCreate(units, { transaction: t });
+      }
+    } else if (effectiveType === 'supply') {
+      const where = {
+        roomId: destRoomId,
+        supplyName: metadata.name,
+        supplyMeasure: metadata.measure || 'Unknown'
+      };
+      const [inv] = await db.AdminSupplyInventory.findOrCreate({ where, defaults: { ...where, totalQuantity: 0 }, transaction: t });
+      inv.totalQuantity = (inv.totalQuantity || 0) + qty;
+      await inv.save({ transaction: t });
 
-    if (found.inv) await updateInventory(found.inv, qty);
-    else {
-      if (found.unit) {
-        const inv = await resolveInventoryFromUnit(found);
-        if (inv) await updateInventory(inv, qty);
+      createdBatch = await db.ReceiveAdminSupply.create({
+        roomId: destRoomId,
+        receivedFrom: 'Administration (Stock Request)',
+        receivedBy: fulfillerAccountId || req.accountId,
+        supplyName: inv.supplyName,
+        supplyQuantity: qty,
+        supplyMeasure: inv.supplyMeasure
+      }, { transaction: t });
+
+      if (db.AdminSupply && qty > 0) {
+        const units = Array(qty).fill().map(() => ({
+          receiveAdminSupplyId: createdBatch.receiveAdminSupplyId,
+          adminSupplyInventoryId: inv.adminSupplyInventoryId || inv.id,
+          roomId: destRoomId,
+          status: 'good'
+        }));
+        await db.AdminSupply.bulkCreate(units, { transaction: t });
+      }
+    } else {
+      // genItem
+      const where = {
+        roomId: destRoomId,
+        genItemName: metadata.name,
+        genItemSize: metadata.size || null,
+        genItemType: metadata.type || 'unknownType'
+      };
+      const [inv] = await db.GenItemInventory.findOrCreate({ where, defaults: { ...where, totalQuantity: 0 }, transaction: t });
+      inv.totalQuantity = (inv.totalQuantity || 0) + qty;
+      await inv.save({ transaction: t });
+
+      createdBatch = await db.ReceiveGenItem.create({
+        roomId: destRoomId,
+        receivedFrom: 'Administration (Stock Request)',
+        receivedBy: fulfillerAccountId || req.accountId,
+        genItemName: inv.genItemName,
+        genItemSize: inv.genItemSize || null,
+        genItemQuantity: qty,
+        genItemType: inv.genItemType
+      }, { transaction: t });
+
+      if (db.GenItem && qty > 0) {
+        const units = Array(qty).fill().map(() => ({
+          receiveGenItemId: createdBatch.receiveGenItemId,
+          genItemInventoryId: inv.genItemInventoryId || inv.id,
+          roomId: destRoomId,
+          status: 'good'
+        }));
+        await db.GenItem.bulkCreate(units, { transaction: t });
       }
     }
 
     req.status = 'fulfilled';
-    await req.save();
-
-    try {
-      await accountService.logActivity(String(fulfillerAccountId), 'stock_request_fulfill', ipAddress, browserInfo, `stockRequestId:${req.stockRequestId}`);
-    } catch (err) {
-      console.error('activity log failed (fulfillStockRequest - log)', err);
-    }
+    await req.save({ transaction: t });
 
     return { request: req, createdBatch };
+  });
+
+  try {
+    await accountService.logActivity(String(fulfillerAccountId), 'stock_request_fulfill', ipAddress, browserInfo, `stockRequestId:${result.request.stockRequestId}`);
   } catch (err) {
-    if (req.status !== 'failed_request' && req.status !== 'fulfilled') {
-      req.status = 'failed_request';
-      await req.save();
-    }
-    throw err;
+    console.error('activity log failed (fulfillStockRequest - log)', err);
   }
+
+  return result;
 }
 
 /* ---------- Helpers (kept local for drop-in) ---------- */
-async function findInventoryAndType(id, preferredType) {
+async function findInventoryAndType(id, preferredType, options = {}) {
   if (!id) return null;
+  const tOpt = options.transaction ? { transaction: options.transaction } : {};
 
   const normalizeType = t => (typeof t === 'string' ? String(t).toLowerCase() : t);
 
@@ -237,25 +349,25 @@ async function findInventoryAndType(id, preferredType) {
     const pref = normalizeType(preferredType);
     const model = getInventoryModel(pref === 'genitem' ? 'genItem' : pref);
     if (model) {
-      const inv = await model.findByPk(id);
-      if (inv) return { type: pref, inv };
+      const inv = await model.findByPk(id, tOpt);
+      if (inv) return { type: pref === 'genitem' ? 'genitem' : pref, inv };
     }
     if (pref === 'apparel' && db.Apparel) {
-      const u = await db.Apparel.findByPk(id);
+      const u = await db.Apparel.findByPk(id, tOpt);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
         return { type: 'apparel', unit: u, inv: inv || null };
       }
     }
     if ((pref === 'supply' || pref === 'admin-supply') && db.AdminSupply) {
-      const u = await db.AdminSupply.findByPk(id);
+      const u = await db.AdminSupply.findByPk(id, tOpt);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
         return { type: 'supply', unit: u, inv: inv || null };
       }
     }
     if ((pref === 'genitem' || pref === 'it' || pref === 'maintenance') && db.GenItem) {
-      const u = await db.GenItem.findByPk(id);
+      const u = await db.GenItem.findByPk(id, tOpt);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
         return { type: 'genitem', unit: u, inv: inv || null };
@@ -264,34 +376,34 @@ async function findInventoryAndType(id, preferredType) {
   }
 
   if (db.ApparelInventory) {
-    const inv = await db.ApparelInventory.findByPk(id);
+    const inv = await db.ApparelInventory.findByPk(id, tOpt);
     if (inv) return { type: 'apparel', inv };
   }
   if (db.AdminSupplyInventory) {
-    const inv = await db.AdminSupplyInventory.findByPk(id);
+    const inv = await db.AdminSupplyInventory.findByPk(id, tOpt);
     if (inv) return { type: 'supply', inv };
   }
   if (db.GenItemInventory) {
-    const inv = await db.GenItemInventory.findByPk(id);
+    const inv = await db.GenItemInventory.findByPk(id, tOpt);
     if (inv) return { type: 'genitem', inv };
   }
 
   if (db.Apparel) {
-    const u = await db.Apparel.findByPk(id);
+    const u = await db.Apparel.findByPk(id, tOpt);
     if (u) {
       const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
       return { type: 'apparel', unit: u, inv: inv || null };
     }
   }
   if (db.AdminSupply) {
-    const u = await db.AdminSupply.findByPk(id);
+    const u = await db.AdminSupply.findByPk(id, tOpt);
     if (u) {
       const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
       return { type: 'supply', unit: u, inv: inv || null };
     }
   }
   if (db.GenItem) {
-    const u = await db.GenItem.findByPk(id);
+    const u = await db.GenItem.findByPk(id, tOpt);
     if (u) {
       const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
       return { type: 'genitem', unit: u, inv: inv || null };
@@ -319,115 +431,6 @@ async function resolveInventoryFromUnit(found) {
 function getUnitStatusForType(type) {
   // Models now use ENUM('good', 'working', 'damage')
   return 'good';
-}
-async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
-  if (found.type === 'apparel') {
-    const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
-    if (!inv) throw { status: 404, message: 'Apparel inventory record not found' };
-
-    const batch = await db.ReceiveApparel.create({
-      roomId: inv.roomId,
-      receivedFrom: 'Administration',
-      receivedBy: fulfillerAccountId,
-      apparelName: inv.apparelName,
-      apparelLevel: inv.apparelLevel,
-      apparelType: inv.apparelType,
-      apparelFor: inv.apparelFor,
-      apparelSize: inv.apparelSize,
-      apparelQuantity: qty
-    });
-
-    const unitStatus = getUnitStatusForType(found.type);
-
-    if (db.Apparel && qty > 0) {
-      const apparelUnits = Array(qty).fill().map(() => ({
-        receiveApparelId: batch.receiveApparelId,
-        apparelInventoryId: inv.apparelInventoryId ?? inv.id,
-        roomId: inv.roomId,
-        status: unitStatus
-      }));
-      await db.Apparel.bulkCreate(apparelUnits);
-    }
-
-    return batch;
-  }
-
-  if (found.type === 'supply') {
-    const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
-    if (!inv) throw { status: 404, message: 'AdminSupply inventory record not found' };
-
-    const batch = await db.ReceiveAdminSupply.create({
-      roomId: inv.roomId,
-      receivedFrom: 'Administration',
-      receivedBy: fulfillerAccountId,
-      supplyName: inv.supplyName,
-      supplyQuantity: qty,
-      supplyMeasure: inv.supplyMeasure
-    });
-
-    if (db.AdminSupply && qty > 0) {
-      const unitsStatus = getUnitStatusForType('supply');
-      const units = Array(qty).fill().map(() => ({
-        receiveAdminSupplyId: batch.receiveAdminSupplyId,
-        adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id,
-        roomId: inv.roomId,
-        status: unitsStatus
-      }));
-      await db.AdminSupply.bulkCreate(units);
-    }
-
-    return batch;
-  }
-
-  if (found.type === 'genitem') {
-    const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
-    if (!inv) throw { status: 404, message: 'GenItem inventory record not found' };
-
-    const batch = await db.ReceiveGenItem.create({
-      roomId: inv.roomId,
-      receivedFrom: 'Administration',
-      receivedBy: fulfillerAccountId,
-      genItemName: inv.genItemName,
-      genItemSize: inv.genItemSize ?? null,
-      genItemQuantity: qty,
-      genItemType: inv.genItemType
-    });
-
-    if (db.GenItem && qty > 0) {
-      const unitsStatus = getUnitStatusForType('genitem');
-      const units = Array(qty).fill().map(() => ({
-        receiveGenItemId: batch.receiveGenItemId,
-        genItemInventoryId: inv.genItemInventoryId ?? inv.id,
-        roomId: inv.roomId,
-        status: unitsStatus
-      }));
-      await db.GenItem.bulkCreate(units);
-    }
-
-    return batch;
-  }
-
-  throw { status: 500, message: 'Unsupported inventory type' };
-}
-async function updateInventory(inv, qty) {
-  if (!inv) return;
-  if (typeof inv.totalQuantity !== 'undefined') {
-    inv.totalQuantity = (inv.totalQuantity || 0) + qty;
-    await inv.save();
-    return;
-  }
-  if (typeof inv.supplyQuantity !== 'undefined') {
-    inv.supplyQuantity = (inv.supplyQuantity || 0) + qty;
-    await inv.save();
-    return;
-  }
-  if (typeof inv.quantity !== 'undefined') {
-    inv.quantity = (inv.quantity || 0) + qty;
-    await inv.save();
-    return;
-  }
-
-  throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
 function getInventoryModel(itemType) {
   if (itemType === 'apparel') return db.ApparelInventory;
