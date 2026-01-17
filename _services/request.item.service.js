@@ -451,8 +451,8 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
 
     // small helper for unit status
     function getUnitStatusForType(type) {
-      if (String(type) === 'apparel') return 'good';
-      return 'in_stock';
+      // Models now use ENUM('good', 'working', 'damage')
+      return 'good';
     }
 
     // create/update destination inventory and create receive batch + units (transactional)
@@ -517,7 +517,7 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
           receiveAdminSupplyId: createdBatch.receiveAdminSupplyId,
           adminSupplyInventoryId: destInv.adminSupplyInventoryId ?? destInv.id,
           roomId: destRoomId,
-          status: 'in_stock'
+          status: 'good'
         }));
         await db.AdminSupply.bulkCreate(units, { transaction: t });
       }
@@ -548,7 +548,7 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
           receiveGenItemId: createdBatch.receiveGenItemId,
           genItemInventoryId: destInv.genItemInventoryId ?? destInv.id,
           roomId: destRoomId,
-          status: 'in_stock'
+          status: 'good'
         }));
         await db.GenItem.bulkCreate(units, { transaction: t });
       }
@@ -669,7 +669,7 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
     if (db.AdminSupply && qty > 0) {
       const units = await db.AdminSupply.findAll({
-        where: { adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, status: 'in_stock' },
+        where: { adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, status: 'good' },
         limit: qty,
         order: [['adminSupplyId', 'ASC']],
         ...tx
@@ -695,7 +695,7 @@ async function createReleaseForType(req, inv, qty, requesterName, releaserAccoun
 
     if (db.GenItem && qty > 0) {
       const units = await db.GenItem.findAll({
-        where: { genItemInventoryId: inv.genItemInventoryId ?? inv.id, status: 'in_stock' },
+        where: { genItemInventoryId: inv.genItemInventoryId ?? inv.id, status: 'good' },
         limit: qty,
         order: [['genItemId', 'ASC']],
         ...tx

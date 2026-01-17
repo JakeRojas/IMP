@@ -166,7 +166,28 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
   if (!req) throw { status: 404, message: 'StockRequest not found' };
   if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
-  const found = await findInventoryAndType(req.itemId, req.itemType);
+  let found = null;
+  if (req.itemType === 'other' || (!req.itemId && req.otherItemName)) {
+    const otherName = req.otherItemName || 'Unspecified Item';
+    const roomId = req.requesterRoomId;
+
+    if (!roomId) throw { status: 400, message: 'Requester room ID is missing; cannot fulfill request' };
+
+    // Try to find if a GenItemInventory already exists with this name in this room
+    let inv = await db.GenItemInventory.findOne({ where: { genItemName: otherName, roomId: roomId } });
+    if (!inv) {
+      inv = await db.GenItemInventory.create({
+        roomId: roomId,
+        genItemName: otherName,
+        genItemType: 'unknownType',
+        totalQuantity: 0
+      });
+    }
+    found = { type: 'genitem', inv: inv };
+  } else {
+    found = await findInventoryAndType(req.itemId, req.itemType);
+  }
+
   if (!found || (!found.inv && !found.unit)) {
     req.status = 'failed_request';
     await req.save();
@@ -296,10 +317,8 @@ async function resolveInventoryFromUnit(found) {
   return null;
 }
 function getUnitStatusForType(type) {
-  if (type === 'apparel') return 'good';
-  if (type === 'supply') return 'in_stock';
-  if (type === 'genitem') return 'in_stock';
-  return 'in_stock';
+  // Models now use ENUM('good', 'working', 'damage')
+  return 'good';
 }
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
   if (found.type === 'apparel') {
@@ -347,11 +366,12 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     });
 
     if (db.AdminSupply && qty > 0) {
+      const unitsStatus = getUnitStatusForType('supply');
       const units = Array(qty).fill().map(() => ({
         receiveAdminSupplyId: batch.receiveAdminSupplyId,
         adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id,
         roomId: inv.roomId,
-        status: 'in_stock'
+        status: unitsStatus
       }));
       await db.AdminSupply.bulkCreate(units);
     }
@@ -374,10 +394,12 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     });
 
     if (db.GenItem && qty > 0) {
+      const unitsStatus = getUnitStatusForType('genitem');
       const units = Array(qty).fill().map(() => ({
         receiveGenItemId: batch.receiveGenItemId,
+        genItemInventoryId: inv.genItemInventoryId ?? inv.id,
         roomId: inv.roomId,
-        status: 'in_stock'
+        status: unitsStatus
       }));
       await db.GenItem.bulkCreate(units);
     }

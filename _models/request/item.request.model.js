@@ -13,6 +13,7 @@ module.exports = (sequelize) => {
       defaultValue: 'pending'
     },
     note: { type: DataTypes.STRING(500), allowNull: true },
+    itemType: { type: DataTypes.STRING(50), allowNull: true },
     otherItemName: { type: DataTypes.STRING(255), allowNull: true },
     acceptedBy: { type: DataTypes.INTEGER, allowNull: true },
     acceptedAt: { type: DataTypes.DATE, allowNull: true },
