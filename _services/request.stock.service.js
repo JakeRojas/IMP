@@ -166,11 +166,27 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
   if (!req) throw { status: 404, message: 'StockRequest not found' };
   if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
-  const found = await findInventoryAndType(req.itemId, req.itemType);
+  let found = await findInventoryAndType(req.itemId, req.itemType);
   if (!found || (!found.inv && !found.unit)) {
-    req.status = 'failed_request';
-    await req.save();
-    throw { status: 404, message: 'Could not locate inventory item to fulfill request; marked as failed' };
+    // If it's an "Others" request, we can resolve it to GenItemInventory now
+    if (req.otherItemName) {
+      let inv = await db.GenItemInventory.findOne({
+        where: { roomId: req.requesterRoomId, genItemName: req.otherItemName }
+      });
+      if (!inv) {
+        inv = await db.GenItemInventory.create({
+          roomId: req.requesterRoomId,
+          genItemName: req.otherItemName,
+          genItemType: 'unknownType',
+          totalQuantity: 0
+        });
+      }
+      found = { type: 'genitem', inv: inv };
+    } else {
+      req.status = 'failed_request';
+      await req.save();
+      throw { status: 404, message: 'Could not locate inventory item to fulfill request; marked as failed' };
+    }
   }
 
   const qty = parseInt(req.quantity || 0, 10);
@@ -376,6 +392,7 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     if (db.GenItem && qty > 0) {
       const units = Array(qty).fill().map(() => ({
         receiveGenItemId: batch.receiveGenItemId,
+        genItemInventoryId: inv.genItemInventoryId ?? inv.id,
         roomId: inv.roomId,
         status: 'in_stock'
       }));
