@@ -55,12 +55,9 @@ async function createStockRequestHandler(req, res) {
     }
 
     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+
     // delegate to service (service will infer itemType from itemId)
-    const created = await stockService.createStockRequest({
-      ...payload,
-      ipAddress,
-      browserInfo
-    });
+    const created = await stockService.createStockRequest(payload, ipAddress, browserInfo);
     return res.status(201).json({ success: true, data: created });
   } catch (err) {
     console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);

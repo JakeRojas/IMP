@@ -6,7 +6,6 @@ module.exports = (sequelize) => {
     accountId: { type: DataTypes.INTEGER, allowNull: false },
     requestToRoomId: { type: DataTypes.INTEGER, allowNull: true },
     requesterRoomId: { type: DataTypes.INTEGER, allowNull: true },
-    itemType: { type: DataTypes.STRING(50), allowNull: true },
     itemId: { type: DataTypes.INTEGER, allowNull: true },
     quantity: { type: DataTypes.INTEGER, defaultValue: 1 },
     status: {
