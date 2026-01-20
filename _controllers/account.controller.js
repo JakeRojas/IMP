@@ -314,10 +314,11 @@ async function _delete(req, res, next) {
   }
 }
 function setTokenCookie(res, token) {
+  const isProduction = process.env.NODE_ENV === 'production';
   const cookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'none' : 'lax',
     expires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   };
   res.cookie('refreshToken', token, cookieOptions);
