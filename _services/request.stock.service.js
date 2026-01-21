@@ -10,7 +10,7 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ accountId, requesterRoomId, itemId, otherItemName, quantity = 1, note = null, ipAddress, browserInfo }) {
+async function createStockRequest({ accountId, requesterRoomId, itemId, otherItemName, quantity = 1, note = null, details = null, ipAddress, browserInfo }) {
   if (!accountId) throw { status: 400, message: 'accountId is required' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
@@ -66,6 +66,7 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
     otherItemName: otherItemName || null,
     quantity,
     note,
+    details,
     status: 'pending'
   });
 
@@ -172,18 +173,97 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
     const roomId = req.requesterRoomId;
 
     if (!roomId) throw { status: 400, message: 'Requester room ID is missing; cannot fulfill request' };
+    const room = await db.Room.findByPk(roomId);
+    if (!room) throw { status: 404, message: 'Requester room not found' };
 
-    // Try to find if a GenItemInventory already exists with this name in this room
-    let inv = await db.GenItemInventory.findOne({ where: { genItemName: otherName, roomId: roomId } });
-    if (!inv) {
-      inv = await db.GenItemInventory.create({
+    const details = req.details || {};
+    const sType = (room.stockroomType || '').toLowerCase();
+
+    // -- APPAREL --
+    if (sType === 'apparel') {
+      // Required fields for apparel: name, level, type, for, size
+      // We assume details contains: { level, type, for, size }
+      // If missing, we might default or fail. Let's default to avoid crashes but correct usage implies fields are present.
+      const appData = {
+        roomId: roomId,
+        apparelName: otherName,
+        apparelLevel: details.apparelLevel || 'teachers',
+        apparelType: details.apparelType || 'uniform',
+        apparelFor: details.apparelFor || 'boys',
+        apparelSize: details.apparelSize || 'm' // default
+      };
+
+      // Check if inventory exists
+      let inv = await db.ApparelInventory.findOne({
+        where: {
+          roomId,
+          apparelName: appData.apparelName,
+          apparelLevel: appData.apparelLevel,
+          apparelType: appData.apparelType,
+          apparelFor: appData.apparelFor,
+          apparelSize: appData.apparelSize
+        }
+      });
+
+      if (!inv) {
+        inv = await db.ApparelInventory.create({
+          ...appData,
+          totalQuantity: 0
+        });
+      }
+      found = { type: 'apparel', inv };
+    }
+    // -- SUPPLY --
+    else if (sType === 'supply') {
+      const supData = {
+        roomId: roomId,
+        supplyName: otherName,
+        supplyMeasure: details.supplyMeasure || 'pc'
+      };
+
+      let inv = await db.AdminSupplyInventory.findOne({
+        where: {
+          roomId,
+          supplyName: supData.supplyName,
+          supplyMeasure: supData.supplyMeasure
+        }
+      });
+      if (!inv) {
+        inv = await db.AdminSupplyInventory.create({
+          ...supData,
+          supplyQuantity: 0
+        });
+      }
+      found = { type: 'supply', inv };
+    }
+    // -- GENERAL / DEFAULT --
+    else {
+      // Generic logic -> GenItem
+      // details: { type, size }
+      const genData = {
         roomId: roomId,
         genItemName: otherName,
-        genItemType: 'unknownType',
-        totalQuantity: 0
+        genItemType: details.genItemType || 'unknownType',
+        genItemSize: details.genItemSize || null
+      };
+
+      let inv = await db.GenItemInventory.findOne({
+        where: {
+          roomId,
+          genItemName: genData.genItemName,
+          genItemType: genData.genItemType,
+          genItemSize: genData.genItemSize
+        }
       });
+
+      if (!inv) {
+        inv = await db.GenItemInventory.create({
+          ...genData,
+          totalQuantity: 0
+        });
+      }
+      found = { type: 'genitem', inv };
     }
-    found = { type: 'genitem', inv: inv };
   } else {
     found = await findInventoryAndType(req.itemId, req.itemType);
   }

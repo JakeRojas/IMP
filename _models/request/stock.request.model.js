@@ -14,6 +14,7 @@ module.exports = (sequelize) => {
     note: { type: DataTypes.STRING(500), allowNull: true },
     itemType: { type: DataTypes.STRING(50), allowNull: true },
     otherItemName: { type: DataTypes.STRING(255), allowNull: true },
+    details: { type: DataTypes.JSON, allowNull: true },
   };
 
   const options = {

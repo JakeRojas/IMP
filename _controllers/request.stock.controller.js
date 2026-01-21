@@ -33,6 +33,7 @@ function createSchema(req, res, next) {
     otherItemName: Joi.string().max(255).allow('', null).optional(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).allow('', null).optional(),
+    details: Joi.object().optional(),
   });
   validateRequest(req, next, schema);
 }
