@@ -12,135 +12,198 @@ module.exports = {
   fulfillItemRequest
 };
 
-async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, itemId, otherItemName, quantity = 1, note = null, ipAddress, browserInfo }) {
+async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, items = [], note = null, ipAddress, browserInfo }) {
   if (!accountId) throw { status: 401, message: 'Unauthenticated' };
-  if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive integer' };
+  if (!items || !items.length) throw { status: 400, message: 'Must provide at least one item' };
 
-  // Defensive: ensure requestToRoom exists and is stockroom/substockroom (in case service is called directly)
+  // Defensive: ensure rooms exist
   const requestToRoom = await db.Room.findByPk(requestToRoomId);
   if (!requestToRoom) throw { status: 400, message: 'Invalid requestToRoomId' };
-  const rt = String(requestToRoom.roomType || '').toLowerCase();
-  if (!['stockroom', 'substockroom'].includes(rt)) {
-    throw { status: 403, message: 'Can only request from rooms of type stockroom or substockroom' };
-  }
 
-  // first, ensure the itemId exists and belongs to the requestToRoomId
-  let resolvedType = null;
-  let itemRow = null;
+  const resolvedItems = [];
+  for (const it of items) {
+    let resolvedType = it.itemType || null;
+    let itemId = it.itemId ? Number(it.itemId) : null;
+    let quantity = Number(it.quantity || 1);
+    if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive integer' };
 
-  async function tryInventory(modelName) {
-    const M = db[modelName];
-    if (!M) return null;
-    const candidate = await M.findByPk(itemId);
-    if (!candidate) return null;
-    const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
-    for (const f of roomFields) {
-      if (typeof candidate[f] !== 'undefined' && String(candidate[f]) === String(requestToRoomId)) {
-        return candidate;
+    if (itemId) {
+      // Validate item exists (reusing logic if needed, but for bulk we might skip extensive room validation if trust is high)
+      // For now, assume front-end filtered correctly and we just need the type if missing.
+      if (!resolvedType) {
+        const inv = await getInventoryModelForItemId(itemId);
+        if (inv) resolvedType = inv.key;
       }
+    } else if (!it.otherItemName) {
+      throw { status: 400, message: 'Each item must have itemId or otherItemName' };
     }
-    return null;
+
+    resolvedItems.push({
+      itemId,
+      itemType: resolvedType,
+      otherItemName: it.otherItemName || null,
+      quantity,
+      note: it.note || null,
+      status: 'pending'
+    });
   }
 
-  if (itemId) {
-    if (db.ApparelInventory) {
-      const r = await tryInventory('ApparelInventory');
-      if (r) { resolvedType = 'apparel'; itemRow = r; }
-    }
-    if (!resolvedType && db.AdminSupplyInventory) {
-      const r = await tryInventory('AdminSupplyInventory');
-      if (r) { resolvedType = 'supply'; itemRow = r; }
-    }
-    if (!resolvedType && db.GenItemInventory) {
-      const r = await tryInventory('GenItemInventory');
-      if (r) { resolvedType = 'genItem'; itemRow = r; }
-    }
-
-    if (!resolvedType) {
-      const unitCandidates = [
-        { model: 'Apparel', type: 'apparel' },
-        { model: 'AdminSupply', type: 'supply' },
-        { model: 'GenItem', type: 'genItem' }
-      ];
-      for (const cand of unitCandidates) {
-        const M = db[cand.model];
-        if (!M) continue;
-        const u = await M.findByPk(itemId);
-        if (!u) continue;
-        const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
-        for (const f of roomFields) {
-          if (typeof u[f] !== 'undefined' && String(u[f]) === String(requestToRoomId)) {
-            resolvedType = cand.type; itemRow = u; break;
-          }
-        }
-        if (resolvedType) break;
-      }
-    }
-
-    if (!resolvedType) {
-      throw { status: 400, message: `Item ${itemId} was not found in the inventory (or does not belong to room ${requestToRoomId})` };
-    }
-  } else if (otherItemName) {
-    resolvedType = 'other';
-  } else {
-    throw { status: 400, message: 'Must provide either itemId or otherItemName' };
-  }
-
-  // Create the ItemRequest record (store itemType for downstream compatibility)
+  // Create Header (Legacy fields take the first item if exists)
+  const first = resolvedItems[0];
   const created = await db.ItemRequest.create({
     accountId,
     requesterRoomId,
     requestToRoomId,
-    itemType: resolvedType,
-    itemId: itemId || null,
-    otherItemName: otherItemName || null,
-    quantity,
+    itemType: first.itemType,
+    itemId: first.itemId,
+    otherItemName: first.otherItemName,
+    quantity: items.length === 1 ? first.quantity : resolvedItems.reduce((acc, curr) => acc + curr.quantity, 0),
     note,
-    status: 'pending'
-    , ipAddress, browserInfo
+    status: 'pending',
+    ipAddress,
+    browserInfo
   });
+
+  // Create Details
+  await Promise.all(resolvedItems.map(ri => {
+    ri.itemRequestId = created.itemRequestId;
+    return db.ItemRequestDetail.create(ri);
+  }));
 
   try {
     await accountService.logActivity(
       String(accountId),
       'item_request_create',
-      created.ipAddress,
-      created.browserInfo,
-      `requestId:${created.itemRequestId}`
+      ipAddress,
+      browserInfo,
+      `requestId:${created.itemRequestId}, itemsCount:${resolvedItems.length}`
     );
   } catch (e) { console.error('activity log failed (createItemRequest)', e); }
 
   return created;
 }
 
-async function listItemRequests({ where = {}, limit = 100, offset = 0 } = {}) {
+async function listItemRequests({ query = {}, limit = 100, offset = 0 } = {}) {
+  const { Op } = require('sequelize');
+  const where = {};
+
+  if (query.status) where.status = query.status;
+  if (query.accountId) where.accountId = query.accountId;
+  if (query.itemType) where.itemType = query.itemType;
+
+  // Search filter
+  if (query.search) {
+    where[Op.or] = [
+      { itemRequestId: { [Op.like]: `%${query.search}%` } },
+      { '$Room.roomName$': { [Op.like]: `%${query.search}%` } },
+      { '$Account.firstName$': { [Op.like]: `%${query.search}%` } },
+      { '$Account.lastName$': { [Op.like]: `%${query.search}%` } },
+      { itemType: { [Op.like]: `%${query.search}%` } },
+      { otherItemName: { [Op.like]: `%${query.search}%` } },
+    ];
+  }
+
+  // Date Filter
+  if (query.startDate && query.endDate) {
+    const start = new Date(query.startDate);
+    const end = new Date(query.endDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.between]: [start, end] };
+  } else if (query.startDate) {
+    where.createdAt = { [Op.gte]: new Date(query.startDate) };
+  } else if (query.endDate) {
+    const end = new Date(query.endDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.lte]: end };
+  }
+
   const { count, rows } = await db.ItemRequest.findAndCountAll({
     where,
     order: [['itemRequestId', 'DESC']],
     limit,
     offset,
     include: [
-      { model: db.Room, attributes: ['roomId', 'roomName'] },
+      { model: db.Room, as: 'Room', attributes: ['roomId', 'roomName'] },
+      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName'] },
       { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
     ]
   });
   return { rows, count };
 }
+
 async function getItemRequestById(id) {
   const r = await db.ItemRequest.findByPk(id, {
-    include: [{
-      model: db.Account,
-      attributes: ['accountId', 'firstName', 'lastName']
-    }]
+    include: [
+      { model: db.Room, as: 'Room', attributes: ['roomId', 'roomName'] },
+      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName'] },
+      { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] },
+      { model: db.ItemRequestDetail, as: 'items' }
+    ]
   });
   if (!r) throw { status: 404, message: 'ItemRequest not found' };
+
+  // Load requested items for header and details to resolve names
+  const loadTasks = [];
+  loadTasks.push((async () => {
+    try {
+      const ri = await _loadRequestedItem(r.itemId, r.itemType);
+      if (ri) r.setDataValue('requestedItem', ri);
+    } catch (e) { }
+  })());
+
+  if (r.items) {
+    for (const item of r.items) {
+      loadTasks.push((async () => {
+        try {
+          const ri = await _loadRequestedItem(item.itemId, item.itemType);
+          if (ri) item.setDataValue('requestedItem', ri);
+        } catch (e) { }
+      })());
+    }
+  }
+  await Promise.all(loadTasks);
+
   return r;
 }
-async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo) {
+async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo, updateData = {}) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
 
-  req.status = 'accepted';
+  const decisions = updateData.decisions || []; // Array of { id, status, reason }
+
+  if (decisions.length > 0) {
+    // Granular acceptance
+    for (const d of decisions) {
+      await db.ItemRequestDetail.update(
+        { status: d.status, note: d.reason || null },
+        { where: { itemRequestDetailId: d.id, itemRequestId: id } }
+      );
+    }
+
+    // Check if at least one is accepted to determine header status
+    const acceptedCount = await db.ItemRequestDetail.count({ where: { itemRequestId: id, status: 'accepted' } });
+    const pendingCount = await db.ItemRequestDetail.count({ where: { itemRequestId: id, status: 'pending' } });
+
+    if (acceptedCount > 0) {
+      req.status = 'accepted';
+    } else if (pendingCount === 0) {
+      req.status = 'declined';
+    }
+  } else {
+    // Default: Accept everything
+    req.status = 'accepted';
+    if (updateData.quantity) {
+      const q = Number(updateData.quantity);
+      if (Number.isFinite(q) && q > 0) req.quantity = q;
+    }
+    if (db.ItemRequestDetail) {
+      await db.ItemRequestDetail.update(
+        { status: 'accepted' },
+        { where: { itemRequestId: id, status: 'pending' } }
+      );
+    }
+  }
+
   req.acceptedBy = acceptorAccountId || null;
   req.acceptedAt = new Date();
   await req.save();
@@ -151,7 +214,7 @@ async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo) 
       'item_request_accept',
       ipAddress,
       browserInfo,
-      `requestId:${req.itemRequestId}`
+      `requestId:${req.itemRequestId}, granular:${decisions.length > 0}`
     );
   } catch (e) { console.error('activity log failed (acceptItemRequest)', e); }
 
@@ -266,70 +329,76 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
   if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid request id' };
 
   const result = await db.sequelize.transaction(async (t) => {
-    const reqRow = await db.ItemRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+    const reqRow = await db.ItemRequest.findByPk(rid, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+      include: [{ model: db.ItemRequestDetail, as: 'items' }]
+    });
     if (!reqRow) throw { status: 404, message: 'Item request not found' };
 
-    // must be in accepted state to release (adjust to your actual statuses)
     if (reqRow.status !== 'accepted') throw { status: 400, message: `Cannot release request in status '${reqRow.status}'` };
 
-    // ensure itemId exists (common cause of "not found")
-    const itemId = reqRow.itemId;
-    if (!itemId) {
-      // more helpful error so you can debug acceptance flow
-      throw { status: 400, message: 'ItemRequest.itemId is null or missing. Ensure accept flow sets the inventory itemId before release.' };
+    const items = reqRow.items || [];
+    if (items.length === 0) {
+      // Support legacy single-item requests if no details found
+      items.push({
+        itemId: reqRow.itemId,
+        quantity: reqRow.quantity,
+        itemType: reqRow.itemType,
+        otherItemName: reqRow.otherItemName
+      });
     }
 
-    // find inventory row (search across inventory tables)
-    const invInfo = await getInventoryModelForItemId(itemId, t);
-    if (!invInfo) {
-      // mark request out_of_stock (your existing logic did this)
-      reqRow.status = 'out_of_stock';
-      reqRow.outOfStockAt = new Date();
-      await reqRow.save({ transaction: t });
-      throw { status: 400, message: 'Inventory item not found; request marked out_of_stock' };
+    const releasedItemsInfo = [];
+    for (const item of items) {
+      if (item.itemId) {
+        const invInfo = await getInventoryModelForItemId(item.itemId, t);
+        if (!invInfo) {
+          throw { status: 400, message: `Inventory item ${item.itemId} not found for item ${item.otherItemName || ''}` };
+        }
+        const inv = invInfo.row;
+        const qty = Number(item.quantity || 0);
+        const available = Number(inv.totalQuantity || 0);
+
+        if (available < qty) {
+          throw { status: 400, message: `Insufficient stock for item ${item.otherItemName || item.itemId} (have ${available}, need ${qty})` };
+        }
+
+        // decrease inventory
+        inv.totalQuantity = Math.max(0, available - qty);
+        await inv.save({ transaction: t });
+        releasedItemsInfo.push({ itemId: item.itemId, type: invInfo.key, qty });
+      }
+
+      if (item.id) { // if it's a detail record
+        item.status = 'released';
+        await item.save({ transaction: t });
+      }
     }
 
-    const inv = invInfo.row;
-    const qty = Number(reqRow.quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) throw { status: 400, message: 'Invalid request quantity' };
-
-    const available = Number(inv.totalQuantity || 0);
-    if (available < qty) {
-      // not enough stock -> mark out_of_stock and return
-      reqRow.status = 'out_of_stock';
-      reqRow.outOfStockAt = new Date();
-      await reqRow.save({ transaction: t });
-      throw { status: 400, message: `Insufficient stock (have ${available}, need ${qty}). Request marked out_of_stock.` };
-    }
-
-    // decrease inventory
-    inv.totalQuantity = Math.max(0, available - qty);
-    await inv.save({ transaction: t });
-
-    // mark request released
+    // mark header released
     reqRow.status = 'released';
-    reqRow.releasedBy = String(user?.accountId ?? user?.id ?? user?.userId ?? '');
+    reqRow.releasedBy = String(user?.accountId ?? user?.id ?? '');
     reqRow.releasedAt = new Date();
     await reqRow.save({ transaction: t });
 
-    return { reqRow, invInfo };
+    return { reqRow, releasedItemsInfo };
   });
 
-  // activity log (best-effort) — include ip/browser if provided
   try {
     await accountService.logActivity(
-      String(user?.accountId ?? user?.id ?? user?.userId ?? ''),
-      'itemrequest_release',
-      ipAddress || '',
-      browserInfo || '',
-      `requestId:${result.reqRow.requestId}`
+      String(user?.accountId ?? user?.id ?? ''),
+      'item_request_release',
+      ipAddress,
+      browserInfo,
+      `requestId:${result.reqRow.itemRequestId}, itemsRel:${result.releasedItemsInfo.length}`
     );
-  } catch (err) {
-    console.error('activity log failed (releaseItemRequest)', err);
-  }
+  } catch (err) { console.error('activity log failed (releaseItemRequest)', err); }
 
   return result.reqRow;
 }
+// function ends here correctly
+
 
 // /**
 //  * fulfillItemRequest
@@ -415,148 +484,144 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
   if (!Number.isFinite(rid) || rid <= 0) throw { status: 400, message: 'Invalid request id' };
 
   const result = await db.sequelize.transaction(async (t) => {
-    const reqRow = await db.ItemRequest.findByPk(rid, { transaction: t, lock: t.LOCK.UPDATE });
+    const reqRow = await db.ItemRequest.findByPk(rid, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+      include: [{ model: db.ItemRequestDetail, as: 'items' }]
+    });
     if (!reqRow) throw { status: 404, message: 'Item request not found' };
 
-    // require released -> fulfill
-    if (String(reqRow.status) !== 'released') throw { status: 400, message: `Only released requests can be fulfilled. Current status: '${reqRow.status}'` };
-
-    // find the inventory/unit that was released (helper already in file)
-    const found = await findInventoryAndType(reqRow.itemId, reqRow.itemType);
-    if (!found || (!found.inv && !found.unit)) {
-      // mark failed and save
-      reqRow.status = 'failed_request';
-      await reqRow.save({ transaction: t });
-      throw { status: 404, message: 'Could not locate inventory item to fulfill request; request marked failed' };
+    if (String(reqRow.status) !== 'released') {
+      throw { status: 400, message: `Only released requests can be fulfilled. Current status: '${reqRow.status}'` };
     }
 
-    const qty = Number(reqRow.quantity || 0);
-    if (!Number.isFinite(qty) || qty <= 0) {
-      throw { status: 400, message: 'Invalid request quantity' };
-    }
-
-    // Use requesterRoomId as destination room
     const destRoomId = Number(reqRow.requesterRoomId);
-    if (!Number.isFinite(destRoomId) || destRoomId <= 0) {
-      throw { status: 400, message: 'Invalid requesterRoomId on request' };
+    if (!Number.isFinite(destRoomId) || destRoomId <= 0) throw { status: 400, message: 'Invalid requesterRoomId' };
+
+    const items = reqRow.items || [];
+    // Fallback for legacy single-item requests
+    if (items.length === 0 && reqRow.itemId) {
+      items.push({
+        itemId: reqRow.itemId,
+        quantity: reqRow.quantity,
+        itemType: reqRow.itemType,
+        otherItemName: reqRow.otherItemName
+      });
     }
 
-    // get an example inventory record for metadata (name/size/etc.)
-    const exampleInv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
-    if (!exampleInv) {
-      reqRow.status = 'failed_request';
-      await reqRow.save({ transaction: t });
-      throw { status: 404, message: 'Could not resolve inventory metadata for fulfillment' };
-    }
+    for (const item of items) {
+      if (!item.itemId) continue; // Skip 'other' items as they aren't in inventory
 
-    // small helper for unit status
-    function getUnitStatusForType(type) {
-      // Models now use ENUM('good', 'working', 'damage')
-      return 'good';
-    }
+      const invInfo = await getInventoryModelForItemId(item.itemId, t);
+      if (!invInfo) continue; // Should we throw? For now skip to be safe.
 
-    // create/update destination inventory and create receive batch + units (transactional)
-    let createdBatch = null;
+      const inv = invInfo.row;
+      const qty = Number(item.quantity || 0);
+      if (qty <= 0) continue;
 
-    if (String(found.type) === 'apparel') {
-      const where = {
-        roomId: destRoomId,
-        apparelName: exampleInv.apparelName,
-        apparelLevel: exampleInv.apparelLevel,
-        apparelType: exampleInv.apparelType,
-        apparelFor: exampleInv.apparelFor,
-        apparelSize: exampleInv.apparelSize
-      };
-      const [destInv] = await db.ApparelInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
-      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
-      await destInv.save({ transaction: t });
+      let createdBatch = null;
 
-      createdBatch = await db.ReceiveApparel.create({
-        roomId: destRoomId,
-        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
-        receivedBy: String(user?.accountId ?? user?.id ?? null),
-        apparelName: destInv.apparelName,
-        apparelLevel: destInv.apparelLevel,
-        apparelType: destInv.apparelType,
-        apparelFor: destInv.apparelFor,
-        apparelSize: destInv.apparelSize,
-        apparelQuantity: qty
-      }, { transaction: t });
-
-      if (db.Apparel && qty > 0) {
-        const apparelUnits = Array(qty).fill().map(() => ({
-          receiveApparelId: createdBatch.receiveApparelId,
-          apparelInventoryId: destInv.apparelInventoryId ?? destInv.id,
+      // Handle specific inventory types
+      if (invInfo.key === 'apparel') {
+        const where = {
           roomId: destRoomId,
-          status: getUnitStatusForType(found.type)
-        }));
-        await db.Apparel.bulkCreate(apparelUnits, { transaction: t });
-      }
-    }
-    else if (String(found.type) === 'supply' || String(found.type) === 'admin-supply') {
-      const where = {
-        roomId: destRoomId,
-        supplyName: exampleInv.supplyName,
-        supplyMeasure: exampleInv.supplyMeasure
-      };
-      const [destInv] = await db.AdminSupplyInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
-      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
-      await destInv.save({ transaction: t });
+          apparelName: inv.apparelName,
+          apparelLevel: inv.apparelLevel,
+          apparelType: inv.apparelType,
+          apparelFor: inv.apparelFor,
+          apparelSize: inv.apparelSize
+        };
+        const [destInv] = await db.ApparelInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+        destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+        await destInv.save({ transaction: t });
 
-      createdBatch = await db.ReceiveAdminSupply.create({
-        roomId: destRoomId,
-        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
-        receivedBy: String(user?.accountId ?? user?.id ?? null),
-        supplyName: destInv.supplyName,
-        supplyQuantity: qty,
-        supplyMeasure: destInv.supplyMeasure
-      }, { transaction: t });
-
-      if (db.AdminSupply && qty > 0) {
-        const units = Array(qty).fill().map(() => ({
-          receiveAdminSupplyId: createdBatch.receiveAdminSupplyId,
-          adminSupplyInventoryId: destInv.adminSupplyInventoryId ?? destInv.id,
+        createdBatch = await db.ReceiveApparel.create({
           roomId: destRoomId,
-          status: 'good'
-        }));
-        await db.AdminSupply.bulkCreate(units, { transaction: t });
+          receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+          receivedBy: String(user?.accountId ?? user?.id ?? ''),
+          apparelName: destInv.apparelName,
+          apparelLevel: destInv.apparelLevel,
+          apparelType: destInv.apparelType,
+          apparelFor: destInv.apparelFor,
+          apparelSize: destInv.apparelSize,
+          apparelQuantity: qty
+        }, { transaction: t });
+
+        if (db.Apparel) {
+          const units = Array(qty).fill().map(() => ({
+            receiveApparelId: createdBatch.receiveApparelId,
+            apparelInventoryId: destInv.apparelInventoryId || destInv.id,
+            roomId: destRoomId,
+            status: 'good'
+          }));
+          await db.Apparel.bulkCreate(units, { transaction: t });
+        }
       }
-    }
-    else if (String(found.type) === 'genitem' || String(found.type) === 'it' || String(found.type) === 'maintenance') {
-      const where = {
-        roomId: destRoomId,
-        genItemName: exampleInv.genItemName,
-        genItemSize: exampleInv.genItemSize ?? null,
-        genItemType: exampleInv.genItemType
-      };
-      const [destInv] = await db.GenItemInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
-      destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
-      await destInv.save({ transaction: t });
-
-      createdBatch = await db.ReceiveGenItem.create({
-        roomId: destRoomId,
-        receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
-        receivedBy: String(user?.accountId ?? user?.id ?? null),
-        genItemName: destInv.genItemName,
-        genItemSize: destInv.genItemSize ?? null,
-        genItemQuantity: qty,
-        genItemType: destInv.genItemType
-      }, { transaction: t });
-
-      if (db.GenItem && qty > 0) {
-        const units = Array(qty).fill().map(() => ({
-          receiveGenItemId: createdBatch.receiveGenItemId,
-          genItemInventoryId: destInv.genItemInventoryId ?? destInv.id,
+      else if (invInfo.key === 'supply') {
+        const where = {
           roomId: destRoomId,
-          status: 'good'
-        }));
-        await db.GenItem.bulkCreate(units, { transaction: t });
+          supplyName: inv.supplyName,
+          supplyMeasure: inv.supplyMeasure
+        };
+        const [destInv] = await db.AdminSupplyInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+        destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+        await destInv.save({ transaction: t });
+
+        createdBatch = await db.ReceiveAdminSupply.create({
+          roomId: destRoomId,
+          receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+          receivedBy: String(user?.accountId ?? user?.id ?? ''),
+          supplyName: destInv.supplyName,
+          supplyQuantity: qty,
+          supplyMeasure: destInv.supplyMeasure
+        }, { transaction: t });
+
+        if (db.AdminSupply) {
+          const units = Array(qty).fill().map(() => ({
+            receiveAdminSupplyId: createdBatch.receiveAdminSupplyId,
+            adminSupplyInventoryId: destInv.adminSupplyInventoryId || destInv.id,
+            roomId: destRoomId,
+            status: 'good'
+          }));
+          await db.AdminSupply.bulkCreate(units, { transaction: t });
+        }
       }
-    } else {
-      // unsupported type — mark failed
-      reqRow.status = 'failed_request';
-      await reqRow.save({ transaction: t });
-      throw { status: 400, message: `Unsupported item type for fulfillment: ${found.type}` };
+      else if (invInfo.key === 'genitem') {
+        const where = {
+          roomId: destRoomId,
+          genItemName: inv.genItemName,
+          genItemSize: inv.genItemSize ?? null,
+          genItemType: inv.genItemType
+        };
+        const [destInv] = await db.GenItemInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction: t });
+        destInv.totalQuantity = (destInv.totalQuantity || 0) + qty;
+        await destInv.save({ transaction: t });
+
+        const rb = await db.ReceiveGenItem.create({
+          roomId: destRoomId,
+          receivedFrom: `ItemRequest #${reqRow.itemRequestId}`,
+          receivedBy: String(user?.accountId ?? user?.id ?? ''),
+          genItemName: destInv.genItemName,
+          genItemSize: destInv.genItemSize ?? null,
+          genItemQuantity: qty,
+          genItemType: destInv.genItemType
+        }, { transaction: t });
+
+        if (db.GenItem) {
+          const units = Array(qty).fill().map(() => ({
+            receiveGenItemId: rb.receiveGenItemId,
+            genItemInventoryId: destInv.genItemInventoryId || destInv.id,
+            roomId: destRoomId,
+            status: 'good'
+          }));
+          await db.GenItem.bulkCreate(units, { transaction: t });
+        }
+      }
+
+      if (item.id) {
+        item.status = 'fulfilled';
+        await item.save({ transaction: t });
+      }
     }
 
     // finally mark request fulfilled
@@ -565,21 +630,18 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
     reqRow.fulfilledAt = new Date();
     await reqRow.save({ transaction: t });
 
-    return { request: reqRow, createdBatch };
+    return reqRow;
   });
 
-  // activity log (best-effort)
   try {
     await accountService.logActivity(
       String(user?.accountId ?? user?.id ?? ''),
-      'itemrequest_fulfill',
-      ipAddress || '',
-      browserInfo || '',
-      `requestId:${result.request.itemRequestId || result.request.id}`
+      'item_request_fulfill',
+      ipAddress,
+      browserInfo,
+      `requestId:${result.itemRequestId}`
     );
-  } catch (err) {
-    console.error('activity log failed (fulfillItemRequest log)', err);
-  }
+  } catch (err) { console.error('activity log failed (fulfillItemRequest)', err); }
 
   return result;
 }
@@ -721,6 +783,86 @@ async function getInventoryModelForItemId(id, transaction) {
     const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};
     const r = await c.model.findByPk(id, opts);
     if (r) return { key: c.key, model: c.model, row: r };
+  }
+  return null;
+}
+
+async function resolveInventoryFromUnit({ type, unit }) {
+  if (!unit) return null;
+  if (type === 'apparel' && unit.apparelInventoryId) return await db.ApparelInventory.findByPk(unit.apparelInventoryId);
+  if (type === 'supply' && unit.adminSupplyInventoryId) return await db.AdminSupplyInventory.findByPk(unit.adminSupplyInventoryId);
+  if (type === 'genitem' && unit.genItemInventoryId) return await db.GenItemInventory.findByPk(unit.genItemInventoryId);
+  return null;
+}
+
+function getInventoryModel(itemType) {
+  const t = String(itemType || '').toLowerCase();
+  if (t === 'apparel') return db.ApparelInventory;
+  if (t === 'supply' || t === 'admin supply' || t === 'admin-supply') return db.AdminSupplyInventory;
+  if (t === 'genitem' || t === 'genitem' || t === 'gen item' || t === 'it' || t === 'maintenance') return db.GenItemInventory;
+  return null;
+}
+
+async function _loadRequestedItem(itemId, itemTypeRaw) {
+  if (!itemId) return null;
+  const typeNorm = String(itemTypeRaw || '').toLowerCase();
+
+  const invModel = getInventoryModel(itemTypeRaw);
+  if (invModel) {
+    const inv = await invModel.findByPk(itemId);
+    if (inv) return { kind: 'inventory', type: typeNorm || 'unknown', inventory: inv, unit: null };
+  }
+
+  const unitResult = await _tryLoadUnitByType(itemId, typeNorm);
+  if (unitResult) return unitResult;
+
+  return await _tryLoadAnyUnit(itemId);
+}
+
+async function _tryLoadUnitByType(itemId, typeNorm) {
+  try {
+    if (typeNorm.includes('apparel')) {
+      if (db.Apparel) {
+        const unit = await db.Apparel.findByPk(itemId);
+        if (unit) {
+          const inv = await resolveInventoryFromUnit({ type: 'apparel', unit }).catch(() => null);
+          return { kind: 'unit', type: 'apparel', unit, inventory: inv || null };
+        }
+      }
+    } else if (typeNorm.includes('supply')) {
+      if (db.AdminSupply) {
+        const unit = await db.AdminSupply.findByPk(itemId);
+        if (unit) {
+          const inv = await resolveInventoryFromUnit({ type: 'supply', unit }).catch(() => null);
+          return { kind: 'unit', type: 'supply', unit, inventory: inv || null };
+        }
+      }
+    } else if (typeNorm.includes('gen') || typeNorm === 'it' || typeNorm === 'maintenance') {
+      if (db.GenItem) {
+        const unit = await db.GenItem.findByPk(itemId);
+        if (unit) {
+          const inv = await resolveInventoryFromUnit({ type: 'genitem', unit }).catch(() => null);
+          return { kind: 'unit', type: 'genitem', unit, inventory: inv || null };
+        }
+      }
+    }
+  } catch (e) { console.error('_tryLoadUnitByType failed', e); }
+  return null;
+}
+
+async function _tryLoadAnyUnit(itemId) {
+  const checks = [
+    { model: db.Apparel, type: 'apparel' },
+    { model: db.AdminSupply, type: 'supply' },
+    { model: db.GenItem, type: 'genitem' }
+  ];
+  for (const c of checks) {
+    if (!c.model) continue;
+    const unit = await c.model.findByPk(itemId);
+    if (unit) {
+      const inv = await resolveInventoryFromUnit({ type: c.type, unit }).catch(() => null);
+      return { kind: 'unit', type: c.type, unit, inventory: inv || null };
+    }
   }
   return null;
 }

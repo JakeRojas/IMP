@@ -125,6 +125,7 @@ async function initialize() {
     // Request models
     db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
     db.ItemRequest = require('../_models/request/item.request.model')(sequelize);
+    db.ItemRequestDetail = require('../_models/request/item.request.detail.model')(sequelize);
 
     // Transfer models
     db.Transfer = require('../_models/transfer.model')(sequelize);
@@ -299,10 +300,22 @@ function dbAssociations() {
   db.Account.hasMany(db.ItemRequest, { foreignKey: 'accountId' });
   db.ItemRequest.belongsTo(db.Account, { foreignKey: 'accountId' });
 
-  db.Room.hasMany(db.ItemRequest, { foreignKey: 'requesterRoomId' });
-  db.ItemRequest.belongsTo(db.Room, { foreignKey: 'requesterRoomId' });
+  db.Room.hasMany(db.ItemRequest, { foreignKey: 'requesterRoomId', as: 'requesterRequests' });
+  db.ItemRequest.belongsTo(db.Room, { foreignKey: 'requesterRoomId', as: 'Room' }); // Keep 'Room' as default for now to avoid breaking existing code
 
-  // Polymorphic-ish itemId (no FK constraints since itemId may map to different tables)
+  db.Room.hasMany(db.ItemRequest, { foreignKey: 'requestToRoomId', as: 'incomingRequests' });
+  db.ItemRequest.belongsTo(db.Room, { foreignKey: 'requestToRoomId', as: 'requestToRoom' });
+
+  // Multiple items support
+  db.ItemRequest.hasMany(db.ItemRequestDetail, { foreignKey: 'itemRequestId', as: 'items' });
+  db.ItemRequestDetail.belongsTo(db.ItemRequest, { foreignKey: 'itemRequestId' });
+
+  // Polymorphic joins for Details
+  db.ItemRequestDetail.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItemRequestDetail.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItemRequestDetail.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+
+  // Polymorphic-ish itemId (legacy support for single item on main row)
   db.ItemRequest.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.ApparelInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
 

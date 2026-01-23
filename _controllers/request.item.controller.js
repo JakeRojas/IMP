@@ -31,10 +31,14 @@ function createSchema(req, res, next) {
   const schema = Joi.object({
     requesterRoomId: Joi.number().integer().required(),
     requestToRoomId: Joi.number().integer().required(),
-    itemId: Joi.number().integer().allow(null).optional(),
-    otherItemName: Joi.string().max(255).allow('', null).optional(),
-    quantity: Joi.number().integer().min(1).required(),
-    note: Joi.string().max(500).allow('', null).optional()
+    note: Joi.string().max(500).allow('', null).optional(),
+    items: Joi.array().items(Joi.object({
+      itemId: Joi.number().integer().allow(null).optional(),
+      itemType: Joi.string().allow(null).optional(),
+      otherItemName: Joi.string().max(255).allow('', null).optional(),
+      quantity: Joi.number().integer().min(1).required(),
+      note: Joi.string().max(500).allow('', null).optional()
+    })).min(1).required()
   });
   validateRequest(req, next, schema);
 }
@@ -85,9 +89,7 @@ async function createRequest(req, res) {
       accountId,
       requesterRoomId: Number(payload.requesterRoomId),
       requestToRoomId: Number(payload.requestToRoomId),
-      itemId: payload.itemId ? Number(payload.itemId) : null,
-      otherItemName: payload.otherItemName || null,
-      quantity: Number(payload.quantity),
+      items: payload.items,
       note: payload.note || null,
       ipAddress, browserInfo
     });
@@ -103,15 +105,11 @@ async function createRequest(req, res) {
 
 async function listRequests(req, res, next) {
   try {
-    const where = {};
-    if (req.query.status) where.status = req.query.status;
-    if (req.query.accountId) where.accountId = req.query.accountId;
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const { rows, count } = await itemRequestService.listItemRequests({ where, limit, offset });
+    const { rows, count } = await itemRequestService.listItemRequests({ query: req.query, limit, offset });
 
     res.json({
       success: true,
@@ -135,7 +133,7 @@ async function acceptRequest(req, res, next) {
   try {
     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
 
-    const r = await itemRequestService.acceptItemRequest(parseInt(req.params.id, 10), req.user.accountId, ipAddress, browserInfo);
+    const r = await itemRequestService.acceptItemRequest(parseInt(req.params.id, 10), req.user.accountId, ipAddress, browserInfo, req.body);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }

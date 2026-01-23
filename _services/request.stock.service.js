@@ -52,7 +52,22 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
       throw { status: 400, message: `Item id ${itemId} not found in inventories or units` };
     }
   } else if (otherItemName) {
-    resolvedType = 'other';
+    // [MODIFIED] If otherItemName is provided, infer resolvedType from requester room's stockroomType and details
+    const room = await db.Room.findByPk(requesterRoomId);
+    if (!room) throw { status: 400, message: 'Invalid requesterRoomId' };
+
+    const sType = (room.stockroomType || '').toLowerCase();
+    if (sType === 'apparel') {
+      resolvedType = 'apparel';
+    } else if (sType === 'supply') {
+      resolvedType = 'admin supply';
+    } else {
+      // General type - check details for specific sub-type
+      const subType = (details && details.genItemType || '').toLowerCase();
+      if (subType === 'it') resolvedType = 'IT';
+      else if (subType === 'maintenance') resolvedType = 'Maintenance';
+      else resolvedType = 'General Item';
+    }
   } else {
     throw { status: 400, message: 'Must provide either itemId or otherItemName' };
   }
@@ -78,7 +93,42 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
 
   return req;
 }
-async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
+
+async function listStockRequests({ query = {}, limit = 100, offset = 0 } = {}) {
+  const { Op } = require('sequelize');
+  const where = {};
+
+  // Filters from controller
+  if (query.status) where.status = query.status;
+  if (query.accountId) where.accountId = query.accountId;
+  if (query.itemType) where.itemType = query.itemType;
+
+  // Search filter (ID, Room Name, Requester Name, Item Type, otherItemName)
+  if (query.search) {
+    where[Op.or] = [
+      { stockRequestId: { [Op.like]: `%${query.search}%` } },
+      { '$Room.roomName$': { [Op.like]: `%${query.search}%` } },
+      { '$Account.firstName$': { [Op.like]: `%${query.search}%` } },
+      { '$Account.lastName$': { [Op.like]: `%${query.search}%` } },
+      { itemType: { [Op.like]: `%${query.search}%` } },
+      { otherItemName: { [Op.like]: `%${query.search}%` } },
+    ];
+  }
+
+  // Date Filter
+  if (query.startDate && query.endDate) {
+    const start = new Date(query.startDate);
+    const end = new Date(query.endDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.between]: [start, end] };
+  } else if (query.startDate) {
+    where.createdAt = { [Op.gte]: new Date(query.startDate) };
+  } else if (query.endDate) {
+    const end = new Date(query.endDate);
+    end.setHours(23, 59, 59, 999);
+    where.createdAt = { [Op.lte]: end };
+  }
+
   const { count, rows } = await db.StockRequest.findAndCountAll({
     where,
     order: [['stockRequestId', 'DESC']],
@@ -93,10 +143,10 @@ async function listStockRequests({ where = {}, limit = 100, offset = 0 } = {}) {
 }
 async function getStockRequestById(stockRequestId) {
   const r = await db.StockRequest.findByPk(stockRequestId, {
-    include: [{
-      model: db.Account,
-      attributes: ['accountId', 'firstName', 'lastName']
-    }]
+    include: [
+      { model: db.Room, attributes: ['roomId', 'roomName'] },
+      { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
+    ]
   });
   if (!r) throw { status: 404, message: 'StockRequest not found' };
 

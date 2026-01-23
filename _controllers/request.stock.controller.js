@@ -51,8 +51,9 @@ async function createStockRequestHandler(req, res) {
     if (!room) return res.status(400).json({ message: 'Invalid requesterRoomId' });
 
     // normalize roomType (some of your code uses roomType fields like 'stockroom' / 'substockroom' / 'room')
-    if (String(room.roomType || '').toLowerCase() !== 'stockroom') {
-      return res.status(403).json({ message: 'Only rooms with roomType \"stockroom\" can create stock requests' });
+    const rType = String(room.roomType || '').toLowerCase();
+    if (rType !== 'stockroom' && rType !== 'substockroom') {
+      return res.status(403).json({ message: 'Only rooms with roomType \"stockroom\" or \"subStockroom\" can create stock requests' });
     }
 
     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
@@ -70,15 +71,11 @@ async function createStockRequestHandler(req, res) {
 
 async function listRequests(req, res, next) {
   try {
-    const where = {};
-    if (req.query.status) where.status = req.query.status;
-    if (req.query.accountId) where.accountId = req.query.accountId;
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const { rows, count } = await stockService.listStockRequests({ where, limit, offset });
+    const { rows, count } = await stockService.listStockRequests({ query: req.query, limit, offset });
 
     res.json({
       success: true,
