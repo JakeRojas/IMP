@@ -719,6 +719,7 @@ async function getReleaseApparelsByRoomHandler(roomId) {
     where: { roomId: roomId },
     include: [
       { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
+      { model: db.ApparelInventory, required: false }
     ],
     order: [['releasedAt', 'DESC']]
   });
@@ -731,6 +732,10 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
   if (db.ReleaseAdminSupply) {
     return await db.ReleaseAdminSupply.findAll({
       where: { roomId },
+      include: [
+        { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
+        { model: db.AdminSupplyInventory, required: false }
+      ],
       order: [['releasedAt', 'DESC']]
     });
   }
@@ -743,6 +748,10 @@ async function getReleasedGenItemByRoomHandler(roomId) {
   if (db.ReleaseGenItem) {
     return await db.ReleaseGenItem.findAll({
       where: { roomId },
+      include: [
+        { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
+        { model: db.GenItemInventory, required: false }
+      ],
       order: [['releasedAt', 'DESC']]
     });
   }

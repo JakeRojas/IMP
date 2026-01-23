@@ -243,6 +243,14 @@ function dbAssociations() {
   db.ReleaseAdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
   db.Room.hasMany(db.ReleaseAdminSupply, { foreignKey: 'roomId' });
 
+  // AdminSupplyInventory <-> ReleaseAdminSupply
+  db.AdminSupplyInventory.hasMany(db.ReleaseAdminSupply, { foreignKey: 'adminSupplyInventoryId' });
+  db.ReleaseAdminSupply.belongsTo(db.AdminSupplyInventory, { foreignKey: 'adminSupplyInventoryId' });
+
+  // GenItemInventory <-> ReleaseGenItem
+  db.GenItemInventory.hasMany(db.ReleaseGenItem, { foreignKey: 'genItemInventoryId' });
+  db.ReleaseGenItem.belongsTo(db.GenItemInventory, { foreignKey: 'genItemInventoryId' });
+
 
 
 
