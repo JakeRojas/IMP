@@ -13,6 +13,7 @@ router.get('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Rol
 router.get('/:id', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), getById);
 
 router.post('/:id/accept', authorize(), acceptTransfer);
+router.post('/:id/receive', authorize(), receiveTransfer);
 
 module.exports = router;
 
@@ -92,6 +93,14 @@ async function listTransfers(req, res, next) {
   try {
     const where = {};
     if (req.query.status) where.status = req.query.status;
+    if (req.query.itemType) where.itemType = req.query.itemType;
+    if (req.query.search) where.search = req.query.search;
+    if (req.query.startDate && req.query.endDate) {
+      where.dateRange = {
+        start: req.query.startDate,
+        end: req.query.endDate
+      };
+    }
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
@@ -136,6 +145,16 @@ async function acceptTransfer(req, res, next) {
     const ipAddress = req.ip || (req.headers && req.headers['x-forwarded-for']) || '';
     const browserInfo = req.headers?.['user-agent'] || '';
     const r = await transferService.acceptTransfer(id, req.user.accountId, req.user.role, ipAddress, browserInfo);
+    res.json({ success: true, data: r });
+  } catch (err) { next(err); }
+}
+
+async function receiveTransfer(req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const ipAddress = req.ip || (req.headers && req.headers['x-forwarded-for']) || '';
+    const browserInfo = req.headers?.['user-agent'] || '';
+    const r = await transferService.receiveTransfer(id, req.user.accountId, req.user.role, ipAddress, browserInfo);
     res.json({ success: true, data: r });
   } catch (err) { next(err); }
 }

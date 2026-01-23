@@ -6,6 +6,7 @@ const accountService = require('./account.service');
 module.exports = {
   createTransfer,
   acceptTransfer,
+  receiveTransfer,
   getById,
   listTransfers
 };
@@ -88,6 +89,12 @@ async function createTransfer({ createdBy, fromRoomId, toRoomId, itemId, quantit
     if (!resolvedType) {
       // No matching inventory or unit found that belongs to fromRoomId
       throw { status: 400, message: `Item ${itemId} not found in room ${fromRoomId}` };
+    }
+
+    // Check quantity against available stock
+    const available = getQuantity(itemRow);
+    if (available < quantity) {
+      throw { status: 400, message: `Insufficient stock. Requested: ${quantity}, Available: ${available}` };
     }
 
     // Create the transfer record and store itemType for downstream compatibility
@@ -277,8 +284,7 @@ async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, b
       }
     }
 
-    // perform inventory adjustments (existing logic)...
-    // (keep the existing inventory move code here unchanged)
+    // Authorized — now perform inventory move + receive creation in same transaction
 
     await tr.update({ status: 'transfer_accepted', acceptedBy: accepterId || null, acceptedAt: new Date() }, { transaction: txn });
     await txn.commit();
@@ -289,6 +295,77 @@ async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, b
     } catch (e) {
       console.error('activity log failed (acceptTransfer)', e);
     }
+
+    return tr;
+  } catch (err) {
+    if (txn && !txn.finished) await txn.rollback().catch(() => { });
+    throw err;
+  }
+}
+
+async function receiveTransfer(transferId, receiverId, receiverRole, ipAddress, browserInfo) {
+  if (!transferId) throw { status: 400, message: 'transferId required' };
+
+  const txn = await db.sequelize.transaction();
+  try {
+    const tr = await db.Transfer.findByPk(transferId, {
+      transaction: txn,
+      include: [
+        { model: db.Room, as: 'fromRoom' },
+        { model: db.Room, as: 'toRoom' }
+      ]
+    });
+
+    if (!tr) throw { status: 404, message: 'Transfer not found' };
+    if (String(tr.status || '').toLowerCase() !== 'transfer_accepted') {
+      throw { status: 400, message: 'Only accepted transfers can be received' };
+    }
+
+    // Auth check: Only the one who accepted the transfer can receive it
+    if (String(tr.acceptedBy) !== String(receiverId)) {
+      throw { status: 403, message: 'Only the user who accepted this transfer can mark it as received' };
+    }
+
+    // Perform inventory movement
+    const model = inventoryModelFor(tr.itemType);
+    if (!model) throw { status: 400, message: `Unknown itemType: ${tr.itemType}` };
+
+    // Find source inventory
+    const srcInv = await model.findOne({
+      where: { [model.primaryKeyAtributte || 'id']: tr.itemId, roomId: tr.fromRoomId },
+      transaction: txn
+    }).catch(async () => {
+      // fallback to PK if specific roomId match fails (legacy items)
+      return await model.findByPk(tr.itemId, { transaction: txn });
+    });
+
+    if (!srcInv) throw { status: 404, message: 'Source inventory not found' };
+
+    const available = getQuantity(srcInv);
+    if (available < tr.quantity) throw { status: 400, message: 'Insufficient stock in source room' };
+
+    // Adjust inventories
+    await adjustInventory(srcInv, -Number(tr.quantity), txn);
+
+    const destInv = await findOrCreateMatchingInventory(model, srcInv, tr.toRoomId, { transaction: txn });
+    await adjustInventory(destInv, Number(tr.quantity), txn);
+
+    // Create receive batch & units
+    const typeNorm = String(tr.itemType || '').toLowerCase();
+    await createReceiveBatchAndUnits(typeNorm, destInv, Number(tr.quantity), tr, receiverId, txn);
+
+    // Update transfer status
+    await tr.update({
+      status: 'received',
+      receivedBy: receiverId || null,
+      receivedAt: new Date()
+    }, { transaction: txn });
+
+    await txn.commit();
+
+    try {
+      await accountService.logActivity(String(receiverId), 'transfer_receive', ipAddress, browserInfo, `transferId:${tr.transferId}`);
+    } catch (e) { console.error('logActivity failed', e); }
 
     return tr;
   } catch (err) {
@@ -518,18 +595,61 @@ async function findOrCreateMatchingInventory(model, exampleInv, roomId, opts = {
 }
 
 async function getById(id) {
-  return db.Transfer.findByPk(id);
+  return db.Transfer.findByPk(id, {
+    include: [
+      { model: db.Room, as: 'fromRoom' },
+      { model: db.Room, as: 'toRoom' },
+      { model: db.Account, as: 'creator', attributes: ['firstName', 'lastName'], required: false },
+      { model: db.Account, as: 'accepter', attributes: ['firstName', 'lastName'], required: false },
+      { model: db.Account, as: 'receiver', attributes: ['firstName', 'lastName'], required: false },
+      { model: db.ApparelInventory, required: false },
+      { model: db.AdminSupplyInventory, required: false },
+      { model: db.GenItemInventory, required: false }
+    ]
+  });
 }
 async function listTransfers({ where = {}, limit = 200, offset = 0 } = {}) {
+  const { status, itemType, search, dateRange } = where;
+  const sequelizeWhere = {};
+  const { Op } = require('sequelize');
+
+  if (status) sequelizeWhere.status = status;
+  if (itemType) sequelizeWhere.itemType = itemType;
+
+  if (dateRange && dateRange.start && dateRange.end) {
+    sequelizeWhere.createdAt = {
+      [Op.between]: [new Date(dateRange.start), new Date(dateRange.end + 'T23:59:59.999Z')]
+    };
+  }
+
+  const include = [
+    { model: db.Room, as: 'fromRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
+    { model: db.Room, as: 'toRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
+    { model: db.Account, as: 'creator', attributes: ['firstName', 'lastName'], required: false },
+    { model: db.Account, as: 'accepter', attributes: ['firstName', 'lastName'], required: false }
+  ];
+
+  if (search) {
+    if (!isNaN(search)) {
+      sequelizeWhere[Op.or] = [
+        { transferId: search },
+        { '$fromRoom.roomName$': { [Op.like]: `%${search}%` } },
+        { '$toRoom.roomName$': { [Op.like]: `%${search}%` } }
+      ];
+    } else {
+      sequelizeWhere[Op.or] = [
+        { '$fromRoom.roomName$': { [Op.like]: `%${search}%` } },
+        { '$toRoom.roomName$': { [Op.like]: `%${search}%` } }
+      ];
+    }
+  }
+
   const { count, rows } = await db.Transfer.findAndCountAll({
-    where,
+    where: sequelizeWhere,
     order: [['transferId', 'DESC']],
     limit,
     offset,
-    include: [
-      { model: db.Room, as: 'fromRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
-      { model: db.Room, as: 'toRoom', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false }
-    ]
+    include
   });
   return { rows, count };
 }

@@ -336,9 +336,10 @@ function dbAssociations() {
 
 
   // ---------- TRANSFER associations ----------
-  db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy' });
-  db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy' });    // who accepted transfer
-  db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy' });   // who initiated return
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'createdBy', as: 'creator' });
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'acceptedBy', as: 'accepter' });
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'receivedBy', as: 'receiver' });
+  db.Transfer.belongsTo(db.Account, { foreignKey: 'returningBy', as: 'returner' });
 
   // Transfer <> Room (rooms)
   db.Transfer.belongsTo(db.Room, { foreignKey: 'fromRoomId', as: 'fromRoom' });
