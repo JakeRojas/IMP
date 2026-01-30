@@ -23,6 +23,15 @@ router.put('/:stockroomType/unit/:unitId/status', updateUnitStatus);
 
 module.exports = router;
 
+function tryFields(obj, ...keys) {
+  if (!obj) return null;
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+    if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
+  }
+  return null;
+}
+
 async function getBatchQr(req, res, next) {
   try {
     const stockroomType = String(req.params.stockroomType || '').toLowerCase();
@@ -93,34 +102,31 @@ async function generateAllPdf(req, res, next) {
       return res.status(404).json({ message: 'No inventory found for this room/type' });
     }
 
-    function tryFields(obj, ...keys) {
-      if (!obj) return null;
-      for (const k of keys) {
-        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-        if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
-      }
-      return null;
-    }
 
     const qrItems = [];
     for (let idx = 0; idx < inventory.length; idx++) {
       const inv = inventory[idx];
-      const invId = tryFields(inv,
-        'receiveApparelId', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'id'
-      );
+      const invId = tryFields(inv, 'receiveApparelId', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'id');
 
       const out = await qrService.generateBatchQR({ stockroomType, inventoryId: invId });
       const pngPath = out && (out.absolutePath || out.path || out.filepath);
 
-      const labelCandidate = tryFields(inv,
-        'sku', 'code', 'itemCode', 'apparelSku', 'adminSupplyCode', 'genItemSku',
-        'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName',
-        'description', 'serialNumber'
-      );
-
-      const label = labelCandidate !== null && labelCandidate !== undefined
-        ? String(labelCandidate)
-        : (invId !== undefined && invId !== null ? String(invId) : `Item #${idx + 1}`);
+      let label = '';
+      if (stockroomType === 'apparel') {
+        const name = (inv.apparelName || '').toUpperCase();
+        const level = (inv.apparelLevel || '').toUpperCase();
+        const size = (inv.apparelSize || '').toUpperCase();
+        label = `${name}-${level}-${size}`.replace(/-+$/, '');
+      } else if (stockroomType === 'supply') {
+        const name = (inv.supplyName || '').toUpperCase();
+        const measure = (inv.supplyMeasure || '').toUpperCase();
+        label = `${name}-${measure}`.replace(/-+$/, '');
+      } else {
+        const name = (inv.genItemName || '').toUpperCase();
+        const size = (inv.genItemSize || '').toUpperCase();
+        const type = (inv.genItemType || '').toUpperCase();
+        label = `${name}-${size}-${type}`.replace(/-+$/, '');
+      }
 
       if (pngPath) {
         qrItems.push({ imgPath: pngPath, label, invId });
@@ -144,8 +150,7 @@ async function generateAllPdf(req, res, next) {
     const PAGE_HEIGHT = 11 * POINTS_PER_INCH;
     const MARGIN = 0.5 * POINTS_PER_INCH;
     const QR_SIDE = 1 * POINTS_PER_INCH;
-    const LABEL_HEIGHT = 12;
-    const CELL_HEIGHT = QR_SIDE + LABEL_HEIGHT;
+    const CELL_HEIGHT = QR_SIDE + 30;
 
     const usableWidth = PAGE_WIDTH - 2 * MARGIN;
     const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
@@ -185,8 +190,8 @@ async function generateAllPdf(req, res, next) {
         doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
       }
 
-      const labelY = y + QR_SIDE + 4;
-      doc.fontSize(10);
+      const labelY = y + QR_SIDE + 2;
+      doc.fontSize(7);
       doc.text(label, x, labelY, { width: QR_SIDE, align: 'center' });
     }
 
@@ -205,17 +210,17 @@ async function generateAllUnitsPdf(req, res, next) {
     // load unit rows for room depending on type
     let units = [];
     if (stockroomType === 'apparel') {
-      units = await db.Apparel.findAll({ where: { roomId } });
+      units = await db.Apparel.findAll({ where: { roomId }, include: [db.ApparelInventory, db.ReceiveApparel] });
     } else if (stockroomType === 'supply') {
-      units = await db.AdminSupply.findAll({ where: { roomId } });
+      units = await db.AdminSupply.findAll({ where: { roomId }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] });
     } else if (stockroomType === 'genitem' || stockroomType === 'it' || stockroomType === 'maintenance') {
-      units = await db.GenItem.findAll({ where: { roomId } });
+      units = await db.GenItem.findAll({ where: { roomId }, include: [db.GenItemInventory, db.ReceiveGenItem] });
     } else if (stockroomType === 'general' || stockroomType === 'all') {
       // Mixed: load everything
       const [u1, u2, u3] = await Promise.all([
-        db.Apparel.findAll({ where: { roomId } }),
-        db.AdminSupply.findAll({ where: { roomId } }),
-        db.GenItem.findAll({ where: { roomId } })
+        db.Apparel.findAll({ where: { roomId }, include: [db.ApparelInventory, db.ReceiveApparel] }),
+        db.AdminSupply.findAll({ where: { roomId }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] }),
+        db.GenItem.findAll({ where: { roomId }, include: [db.GenItemInventory, db.ReceiveGenItem] })
       ]);
       u1.forEach(u => u.setDataValue('_unitType', 'apparel'));
       u2.forEach(u => u.setDataValue('_unitType', 'supply'));
@@ -229,15 +234,6 @@ async function generateAllUnitsPdf(req, res, next) {
 
     if (!units || units.length === 0) return res.status(404).json({ message: 'No units found for this room/type' });
 
-    // small helper to pick candidate label fields
-    const tryFields = (obj, ...keys) => {
-      if (!obj) return null;
-      for (const k of keys) {
-        if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-        if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
-      }
-      return null;
-    };
 
     // build QR item list (generate per-unit PNG if needed)
     const qrItems = [];
@@ -248,12 +244,37 @@ async function generateAllUnitsPdf(req, res, next) {
       const out = await qrService.generateUnitQR({ stockroomType: type, unitId });
       const pngPath = out && (out.absolutePath || out.path || out.filepath) || null;
 
-      const labelCandidate = tryFields(u,
-        'name', 'apparelName', 'supplyName', 'genItemName', 'sku', 'code', 'serialNumber', 'description'
-      );
-      const label = labelCandidate ? String(labelCandidate) : `Unit #${unitId}`;
+      let label = '';
+      let dateReceived = '';
 
-      qrItems.push({ imgPath: pngPath, label, unitId });
+      if (type === 'apparel') {
+        const inv = u.ApparelInventory || {};
+        const receive = u.ReceiveApparel || {};
+        const name = (inv.apparelName || receive.apparelName || '').toUpperCase();
+        const level = (inv.apparelLevel || receive.apparelLevel || '').toUpperCase();
+        const aType = (inv.apparelType || receive.apparelType || '').toUpperCase();
+        const aFor = (inv.apparelFor || receive.apparelFor || '').toUpperCase();
+        const size = (inv.apparelSize || receive.apparelSize || '').toUpperCase();
+        label = `${name}-${level}-${aType}-${aFor}-${size}`.replace(/-+$/, '');
+        dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+      } else if (type === 'supply') {
+        const inv = u.AdminSupplyInventory || {};
+        const receive = u.ReceiveAdminSupply || {};
+        const name = (inv.supplyName || receive.supplyName || '').toUpperCase();
+        const measure = (inv.supplyMeasure || receive.supplyMeasure || '').toUpperCase();
+        label = `${name}-${measure}`.replace(/-+$/, '');
+        dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+      } else {
+        const inv = u.GenItemInventory || {};
+        const receive = u.ReceiveGenItem || {};
+        const name = (inv.genItemName || receive.genItemName || '').toUpperCase();
+        const size = (inv.genItemSize || receive.genItemSize || '').toUpperCase();
+        const itType = (inv.genItemType || receive.genItemType || '').toUpperCase();
+        label = `${name}-${size}-${itType}`.replace(/-+$/, '');
+        dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+      }
+
+      qrItems.push({ imgPath: pngPath, label, dateReceived, unitId });
     }
 
     if (!qrItems.length) return res.status(404).json({ message: 'No QR images generated' });
@@ -269,8 +290,7 @@ async function generateAllUnitsPdf(req, res, next) {
     const PAGE_HEIGHT = 11 * POINTS_PER_INCH;
     const MARGIN = 0.5 * POINTS_PER_INCH;
     const QR_SIDE = 1 * POINTS_PER_INCH;
-    const LABEL_HEIGHT = 12;
-    const CELL_HEIGHT = QR_SIDE + LABEL_HEIGHT;
+    const CELL_HEIGHT = QR_SIDE + 40;
 
     const usableWidth = PAGE_WIDTH - 2 * MARGIN;
     const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
@@ -295,7 +315,7 @@ async function generateAllUnitsPdf(req, res, next) {
       const x = MARGIN + hGap + col * (QR_SIDE + hGap);
       const y = MARGIN + vGap + row * (CELL_HEIGHT + vGap);
 
-      const { imgPath, label } = qrItems[i];
+      const { imgPath, label, dateReceived } = qrItems[i];
 
       if (imgPath && fs.existsSync(imgPath)) {
         try { doc.image(imgPath, x, y, { width: QR_SIDE, height: QR_SIDE }); }
@@ -304,8 +324,12 @@ async function generateAllUnitsPdf(req, res, next) {
         doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
       }
 
-      const labelY = y + QR_SIDE + 4;
-      doc.fontSize(10).text(label, x, labelY, { width: QR_SIDE, align: 'center' });
+      const labelY = y + QR_SIDE + 2;
+      doc.fontSize(7).font('Helvetica-Bold').text(label, x, labelY, { width: QR_SIDE, align: 'center' });
+      const h = doc.heightOfString(label, { width: QR_SIDE });
+      if (dateReceived) {
+        doc.fontSize(6).font('Helvetica').text(`Rec: ${dateReceived}`, x, labelY + h + 1, { width: QR_SIDE, align: 'center' });
+      }
     }
 
     doc.end();
@@ -355,67 +379,113 @@ async function generateSelectedUnitsPdf(req, res, next) {
 }
 async function generatePdfForUnits(units, stockroomType, res, downloadFilename) {
   if (!units || units.length === 0) return res.status(404).json({ message: 'No units to generate' });
-  // small helper to pick candidate label fields
-  const tryFields = (obj, ...keys) => {
-    if (!obj) return null;
-    for (const k of keys) {
-      if (obj[k] !== undefined && obj[k] !== null) return obj[k];
-      if (obj.dataValues && obj.dataValues[k] !== undefined && obj.dataValues[k] !== null) return obj.dataValues[k];
-    }
-    return null;
-  };
-  // build QR item list (generate per-unit PNG if needed)
+
+  // Re-fetch units with associations to ensure we have name/level/size/date
+  const unitIds = units.map(u => tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId')).filter(Boolean);
+  let detailedUnits = [];
+
+  if (stockroomType === 'apparel') {
+    detailedUnits = await db.Apparel.findAll({ where: { apparelId: unitIds }, include: [db.ApparelInventory, db.ReceiveApparel] });
+  } else if (stockroomType === 'supply') {
+    detailedUnits = await db.AdminSupply.findAll({ where: { adminSupplyId: unitIds }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] });
+  } else if (['genitem', 'it', 'maintenance'].includes(stockroomType)) {
+    detailedUnits = await db.GenItem.findAll({ where: { genItemId: unitIds }, include: [db.GenItemInventory, db.ReceiveGenItem] });
+  } else {
+    // Falls back to original units if type unknown
+    detailedUnits = units;
+  }
+
   const qrItems = [];
-  for (let u of units) {
+  for (let u of detailedUnits) {
     const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId') || null;
     if (!unitId) continue;
     const type = u.getDataValue ? (u.getDataValue('_unitType') || stockroomType) : (u._unitType || stockroomType);
     const out = await qrService.generateUnitQR({ stockroomType: type, unitId });
     const pngPath = out && (out.absolutePath || out.path || out.filepath) || null;
-    const labelCandidate = tryFields(u,
-      'name', 'apparelName', 'supplyName', 'genItemName', 'sku', 'code', 'serialNumber', 'description'
-    );
-    const label = labelCandidate ? String(labelCandidate) : `Unit #${unitId}`;
-    qrItems.push({ imgPath: pngPath, label, unitId });
+
+    let label = '';
+    let dateReceived = '';
+
+    if (type === 'apparel') {
+      const inv = u.ApparelInventory || {};
+      const receive = u.ReceiveApparel || {};
+      const name = (inv.apparelName || receive.apparelName || '').toUpperCase();
+      const level = (inv.apparelLevel || receive.apparelLevel || '').toUpperCase();
+      const aType = (inv.apparelType || receive.apparelType || '').toUpperCase();
+      const aFor = (inv.apparelFor || receive.apparelFor || '').toUpperCase();
+      const size = (inv.apparelSize || receive.apparelSize || '').toUpperCase();
+      label = `${name}-${level}-${aType}-${aFor}-${size}`.replace(/-+$/, '');
+      dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+    } else if (type === 'supply') {
+      const inv = u.AdminSupplyInventory || {};
+      const receive = u.ReceiveAdminSupply || {};
+      const name = (inv.supplyName || receive.supplyName || '').toUpperCase();
+      const measure = (inv.supplyMeasure || receive.supplyMeasure || '').toUpperCase();
+      label = `${name}-${measure}`.replace(/-+$/, '');
+      dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+    } else {
+      const inv = u.GenItemInventory || {};
+      const receive = u.ReceiveGenItem || {};
+      const name = (inv.genItemName || receive.genItemName || '').toUpperCase();
+      const size = (inv.genItemSize || receive.genItemSize || '').toUpperCase();
+      const itType = (inv.genItemType || receive.genItemType || '').toUpperCase();
+      label = `${name}-${size}-${itType}`.replace(/-+$/, '');
+      dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+    }
+
+    qrItems.push({ imgPath: pngPath, label, dateReceived, unitId });
   }
+
   if (!qrItems.length) return res.status(404).json({ message: 'No QR images generated' });
-  // --- PDF layout ---
+
   const doc = new PDFDocument({ autoFirstPage: false, size: 'LETTER', margin: 0 });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename}"`);
   doc.pipe(res);
+
   const POINTS_PER_INCH = 72;
-  // ... (rest of PDF generation logic remains standard)
-  // For brevity, reuse existing grid logic variables (PAGE_WIDTH, etc.)
   const PAGE_WIDTH = 8.5 * POINTS_PER_INCH;
   const PAGE_HEIGHT = 11 * POINTS_PER_INCH;
   const MARGIN = 0.5 * POINTS_PER_INCH;
   const QR_SIDE = 1 * POINTS_PER_INCH;
-  const CELL_HEIGHT = QR_SIDE + 12;
+  const CELL_HEIGHT = QR_SIDE + 40; // increased for multi-line support
+
   const usableWidth = PAGE_WIDTH - 2 * MARGIN;
   const usableHeight = PAGE_HEIGHT - 2 * MARGIN;
   const cols = Math.max(1, Math.floor(usableWidth / QR_SIDE));
-  const perPage = cols * Math.max(1, Math.floor(usableHeight / CELL_HEIGHT));
+  const rows = Math.max(1, Math.floor(usableHeight / CELL_HEIGHT));
+  const perPage = cols * rows;
+
   const gapX = (usableWidth - cols * QR_SIDE) / (cols + 1);
-  const gapY = (usableHeight - Math.floor(usableHeight / CELL_HEIGHT) * CELL_HEIGHT) / (Math.floor(usableHeight / CELL_HEIGHT) + 1);
+  const gapY = (usableHeight - rows * CELL_HEIGHT) / (rows + 1);
   const hGap = Math.max(0, gapX);
   const vGap = Math.max(0, gapY);
+
   doc.font('Helvetica');
   for (let i = 0; i < qrItems.length; i++) {
     const indexInPage = i % perPage;
     if (indexInPage === 0) doc.addPage({ size: 'LETTER', margin: 0 });
+
     const col = indexInPage % cols;
     const row = Math.floor(indexInPage / cols);
     const x = MARGIN + hGap + col * (QR_SIDE + hGap);
     const y = MARGIN + vGap + row * (CELL_HEIGHT + vGap);
-    const { imgPath, label } = qrItems[i];
+
+    const { imgPath, label, dateReceived } = qrItems[i];
+
     if (imgPath && fs.existsSync(imgPath)) {
       try { doc.image(imgPath, x, y, { width: QR_SIDE, height: QR_SIDE }); }
-      catch (imgErr) { doc.fontSize(8).text('QR error', x, y + QR_SIDE / 2); }
+      catch (imgErr) { doc.fontSize(8).text('QR image load error', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' }); }
     } else {
-      doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2);
+      doc.fontSize(8).text('QR missing', x, y + QR_SIDE / 2 - 4, { width: QR_SIDE, align: 'center' });
     }
-    doc.fontSize(10).text(label, x, y + QR_SIDE + 4, { width: QR_SIDE, align: 'center' });
+
+    const labelY = y + QR_SIDE + 2;
+    doc.fontSize(7).font('Helvetica-Bold').text(label, x, labelY, { width: QR_SIDE, align: 'center' });
+    const h = doc.heightOfString(label, { width: QR_SIDE });
+    if (dateReceived) {
+      doc.fontSize(6).font('Helvetica').text(`Rec: ${dateReceived}`, x, labelY + h + 1, { width: QR_SIDE, align: 'center' });
+    }
   }
   doc.end();
 }
