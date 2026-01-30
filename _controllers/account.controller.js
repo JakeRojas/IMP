@@ -27,6 +27,8 @@ router.post('/create-array', authorize(Role.SuperAdmin), createAsArraySchema, cr
 router.get('/', authorize(Role.SuperAdmin), getAll);
 router.get('/:accountId', authorize(), getById);
 router.put('/:accountId', authorize(Role.SuperAdmin), updateSchema, update);
+router.post('/:accountId/grant-room-access', authorize(Role.SuperAdmin), grantRoomAccess);
+router.post('/:accountId/revoke-room-access', authorize(Role.SuperAdmin), revokeRoomAccess);
 
 router.delete('/:accountId', authorize(Role.SuperAdmin), _delete);
 
@@ -304,11 +306,32 @@ function update(req, res, next) {
 }
 async function _delete(req, res, next) {
   try {
-    const accountId = parseInt(req.params.accountId || req.params.accountId, 10);
+    const accountId = parseInt(req.params.accountId, 10);
     if (Number.isNaN(accountId)) return res.status(400).json({ message: 'Invalid id' });
 
     await accountService.update(accountId, { status: 'deactivated' });
     res.json({ message: 'Account deactivated' });
+  } catch (err) {
+    next(err);
+  }
+}
+async function grantRoomAccess(req, res, next) {
+  try {
+    const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+    const result = await accountService.grantRoomAccessByType(req.params.accountId, req.body.roomType, ipAddress, browserInfo);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function revokeRoomAccess(req, res, next) {
+  try {
+    const ipAddress = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+    const result = await accountService.revokeRoomAccessByType(req.params.accountId, req.body.roomType, ipAddress, browserInfo);
+    res.json(result);
   } catch (err) {
     next(err);
   }

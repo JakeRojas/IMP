@@ -85,10 +85,32 @@ async function getRoomsHandler(user) {
   const accountId = Number(user.accountId || user.AccountId || user.id);
   if (!accountId) return [];
 
-  return await db.Room.findAll({
+  // Get rooms where user is in charge
+  const roomsInCharge = await db.Room.findAll({
     where: { roomInCharge: accountId },
     include
   });
+
+  // Get rooms where user has viewing access
+  const accessRecords = await db.RoomAccess.findAll({
+    where: { accountId }
+  });
+  const accessRoomIds = accessRecords.map(a => a.roomId);
+
+  const roomsWithAccess = await db.Room.findAll({
+    where: { roomId: { [db.Sequelize.Op.in]: accessRoomIds } },
+    include
+  });
+
+  // Combine and remove duplicates (though they shouldn't overlap much normally)
+  const allRooms = [...roomsInCharge];
+  roomsWithAccess.forEach(r => {
+    if (!allRooms.find(ar => ar.roomId === r.roomId)) {
+      allRooms.push(r);
+    }
+  });
+
+  return allRooms;
 }
 async function createRoomHandler(payload, user, ipAddress, browserInfo) {
   if (!isSuperAdmin(user)) {
@@ -134,6 +156,15 @@ async function getRoomByIdHandler(roomId, user) {
 
   const accountId = Number(user.accountId || user.AccountId || user.id);
   if (accountId && Number(room.roomInCharge) === accountId) {
+    return room;
+  }
+
+  // Check if user has explicit viewing access
+  const hasAccess = await db.RoomAccess.findOne({
+    where: { accountId, roomId: room.roomId }
+  });
+
+  if (hasAccess) {
     return room;
   }
 

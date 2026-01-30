@@ -100,6 +100,7 @@ async function initialize() {
     db.Account = require('../_models/account.model')(sequelize);
     db.ActivityLog = require('../_models/activitylog.model')(sequelize);
     db.RefreshToken = require('../_models/refresh-token.model')(sequelize);
+    db.RoomAccess = require('../_models/room-access.model')(sequelize);
 
     // Apparel models
     db.Apparel = require('../_models/apparel/apparel.model')(sequelize);
@@ -172,6 +173,10 @@ function dbAssociations() {
   // [Label] Account (roomInCharge) -> Room : which account is in charge of a room
   db.Account.hasMany(db.Room, { foreignKey: 'roomInCharge' });
   db.Room.belongsTo(db.Account, { foreignKey: 'roomInCharge' });
+
+  // Account <-> Room Access (many-to-many for viewing only)
+  db.Account.belongsToMany(db.Room, { through: db.RoomAccess, foreignKey: 'accountId', otherKey: 'roomId', as: 'accessibleRooms' });
+  db.Room.belongsToMany(db.Account, { through: db.RoomAccess, foreignKey: 'roomId', otherKey: 'accountId', as: 'viewers' });
 
   // ---------- APPAREL / BATCH / ROOM associations ----------
   // ReceiveApparel -> Apparel (per-unit), keep alias 'apparel' (matches prior code)

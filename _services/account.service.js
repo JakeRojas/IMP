@@ -29,6 +29,8 @@ module.exports = {
   getAccountActivities,
   getAllActivityLogs,
   update,
+  grantRoomAccessByType,
+  revokeRoomAccessByType,
   delete: _delete,
 };
 
@@ -402,6 +404,65 @@ async function update(accountId, params, ipAddress, browserInfo) {
   }
 
   return basicDetails(account);
+}
+async function grantRoomAccessByType(accountId, roomType, ipAddress, browserInfo) {
+  const account = await getAccount(accountId);
+
+  // Map room types from button labels to DB values if necessary
+  const typeMap = {
+    'stockrooms': 'stockroom',
+    'sub stockrooms': 'subStockroom',
+    'offices': 'office',
+    'classroom': 'classroom',
+    'open area': 'openarea'
+  };
+
+  const dbType = typeMap[roomType] || roomType;
+
+  const rooms = await db.Room.findAll({ where: { roomType: dbType } });
+
+  if (rooms.length === 0) return { message: `No rooms found with type ${roomType}` };
+
+  for (const room of rooms) {
+    await db.RoomAccess.findOrCreate({
+      where: { accountId, roomId: room.roomId }
+    });
+  }
+
+  await logActivity(accountId, 'grant_room_access', ipAddress, browserInfo, `Granted access to all ${roomType}`);
+
+  return { message: `Access granted for all ${roomType}` };
+}
+
+async function revokeRoomAccessByType(accountId, roomType, ipAddress, browserInfo) {
+  const account = await getAccount(accountId);
+
+  const typeMap = {
+    'stockrooms': 'stockroom',
+    'sub stockrooms': 'subStockroom',
+    'offices': 'office',
+    'classroom': 'classroom',
+    'open area': 'openarea'
+  };
+
+  const dbType = typeMap[roomType] || roomType;
+
+  const rooms = await db.Room.findAll({ where: { roomType: dbType } });
+
+  if (rooms.length === 0) return { message: `No rooms found with type ${roomType}` };
+
+  const roomIds = rooms.map(r => r.roomId);
+
+  await db.RoomAccess.destroy({
+    where: {
+      accountId,
+      roomId: { [Op.in]: roomIds }
+    }
+  });
+
+  await logActivity(accountId, 'revoke_room_access', ipAddress, browserInfo, `Revoked access to all ${roomType}`);
+
+  return { message: `Access revoked for all ${roomType}` };
 }
 async function _delete(accountId) {
   const account = await getAccount(accountId);
