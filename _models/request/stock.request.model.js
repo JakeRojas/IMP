@@ -18,7 +18,7 @@ module.exports = (sequelize) => {
   };
 
   const options = {
-    timestamps: false
+    timestamps: true
   };
 
   return sequelize.define('StockRequest', attributes);

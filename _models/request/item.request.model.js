@@ -22,7 +22,7 @@ module.exports = (sequelize) => {
   }
 
   const options = {
-    timestamps: false
+    timestamps: true
   };
 
   return sequelize.define('ItemRequest', attributes);

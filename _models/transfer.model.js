@@ -24,11 +24,12 @@ function model(sequelize) {
 
         note: { type: DataTypes.TEXT, allowNull: true },
 
+        createdAt: { type: DataTypes.DATE, allowNull: true },
         updatedAt: { type: DataTypes.DATE, allowNull: true }
     };
 
     const options = {
-        timestamps: false
+        timestamps: true
     };
 
     return sequelize.define('Transfer', attributes, options);
