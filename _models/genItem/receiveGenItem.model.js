@@ -7,20 +7,22 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
-        receiveGenItemId:   { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
-        receivedFrom:       { type: DataTypes.STRING,   allowNull: false },
-        receivedBy:         { type: DataTypes.INTEGER,  allowNull: false },
-        genItemName:        { type: DataTypes.STRING,   allowNull: false },
-        genItemSize:        { type: DataTypes.STRING,   allowNull: true },
-        genItemQuantity:    { type: DataTypes.INTEGER,  allowNull: false },
-        genItemType:        { type: DataTypes.ENUM(
-                                'it', 'maintenance', 'unknownType'
-                                ), 
-                                allowNull: false 
-                            },
-        receivedAt:         { type: DataTypes.DATE,     allowNull: false, defaultValue: DataTypes.NOW },
-        updated:            { type: DataTypes.DATE },
+        receiveGenItemId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        roomId: { type: DataTypes.INTEGER, allowNull: false },
+        receivedFrom: { type: DataTypes.STRING, allowNull: false },
+        receivedBy: { type: DataTypes.INTEGER, allowNull: false },
+        genItemName: { type: DataTypes.STRING, allowNull: false },
+        genItemSize: { type: DataTypes.STRING, allowNull: true },
+        genItemQuantity: { type: DataTypes.INTEGER, allowNull: false },
+        genItemType: {
+            type: DataTypes.ENUM(
+                'it', 'maintenance', 'unknownType'
+            ),
+            allowNull: false
+        },
+        receivedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+        updated: { type: DataTypes.DATE },
+        qrStatus: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
     };
 
     const options = {

@@ -8,16 +8,18 @@ const { DataTypes } = require('sequelize');
 module.exports = (sequelize) => {
 
     const attributes = {
-        apparelId:          { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-        roomId:             { type: DataTypes.INTEGER,  allowNull: false },
-        receiveApparelId:   { type: DataTypes.INTEGER,  allowNull: false },
-        status:             { type: DataTypes.ENUM(
-                                'good','working',
-                                'damage',
-                                ), defaultValue: 'good'
-                            },
-        description:        { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
+        apparelId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        roomId: { type: DataTypes.INTEGER, allowNull: false },
+        receiveApparelId: { type: DataTypes.INTEGER, allowNull: false },
+        status: {
+            type: DataTypes.ENUM(
+                'good', 'working',
+                'damage',
+            ), defaultValue: 'good'
+        },
+        description: { type: DataTypes.TEXT, allowNull: true, defaultValue: null },
         apparelInventoryId: { type: DataTypes.INTEGER, allowNull: false },
+        qrStatus: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
     };
 
     const options = {

@@ -331,8 +331,24 @@ function getReceiveApparels(req, res, next) {
 }
 function getApparelUnits(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
-  roomService.getApparelUnitsByRoomHandler(roomId)
-    .then(units => res.json(units))
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+
+  roomService.getApparelUnitsByRoomHandler(roomId, req.query)
+    .then(result => {
+      if (result && result.rows) {
+        return res.json({
+          data: result.rows,
+          meta: {
+            total: result.count,
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil(result.count / limit)
+          }
+        });
+      }
+      res.json(result);
+    })
     .catch(next);
 }
 function getApparelInventory(req, res, next) {
@@ -350,8 +366,24 @@ function getReceiveAdminSupply(req, res, next) {
 }
 function getAdminSupplyUnits(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
-  roomService.getAdminSupplyUnitsByRoomHandler(roomId)
-    .then(units => res.json(units))
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+
+  roomService.getAdminSupplyUnitsByRoomHandler(roomId, req.query)
+    .then(result => {
+      if (result && result.rows) {
+        return res.json({
+          data: result.rows,
+          meta: {
+            total: result.count,
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil(result.count / limit)
+          }
+        });
+      }
+      res.json(result);
+    })
     .catch(next);
 }
 function getAdminSupplyInventory(req, res, next) {
@@ -369,8 +401,24 @@ function getReceiveGenItem(req, res, next) {
 }
 function getGenItemUnits(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
-  roomService.getGenItemUnitsByRoomHandler(roomId)
-    .then(units => res.json(units))
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+
+  roomService.getGenItemUnitsByRoomHandler(roomId, req.query)
+    .then(result => {
+      if (result && result.rows) {
+        return res.json({
+          data: result.rows,
+          meta: {
+            total: result.count,
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil(result.count / limit)
+          }
+        });
+      }
+      res.json(result);
+    })
     .catch(next);
 }
 function getGenItemInventory(req, res, next) {
@@ -585,7 +633,23 @@ async function updateGenItemUnit(req, res, next) {
 
 function getAllUnits(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
-  roomService.getAllUnitsByRoomHandler(roomId)
-    .then(units => res.json(units))
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+
+  roomService.getAllUnitsByRoomHandler(roomId, req.query)
+    .then(result => {
+      if (result && result.rows) {
+        return res.json({
+          data: result.rows,
+          meta: {
+            total: result.count,
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil(result.count / limit)
+          }
+        });
+      }
+      res.json(result);
+    })
     .catch(next);
 }

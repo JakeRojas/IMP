@@ -451,12 +451,23 @@ async function getReceiveApparelsByRoomHandler(roomId) {
 
 //   return units;
 // }
-async function getApparelUnitsByRoomHandler(roomId) {
-  // Return apparel unit rows for any room (don't require stockroom check)
-  const units = await db.Apparel.findAll({
+async function getApparelUnitsByRoomHandler(roomId, query = {}) {
+  const options = {
     where: { roomId: roomId },
     order: [['apparelId', 'ASC']]
-  });
+  };
+
+  const limit = parseInt(query.limit);
+  const page = parseInt(query.page);
+
+  if (!isNaN(limit) && !isNaN(page)) {
+    options.limit = limit;
+    options.offset = (page - 1) * limit;
+    const { count, rows } = await db.Apparel.findAndCountAll(options);
+    return { rows, count };
+  }
+
+  const units = await db.Apparel.findAll(options);
   return units;
 }
 async function getApparelInventoryByRoomHandler(roomId) {
@@ -496,12 +507,23 @@ async function getReceiveAdminSupplyByRoomHandler(roomId) {
 
 //   return units;
 // }
-async function getAdminSupplyUnitsByRoomHandler(roomId) {
-  // Return admin supply units for any room (don't require stockroom check)
-  const units = await db.AdminSupply.findAll({
+async function getAdminSupplyUnitsByRoomHandler(roomId, query = {}) {
+  const options = {
     where: { roomId: roomId },
     order: [['adminSupplyId', 'ASC']]
-  });
+  };
+
+  const limit = parseInt(query.limit);
+  const page = parseInt(query.page);
+
+  if (!isNaN(limit) && !isNaN(page)) {
+    options.limit = limit;
+    options.offset = (page - 1) * limit;
+    const { count, rows } = await db.AdminSupply.findAndCountAll(options);
+    return { rows, count };
+  }
+
+  const units = await db.AdminSupply.findAll(options);
   return units;
 }
 async function getAdminSupplyInventoryByRoomHandler(roomId) {
@@ -541,12 +563,23 @@ async function getReceiveGenItemByRoomHandler(roomId) {
 
 //   return units;
 // }
-async function getGenItemUnitsByRoomHandler(roomId) {
-  // Return general-item units for any room (don't require stockroom check)
-  const units = await db.GenItem.findAll({
+async function getGenItemUnitsByRoomHandler(roomId, query = {}) {
+  const options = {
     where: { roomId: roomId },
     order: [['genItemId', 'ASC']]
-  });
+  };
+
+  const limit = parseInt(query.limit);
+  const page = parseInt(query.page);
+
+  if (!isNaN(limit) && !isNaN(page)) {
+    options.limit = limit;
+    options.offset = (page - 1) * limit;
+    const { count, rows } = await db.GenItem.findAndCountAll(options);
+    return { rows, count };
+  }
+
+  const units = await db.GenItem.findAll(options);
   return units;
 }
 async function getGenItemInventoryByRoomHandler(roomId) {
@@ -622,6 +655,24 @@ async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, bro
 
     await updateInventory(inv, -qty, { transaction: t });
 
+    // Deduct individual unit rows
+    if (db.Apparel) {
+      const unitsToDelete = await db.Apparel.findAll({
+        where: { roomId, apparelInventoryId: payload.apparelInventoryId },
+        order: [['apparelId', 'ASC']],
+        limit: qty,
+        transaction: t
+      });
+
+      const unitIds = unitsToDelete.map(u => u.apparelId);
+      if (unitIds.length > 0) {
+        await db.Apparel.destroy({
+          where: { apparelId: { [db.Sequelize.Op.in]: unitIds } },
+          transaction: t
+        });
+      }
+    }
+
     if (t) await t.commit();
 
     const res = db.ReleaseApparel.findByPk(batch.releaseApparelId);
@@ -674,6 +725,24 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress,
 
     await updateInventory(inv, -qty, { transaction: t });
 
+    // Deduct individual unit rows
+    if (db.AdminSupply) {
+      const unitsToDelete = await db.AdminSupply.findAll({
+        where: { roomId, adminSupplyInventoryId: payload.adminSupplyInventoryId },
+        order: [['adminSupplyId', 'ASC']],
+        limit: qty,
+        transaction: t
+      });
+
+      const unitIds = unitsToDelete.map(u => u.adminSupplyId);
+      if (unitIds.length > 0) {
+        await db.AdminSupply.destroy({
+          where: { adminSupplyId: { [db.Sequelize.Op.in]: unitIds } },
+          transaction: t
+        });
+      }
+    }
+
     if (t) await t.commit();
     const res = db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
 
@@ -725,6 +794,24 @@ async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
     }, { transaction: t });
 
     await updateInventory(inv, -qty, { transaction: t });
+
+    // Deduct individual unit rows
+    if (db.GenItem) {
+      const unitsToDelete = await db.GenItem.findAll({
+        where: { roomId, genItemInventoryId: payload.genItemInventoryId },
+        order: [['genItemId', 'ASC']],
+        limit: qty,
+        transaction: t
+      });
+
+      const unitIds = unitsToDelete.map(u => u.genItemId);
+      if (unitIds.length > 0) {
+        await db.GenItem.destroy({
+          where: { genItemId: { [db.Sequelize.Op.in]: unitIds } },
+          transaction: t
+        });
+      }
+    }
 
     if (t) await t.commit();
     const res = db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
@@ -1036,7 +1123,7 @@ async function updateGenItemUnitByRoomHandler(roomId, unitId, payload = {}, user
   return unit;
 }
 
-async function getAllUnitsByRoomHandler(roomId) {
+async function getAllUnitsByRoomHandler(roomId, query = {}) {
   await ensureRoomExistsHandler(roomId);
 
   const [apparelUnits, supplyUnits, genUnits] = await Promise.all([
@@ -1061,6 +1148,16 @@ async function getAllUnitsByRoomHandler(roomId) {
     const row = (typeof u.get === 'function') ? u.get() : u;
     normalized.push(Object.assign({ unitType: 'genitem', id: row.genItemId }, row));
   });
+
+  const limit = parseInt(query.limit);
+  const page = parseInt(query.page);
+
+  if (!isNaN(limit) && !isNaN(page)) {
+    const offset = (page - 1) * limit;
+    const count = normalized.length;
+    const rows = normalized.slice(offset, offset + limit);
+    return { rows, count };
+  }
 
   return normalized;
 }

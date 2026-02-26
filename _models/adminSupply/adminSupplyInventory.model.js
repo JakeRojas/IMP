@@ -9,17 +9,19 @@ const { DataTypes } = require('sequelize');
 
 module.exports = (sequelize) => {
     const attributes = {
-    adminSupplyInventoryId: { type: DataTypes.INTEGER,  primaryKey: true, autoIncrement: true },
-    roomId:                 { type: DataTypes.INTEGER,  allowNull: false },
-    supplyName:             { type: DataTypes.STRING,   allowNull: false },
-    supplyMeasure:          { type: DataTypes.ENUM(
-                                'pc', 'box', 'bottle', 'pack', 'ream', 
-                                'meter', 'roll', 'gallon', 'unit', 'educ', 
-                                'teachers'
-                                ), 
-                                allowNull: false 
-                            },
-    totalQuantity:          { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+        adminSupplyInventoryId: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+        roomId: { type: DataTypes.INTEGER, allowNull: false },
+        supplyName: { type: DataTypes.STRING, allowNull: false },
+        supplyMeasure: {
+            type: DataTypes.ENUM(
+                'pc', 'box', 'bottle', 'pack', 'ream',
+                'meter', 'roll', 'gallon', 'unit', 'educ',
+                'teachers'
+            ),
+            allowNull: false
+        },
+        totalQuantity: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+        qrStatus: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }
     };
 
     const options = {

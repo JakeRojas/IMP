@@ -243,6 +243,7 @@ async function generateBatchQR(argsOrStockroom) {
 
   // if file already exists, return info immediately (idempotent)
   if (fs.existsSync(absolutePath)) {
+    try { if (typeof batch.update === 'function') await batch.update({ qrStatus: true }); } catch (e) { }
     return { filename, absolutePath, publicPath, payload, batch };
   }
 
@@ -250,7 +251,7 @@ async function generateBatchQR(argsOrStockroom) {
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
   // optional: update DB rows with qr path info (if you do that elsewhere)
-  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) { }
+  try { if (typeof batch.update === 'function') await batch.update({ qrFilePath: payload, qrCodePath: writtenPublic, qrStatus: true }); } catch (e) { }
 
   return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, batch };
 }
@@ -277,6 +278,7 @@ async function generateUnitQR(argsOrStockroom) {
   const publicPath = `/uploads/qrcodes/${filename}`;
 
   if (fs.existsSync(absolutePath)) {
+    try { if (typeof unit.update === 'function') await unit.update({ qrStatus: true }); } catch (e) { }
     return { filename, absolutePath, publicPath, payload, unit };
   }
 
@@ -284,7 +286,7 @@ async function generateUnitQR(argsOrStockroom) {
   const { filename: writtenFilename, absolutePath: writtenAbs, publicPath: writtenPublic } =
     await writePngFromPayload(stockroomType, payload, { filenameOverride: filename, outputDir: UPLOADS_DIR });
 
-  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic }); } catch (e) { }
+  try { if (typeof unit.update === 'function') await unit.update({ qrFilePath: payload, qrCodePath: writtenPublic, qrStatus: true }); } catch (e) { }
 
   return { filename: writtenFilename || filename, absolutePath: writtenAbs || absolutePath, publicPath: writtenPublic || publicPath, payload, unit };
 }
