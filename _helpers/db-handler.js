@@ -278,14 +278,37 @@ function dbAssociations() {
   // db.Account.hasMany(db.ReceiveAdminSupply, { foreignKey: 'accountId'});
   // db.ReceiveAdminSupply.belongsTo(db.Account, { foreignKey: 'accountId'});
 
-  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId' });
-  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId' });
-
   db.ReceiveGenItem.hasMany(db.GenItem, { foreignKey: 'receiveGenItemId' });
   db.GenItem.belongsTo(db.ReceiveGenItem, { foreignKey: 'receiveGenItemId' });
 
-  // db.AdminSupply.belongsTo(db.Room, { foreignKey: 'roomId' });
-  // db.Room.hasMany(db.AdminSupply, { foreignKey: 'roomId' });
+  // GenItemInventory (aggregate) belongs to Room
+  db.Room.hasMany(db.GenItemInventory, { foreignKey: 'roomId' });
+  db.GenItemInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+  // GenItemInventory <-> GenItem
+  db.GenItemInventory.hasMany(db.GenItem, { foreignKey: 'genItemInventoryId' });
+  db.GenItem.belongsTo(db.GenItemInventory, { foreignKey: 'genItemInventoryId' });
+
+  // GenItemInventory <-> ReleaseGenItem
+  db.GenItemInventory.hasMany(db.ReleaseGenItem, { foreignKey: 'genItemInventoryId' });
+  db.ReleaseGenItem.belongsTo(db.GenItemInventory, { foreignKey: 'genItemInventoryId' });
+
+  // ReceiveGenItem <-> Room
+  db.ReceiveGenItem.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReceiveGenItem, { foreignKey: 'roomId' });
+
+  // ReceiveGenItem <-> GenItemInventory
+  db.GenItemInventory.hasMany(db.ReceiveGenItem, { foreignKey: 'genItemInventoryId' });
+  db.ReceiveGenItem.belongsTo(db.GenItemInventory, { foreignKey: 'genItemInventoryId' });
+
+  // ---------- QR Code Associations (Polymorphic-ish, linking to units) ----------
+  db.Apparel.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'apparel' } });
+  db.AdminSupply.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'supply' } });
+  db.GenItem.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'genItem' } });
+
+  db.Qr.belongsTo(db.Apparel, { foreignKey: 'unitId', constraints: false });
+  db.Qr.belongsTo(db.AdminSupply, { foreignKey: 'unitId', constraints: false });
+  db.Qr.belongsTo(db.GenItem, { foreignKey: 'unitId', constraints: false });
 
 
 
