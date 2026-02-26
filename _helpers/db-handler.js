@@ -301,6 +301,18 @@ function dbAssociations() {
   db.GenItemInventory.hasMany(db.ReceiveGenItem, { foreignKey: 'genItemInventoryId' });
   db.ReceiveGenItem.belongsTo(db.GenItemInventory, { foreignKey: 'genItemInventoryId' });
 
+  // Account -> ReceiveGenItem
+  db.Account.hasMany(db.ReceiveGenItem, { foreignKey: 'accountId' });
+  db.ReceiveGenItem.belongsTo(db.Account, { foreignKey: 'accountId' });
+
+  // ReleaseGenItem <-> Room
+  db.ReleaseGenItem.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReleaseGenItem, { foreignKey: 'roomId' });
+
+  // Account -> ReleaseGenItem
+  db.Account.hasMany(db.ReleaseGenItem, { foreignKey: 'accountId' });
+  db.ReleaseGenItem.belongsTo(db.Account, { foreignKey: 'accountId' });
+
   // ---------- QR Code Associations (Polymorphic-ish, linking to units) ----------
   db.Apparel.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'apparel' } });
   db.AdminSupply.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'supply' } });

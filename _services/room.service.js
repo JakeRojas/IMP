@@ -426,7 +426,7 @@ async function receiveGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
 
 // Get Received Handler
 async function getReceiveApparelsByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   const batches = await db.ReceiveApparel.findAll({
     where: { roomId: roomId },
@@ -483,7 +483,7 @@ async function getApparelInventoryByRoomHandler(roomId) {
 }
 
 async function getReceiveAdminSupplyByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   const batches = await db.ReceiveAdminSupply.findAll({
     where: { roomId: roomId },
@@ -539,7 +539,7 @@ async function getAdminSupplyInventoryByRoomHandler(roomId) {
 }
 
 async function getReceiveGenItemByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   const batches = await db.ReceiveGenItem.findAll({
     where: { roomId: roomId },
@@ -831,7 +831,7 @@ async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
 
 // Get Released Apparels Handler
 async function getReleaseApparelsByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   const batches = await db.ReleaseApparel.findAll({
     where: { roomId: roomId },
@@ -845,7 +845,7 @@ async function getReleaseApparelsByRoomHandler(roomId) {
   return batches;
 }
 async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   if (db.ReleaseAdminSupply) {
     return await db.ReleaseAdminSupply.findAll({
@@ -861,7 +861,7 @@ async function getReleasedBatchAdminSupplyByRoomHandler(roomId) {
   return [];
 }
 async function getReleasedGenItemByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // await ensureIsStockroomHandler(roomId);
 
   if (db.ReleaseGenItem) {
     return await db.ReleaseGenItem.findAll({
