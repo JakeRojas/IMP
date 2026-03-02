@@ -16,10 +16,10 @@ router.post('/:roomId/receive/apparel', authorize([Role.SuperAdmin, Role.Admin, 
 router.post('/:roomId/receive/supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema, receiveAdminSupply);
 router.post('/:roomId/receive/item', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema, receiveGenItem);
 
-router.post('/:roomId/release/apparel', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseApparel);
-router.post('/:roomId/release/supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseAdminSupply);
-router.post('/:roomId/release/item', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseGenItem);
-router.post('/:roomId/release', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), releaseInStockroom);
+router.post('/:roomId/release/apparel', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseApparel);
+router.post('/:roomId/release/supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseAdminSupply);
+router.post('/:roomId/release/item', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseGenItem);
+router.post('/:roomId/release', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseInStockroom);
 
 // GET & POST ------------------------------------------------------------------------------
 router.get('/:roomId/qr/apparel/batch/:inventoryId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getApparelBatchQr);
@@ -246,9 +246,9 @@ async function releaseInStockroom(req, res, next) {
       req.body.releaseApparelQuantity = req.body.releaseQuantity;
     }
     if (req.body.claimedBy == null) {
-      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
-    const result = await roomService.releaseInStockroomHandler(roomId, req.body);
+    const result = await roomService.releaseInStockroomHandler(roomId, req.body, req.user);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
@@ -263,10 +263,10 @@ async function releaseApparel(req, res, next) {
     }
 
     if (req.body.claimedBy == null) {
-      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
     if (req.body.releasedBy == null) {
-      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.releasedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
 
     const result = await roomService.releaseApparelInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
@@ -286,10 +286,10 @@ async function releaseAdminSupply(req, res, next) {
     }
 
     if (req.body.claimedBy == null) {
-      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
     if (req.body.releasedBy == null) {
-      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.releasedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
 
     const result = await roomService.releaseAdminSupplyInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
@@ -309,10 +309,10 @@ async function releaseGenItem(req, res, next) {
     }
 
     if (req.body.claimedBy == null) {
-      req.body.claimedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
     if (req.body.releasedBy == null) {
-      req.body.releasedBy = req.user?.id ? String(req.user.id) : '';
+      req.body.releasedBy = req.user?.accountId ? String(req.user.accountId) : '';
     }
 
     const result = await roomService.releaseGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);

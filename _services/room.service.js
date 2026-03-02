@@ -232,6 +232,24 @@ async function ensureRoomExistsHandler(roomId) {
   if (!room) throw { status: 404, message: 'Room not found' };
   return room;
 }
+async function ensureCanReleaseFromRoom(user, roomId) {
+  if (!user) throw { status: 401, message: 'Unauthorized' };
+
+  const role = (user.role || '').toString().toLowerCase();
+  const superAdminKey = (Role.SuperAdmin || 'superAdmin').toLowerCase();
+  const adminKey = (Role.Admin || 'admin').toLowerCase();
+  const stockroomAdminKey = (Role.StockroomAdmin || 'stockroomAdmin').toLowerCase();
+
+  if ([superAdminKey, adminKey, stockroomAdminKey].includes(role)) return;
+
+  const accountId = Number(user.accountId || user.AccountId || user.id || 0);
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw { status: 404, message: 'Room not found' };
+
+  if (Number(room.roomInCharge) !== accountId) {
+    throw { status: 403, message: `Forbidden: you are not in charge of room ${room.roomName || roomId}` };
+  }
+}
 
 // Receive Handler
 async function receiveInStockroomHandler(roomId, payload) {
@@ -595,8 +613,9 @@ async function getGenItemInventoryByRoomHandler(roomId) {
 }
 
 // Release Handler
-async function releaseInStockroomHandler(roomId, payload) {
-  await ensureIsStockroomHandler(roomId);
+async function releaseInStockroomHandler(roomId, payload, user) {
+  await ensureRoomExistsHandler(roomId);
+  await ensureCanReleaseFromRoom(user, roomId);
 
   if (payload.releaseApparelQuantity != null) payload.releaseApparelQuantity = parseInt(payload.releaseApparelQuantity, 10);
 
@@ -620,11 +639,22 @@ async function releaseInStockroomHandler(roomId, payload) {
   throw err;
 }
 async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
-  await ensureIsStockroomHandler(roomId);
+  await ensureRoomExistsHandler(roomId);
+  await ensureCanReleaseFromRoom(user, roomId);
+
+  // If a specific unitId is passed, try to fetch its inventoryId and default quantity to 1
+  if (payload.unitId && !payload.apparelInventoryId) {
+    const unit = await db.Apparel.findByPk(payload.unitId);
+    if (unit) {
+      payload.apparelInventoryId = unit.apparelInventoryId;
+      if (payload.releaseApparelQuantity == null) payload.releaseApparelQuantity = 1;
+    }
+  }
 
   const qty = Number(payload.releaseApparelQuantity || 0);
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
+  const accId = user ? Number(user.accountId || user.AccountId || user.id) : null;
   const sequelize = db.sequelize || null;
   const t = sequelize ? await sequelize.transaction() : null;
 
@@ -650,35 +680,47 @@ async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, bro
       releasedBy: payload.releasedBy,
       claimedBy: payload.claimedBy,
       releaseApparelQuantity: qty,
+      accountId: accId,
       notes: payload.notes || null
     }, { transaction: t });
 
     await updateInventory(inv, -qty, { transaction: t });
 
     // Deduct individual unit rows
-    if (db.Apparel) {
-      const unitsToDelete = await db.Apparel.findAll({
-        where: { roomId, apparelInventoryId: payload.apparelInventoryId },
+    const unitsToDelete = [];
+    if (payload.unitId) {
+      const targetUnit = await db.Apparel.findByPk(payload.unitId, { transaction: t });
+      if (targetUnit && Number(targetUnit.roomId) === Number(roomId)) unitsToDelete.push(targetUnit);
+    }
+
+    if (unitsToDelete.length < qty) {
+      const extraUnits = await db.Apparel.findAll({
+        where: {
+          roomId,
+          apparelInventoryId: payload.apparelInventoryId,
+          apparelId: { [db.Sequelize.Op.notIn]: unitsToDelete.map(u => u.apparelId) }
+        },
         order: [['apparelId', 'ASC']],
-        limit: qty,
+        limit: qty - unitsToDelete.length,
         transaction: t
       });
+      unitsToDelete.push(...extraUnits);
+    }
 
-      const unitIds = unitsToDelete.map(u => u.apparelId);
-      if (unitIds.length > 0) {
-        await db.Apparel.destroy({
-          where: { apparelId: { [db.Sequelize.Op.in]: unitIds } },
-          transaction: t
-        });
-      }
+    const unitIds = unitsToDelete.map(u => u.apparelId);
+    if (unitIds.length > 0) {
+      await db.Apparel.destroy({
+        where: { apparelId: { [db.Sequelize.Op.in]: unitIds } },
+        transaction: t
+      });
     }
 
     if (t) await t.commit();
 
-    const res = db.ReleaseApparel.findByPk(batch.releaseApparelId);
+    const res = await db.ReleaseApparel.findByPk(batch.releaseApparelId);
 
     try {
-      await accountService.logActivity(user.accountId, 'release_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
+      if (accId) await accountService.logActivity(accId, 'release_apparel', ipAddress, browserInfo, `roomId:${roomId}`);
     } catch (err) {
       console.error('activity log failed (releaseApparel)', err);
     }
@@ -690,11 +732,22 @@ async function releaseApparelInRoomHandler(roomId, payload, user, ipAddress, bro
   }
 }
 async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
-  await ensureIsStockroomHandler(roomId);
+  await ensureRoomExistsHandler(roomId);
+  await ensureCanReleaseFromRoom(user, roomId);
+
+  // Handle unitId for supply
+  if (payload.unitId && !payload.adminSupplyInventoryId) {
+    const unit = await db.AdminSupply.findByPk(payload.unitId);
+    if (unit) {
+      payload.adminSupplyInventoryId = unit.adminSupplyInventoryId;
+      if (payload.releaseAdminSupplyQuantity == null) payload.releaseAdminSupplyQuantity = 1;
+    }
+  }
 
   const qty = Number(payload.releaseAdminSupplyQuantity || 0);
   if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
+  const accId = user ? Number(user.accountId || user.AccountId || user.id) : null;
   const sequelize = db.sequelize || null;
   const t = sequelize ? await sequelize.transaction() : null;
 
@@ -720,34 +773,46 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress,
       releasedBy: payload.releasedBy,
       claimedBy: payload.claimedBy,
       releaseAdminSupplyQuantity: qty,
+      accountId: accId,
       notes: payload.notes || null
     }, { transaction: t });
 
     await updateInventory(inv, -qty, { transaction: t });
 
     // Deduct individual unit rows
-    if (db.AdminSupply) {
-      const unitsToDelete = await db.AdminSupply.findAll({
-        where: { roomId, adminSupplyInventoryId: payload.adminSupplyInventoryId },
+    const unitsToDelete = [];
+    if (payload.unitId) {
+      const targetUnit = await db.AdminSupply.findByPk(payload.unitId, { transaction: t });
+      if (targetUnit && Number(targetUnit.roomId) === Number(roomId)) unitsToDelete.push(targetUnit);
+    }
+
+    if (unitsToDelete.length < qty) {
+      const extraUnits = await db.AdminSupply.findAll({
+        where: {
+          roomId,
+          adminSupplyInventoryId: payload.adminSupplyInventoryId,
+          adminSupplyId: { [db.Sequelize.Op.notIn]: unitsToDelete.map(u => u.adminSupplyId) }
+        },
         order: [['adminSupplyId', 'ASC']],
-        limit: qty,
+        limit: qty - unitsToDelete.length,
         transaction: t
       });
+      unitsToDelete.push(...extraUnits);
+    }
 
-      const unitIds = unitsToDelete.map(u => u.adminSupplyId);
-      if (unitIds.length > 0) {
-        await db.AdminSupply.destroy({
-          where: { adminSupplyId: { [db.Sequelize.Op.in]: unitIds } },
-          transaction: t
-        });
-      }
+    const unitIds = unitsToDelete.map(u => u.adminSupplyId);
+    if (unitIds.length > 0) {
+      await db.AdminSupply.destroy({
+        where: { adminSupplyId: { [db.Sequelize.Op.in]: unitIds } },
+        transaction: t
+      });
     }
 
     if (t) await t.commit();
-    const res = db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
+    const res = await db.ReleaseAdminSupply.findByPk(batch.releaseAdminSupplyId);
 
     try {
-      await accountService.logActivity(user.accountId, 'release_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
+      if (accId) await accountService.logActivity(accId, 'release_admin-supply', ipAddress, browserInfo, `roomId:${roomId}`);
     } catch (err) {
       console.error('activity log failed (releaseAdminSupply)', err);
     }
@@ -759,15 +824,26 @@ async function releaseAdminSupplyInRoomHandler(roomId, payload, user, ipAddress,
   }
 }
 async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
-  await ensureIsStockroomHandler(roomId);
+  await ensureRoomExistsHandler(roomId);
+  await ensureCanReleaseFromRoom(user, roomId);
 
-  const qty = Number(payload.releaseItemQuantity || 0);
-  if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
-
+  const accId = user ? Number(user.accountId || user.AccountId || user.id) : null;
   const sequelize = db.sequelize || null;
   const t = sequelize ? await sequelize.transaction() : null;
 
   try {
+    // Handle unitId for GenItem
+    if (payload.unitId && !payload.genItemInventoryId) {
+      const unit = await db.GenItem.findByPk(payload.unitId);
+      if (unit) {
+        payload.genItemInventoryId = unit.genItemInventoryId;
+        if (payload.releaseItemQuantity == null) payload.releaseItemQuantity = 1;
+      }
+    }
+
+    const qty = Number(payload.releaseItemQuantity || 1);
+    if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
+
     const [inv] = await db.GenItemInventory.findOrCreate({
       where: {
         roomId,
@@ -789,35 +865,49 @@ async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
       releasedBy: payload.releasedBy,
       claimedBy: payload.claimedBy,
       releaseItemQuantity: qty,
-      genItemType: payload.genItemType,
+      genItemType: ['it', 'maintenance'].includes(String(payload.genItemType || inv.genItemType || '').toLowerCase())
+        ? String(payload.genItemType || inv.genItemType).toLowerCase()
+        : 'unknownType',
+      accountId: accId,
       notes: payload.notes || null
     }, { transaction: t });
 
     await updateInventory(inv, -qty, { transaction: t });
 
-    // Deduct individual unit rows
-    if (db.GenItem) {
-      const unitsToDelete = await db.GenItem.findAll({
-        where: { roomId, genItemInventoryId: payload.genItemInventoryId },
+    // Deduct individual unit rows 
+    const unitsToDelete = [];
+    if (payload.unitId) {
+      const targetUnit = await db.GenItem.findByPk(payload.unitId, { transaction: t });
+      if (targetUnit && Number(targetUnit.roomId) === Number(roomId)) unitsToDelete.push(targetUnit);
+    }
+
+    if (unitsToDelete.length < qty) {
+      const extraUnits = await db.GenItem.findAll({
+        where: {
+          roomId,
+          genItemInventoryId: payload.genItemInventoryId,
+          genItemId: { [db.Sequelize.Op.notIn]: unitsToDelete.map(u => u.genItemId) }
+        },
         order: [['genItemId', 'ASC']],
-        limit: qty,
+        limit: qty - unitsToDelete.length,
         transaction: t
       });
+      unitsToDelete.push(...extraUnits);
+    }
 
-      const unitIds = unitsToDelete.map(u => u.genItemId);
-      if (unitIds.length > 0) {
-        await db.GenItem.destroy({
-          where: { genItemId: { [db.Sequelize.Op.in]: unitIds } },
-          transaction: t
-        });
-      }
+    const unitIds = unitsToDelete.map(u => u.genItemId);
+    if (unitIds.length > 0) {
+      await db.GenItem.destroy({
+        where: { genItemId: { [db.Sequelize.Op.in]: unitIds } },
+        transaction: t
+      });
     }
 
     if (t) await t.commit();
-    const res = db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
+    const res = await db.ReleaseGenItem.findByPk(batch.releaseGenItemId);
 
     try {
-      await accountService.logActivity(user.accountId, 'release_general-tems', ipAddress, browserInfo, `roomId:${roomId}`);
+      if (accId) await accountService.logActivity(accId, 'release_general-items', ipAddress, browserInfo, `roomId:${roomId}`);
     } catch (err) {
       console.error('activity log failed (releaseGenItem)', err);
     }

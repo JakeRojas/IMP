@@ -343,21 +343,37 @@ async function scanItem(qrPayloadText) {
 async function releaseUnit(stockroomType, unitId, opts = {}) {
   if (!stockroomType || !unitId) throw { status: 400, message: 'Invalid params' };
   const t = String(stockroomType).toLowerCase();
-  const actorId = opts.actorId || null;
 
+  // Try to find the unit to identify what room it's in
+  const unit = await loadUnitRecord(t, Number(unitId));
+  if (!unit) throw { status: 404, message: 'Unit record not found' };
+
+  const roomId = unit.roomId;
+  const roomService = require('./room.service');
+
+  const payload = {
+    unitId: Number(unitId),
+    claimedBy: opts.claimedBy || 'Scanner User',
+    releasedBy: opts.releasedBy || 'Scanner User',
+    notes: opts.notes || 'Released via QR scan'
+  };
+
+  // call the centralized roomService logic
   if (t === 'apparel') {
-    const apparelService = require('_services/apparel.service');
-    return apparelService.releaseUnitById(Number(unitId), { actorId });
+    payload.apparelInventoryId = unit.apparelInventoryId;
+    return roomService.releaseApparelInRoomHandler(roomId, payload, { accountId: opts.actorId });
   }
 
-  if (['admin-supply', 'supply', 'adminsupply', 'admin-supply'].includes(t)) {
-    const supplyService = require('_services/adminSupply.service');
-    return supplyService.releaseUnitById(Number(unitId), { actorId });
+  if (['admin-supply', 'supply', 'adminsupply'].includes(t)) {
+    payload.adminSupplyInventoryId = unit.adminSupplyInventoryId;
+    return roomService.releaseAdminSupplyInRoomHandler(roomId, payload, { accountId: opts.actorId });
   }
 
-  if (['genitem', 'general-item', 'general', 'it', 'maintenance'].includes(t)) {
-    const genService = require('_services/genItem.service');
-    return genService.releaseUnitById(Number(unitId), { actorId });
+  if (['genitem', 'general', 'it', 'maintenance', 'general-item'].includes(t)) {
+    payload.genItemInventoryId = unit.genItemInventoryId;
+    const ut = (unit.genItemType || t || '').toLowerCase();
+    payload.genItemType = ['it', 'maintenance'].includes(ut) ? ut : 'unknownType';
+    return roomService.releaseGenItemInRoomHandler(roomId, payload, { accountId: opts.actorId });
   }
 
   throw { status: 400, message: 'Unsupported stockroomType for unit release' };

@@ -19,6 +19,8 @@ module.exports = (sequelize) => {
             ),
             allowNull: false
         },
+        accountId: { type: DataTypes.INTEGER, allowNull: true },
+        notes: { type: DataTypes.STRING, allowNull: true },
         releasedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
     };
 
