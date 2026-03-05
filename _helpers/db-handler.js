@@ -139,11 +139,30 @@ async function initialize() {
       }
     });
 
+    dbAssociations();
+
+    // =====================================================================
+    // DANGER ZONE: TEMPORARY SCRIPT TO WIPE BOTH LOCAL AND LIVE DATABASES!
+    // Uncomment this block below when you need to completely erase all data, 
+    // run the app once, then comment it out again afterwards for safety.
+    // =====================================================================
+
+    /* console.log("Starting full database wipe...");
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+    await sequelize.sync({ force: true });
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    console.log("DATABASE WIPED AND RESET SUCCESSFULLY."); */
+
+    // =====================================================================
+
     // Sync models to DB when in non-production for convenience.
     // WARNING: avoid alter:true in real production; prefer migrations.
     if (process.env.NODE_ENV !== 'production') {
       await sequelize.sync({ alter: true });
       console.log('Sequelize sync finished (alter: true).');
+    } else {
+      await sequelize.sync();
+      console.log('Sequelize sync finished on Production.');
     }
 
     console.log('Database initialized successfully.');
@@ -152,11 +171,6 @@ async function initialize() {
     // Fail fast so deploy logs show the error. Change to retry logic if desired.
     process.exit(1);
   }
-
-  dbAssociations();
-
-  await sequelize.sync({ alter: true });
-  console.log('Sequelize synced.');
 }
 
 function dbAssociations() {
