@@ -26,7 +26,7 @@ router.post('/create-user', authorize(Role.SuperAdmin), createSchema, create);
 router.post('/create-array', authorize(Role.SuperAdmin), createAsArraySchema, createAsArray);
 router.get('/', authorize(Role.SuperAdmin), getAll);
 router.get('/:accountId', authorize(), getById);
-router.put('/:accountId', authorize(Role.SuperAdmin), updateSchema, update);
+router.put('/:accountId', authorize(Role), updateSchema, update);
 router.post('/:accountId/grant-room-access', authorize(Role.SuperAdmin), grantRoomAccess);
 router.post('/:accountId/revoke-room-access', authorize(Role.SuperAdmin), revokeRoomAccess);
 
