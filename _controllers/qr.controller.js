@@ -91,7 +91,9 @@ async function generateAllPdf(req, res, next) {
       inventory = await db.ApparelInventory.findAll({ where: { roomId } });
     } else if (stockroomType === 'supply') {
       inventory = await db.AdminSupplyInventory.findAll({ where: { roomId } });
-    } else if (stockroomType === 'genitem' || stockroomType === 'it' || stockroomType === 'maintenance') {
+    } else if (stockroomType === 'it') {
+      inventory = await db.ItInventory.findAll({ where: { roomId } });
+    } else if (stockroomType === 'genitem' || stockroomType === 'maintenance' || stockroomType === 'general') {
       inventory = await db.GenItemInventory.findAll({ where: { roomId } });
     } else {
       const modelName = stockroomType + 'Inventory';
@@ -106,7 +108,7 @@ async function generateAllPdf(req, res, next) {
     const qrItems = [];
     for (let idx = 0; idx < inventory.length; idx++) {
       const inv = inventory[idx];
-      const invId = tryFields(inv, 'receiveApparelId', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'id');
+      const invId = tryFields(inv, 'receiveApparelId', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'itInventoryId', 'id');
 
       const out = await qrService.generateBatchQR({ stockroomType, inventoryId: invId });
       const pngPath = out && (out.absolutePath || out.path || out.filepath);
@@ -213,19 +215,23 @@ async function generateAllUnitsPdf(req, res, next) {
       units = await db.Apparel.findAll({ where: { roomId }, include: [db.ApparelInventory, db.ReceiveApparel] });
     } else if (stockroomType === 'supply') {
       units = await db.AdminSupply.findAll({ where: { roomId }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] });
-    } else if (stockroomType === 'genitem' || stockroomType === 'it' || stockroomType === 'maintenance') {
+    } else if (stockroomType === 'it') {
+      units = await db.It.findAll({ where: { roomId }, include: [db.ItInventory, db.ReceiveIt] });
+    } else if (stockroomType === 'genitem' || stockroomType === 'maintenance' || stockroomType === 'general') {
       units = await db.GenItem.findAll({ where: { roomId }, include: [db.GenItemInventory, db.ReceiveGenItem] });
-    } else if (stockroomType === 'general' || stockroomType === 'all') {
+    } else if (stockroomType === 'all') {
       // Mixed: load everything
       const [u1, u2, u3] = await Promise.all([
         db.Apparel.findAll({ where: { roomId }, include: [db.ApparelInventory, db.ReceiveApparel] }),
         db.AdminSupply.findAll({ where: { roomId }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] }),
-        db.GenItem.findAll({ where: { roomId }, include: [db.GenItemInventory, db.ReceiveGenItem] })
+        db.GenItem.findAll({ where: { roomId }, include: [db.GenItemInventory, db.ReceiveGenItem] }),
+        db.It.findAll({ where: { roomId }, include: [db.ItInventory, db.ReceiveIt] })
       ]);
       u1.forEach(u => u.setDataValue('_unitType', 'apparel'));
       u2.forEach(u => u.setDataValue('_unitType', 'supply'));
       u3.forEach(u => u.setDataValue('_unitType', 'genitem'));
-      units = [...u1, ...u2, ...u3];
+      u4.forEach(u => u.setDataValue('_unitType', 'it'));
+      units = [...u1, ...u2, ...u3, ...u4];
     } else {
       // try generic model name (singular)
       const modelName = stockroomType.charAt(0).toUpperCase() + stockroomType.slice(1);
@@ -238,7 +244,7 @@ async function generateAllUnitsPdf(req, res, next) {
     // build QR item list (generate per-unit PNG if needed)
     const qrItems = [];
     for (let u of units) {
-      const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId') || null;
+      const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId', 'itId') || null;
       if (!unitId) continue;
       const type = u.getDataValue('_unitType') || stockroomType;
       const out = await qrService.generateUnitQR({ stockroomType: type, unitId });
@@ -263,6 +269,14 @@ async function generateAllUnitsPdf(req, res, next) {
         const name = (inv.supplyName || receive.supplyName || '').toUpperCase();
         const measure = (inv.supplyMeasure || receive.supplyMeasure || '').toUpperCase();
         label = `${name}-${measure}`.replace(/-+$/, '');
+        dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+      } else if (type === 'it') {
+        const inv = u.ItInventory || {};
+        const receive = u.ReceiveIt || {};
+        const name = (inv.itName || receive.itName || '').toUpperCase();
+        const brand = (inv.itBrand || receive.itBrand || '').toUpperCase();
+        const model = (inv.itModel || receive.itModel || '').toUpperCase();
+        label = `${name}-${brand}-${model}`.replace(/-+$/, '');
         dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
       } else {
         const inv = u.GenItemInventory || {};
@@ -354,7 +368,9 @@ async function generateSelectedUnitsPdf(req, res, next) {
       units = await db.Apparel.findAll({ where: { apparelId: unitIds } });
     } else if (stockroomType === 'supply') {
       units = await db.AdminSupply.findAll({ where: { adminSupplyId: unitIds } });
-    } else if (['genitem', 'it', 'maintenance'].includes(stockroomType)) {
+    } else if (stockroomType === 'it') {
+      units = await db.It.findAll({ where: { itId: unitIds } });
+    } else if (['genitem', 'maintenance'].includes(stockroomType)) {
       units = await db.GenItem.findAll({ where: { genItemId: unitIds } });
     } else if (stockroomType === 'general' || stockroomType === 'all') {
       const [u1, u2, u3] = await Promise.all([
@@ -381,14 +397,16 @@ async function generatePdfForUnits(units, stockroomType, res, downloadFilename) 
   if (!units || units.length === 0) return res.status(404).json({ message: 'No units to generate' });
 
   // Re-fetch units with associations to ensure we have name/level/size/date
-  const unitIds = units.map(u => tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId')).filter(Boolean);
+  const unitIds = units.map(u => tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId', 'itId')).filter(Boolean);
   let detailedUnits = [];
 
   if (stockroomType === 'apparel') {
     detailedUnits = await db.Apparel.findAll({ where: { apparelId: unitIds }, include: [db.ApparelInventory, db.ReceiveApparel] });
   } else if (stockroomType === 'supply') {
     detailedUnits = await db.AdminSupply.findAll({ where: { adminSupplyId: unitIds }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] });
-  } else if (['genitem', 'it', 'maintenance'].includes(stockroomType)) {
+  } else if (stockroomType === 'it') {
+    detailedUnits = await db.It.findAll({ where: { itId: unitIds }, include: [db.ItInventory, db.ReceiveIt] });
+  } else if (['genitem', 'maintenance'].includes(stockroomType)) {
     detailedUnits = await db.GenItem.findAll({ where: { genItemId: unitIds }, include: [db.GenItemInventory, db.ReceiveGenItem] });
   } else {
     // Falls back to original units if type unknown
@@ -397,7 +415,7 @@ async function generatePdfForUnits(units, stockroomType, res, downloadFilename) 
 
   const qrItems = [];
   for (let u of detailedUnits) {
-    const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId') || null;
+    const unitId = tryFields(u, 'id', 'apparelId', 'adminSupplyId', 'genItemId', 'itId') || null;
     if (!unitId) continue;
     const type = u.getDataValue ? (u.getDataValue('_unitType') || stockroomType) : (u._unitType || stockroomType);
     const out = await qrService.generateUnitQR({ stockroomType: type, unitId });
@@ -422,6 +440,14 @@ async function generatePdfForUnits(units, stockroomType, res, downloadFilename) 
       const name = (inv.supplyName || receive.supplyName || '').toUpperCase();
       const measure = (inv.supplyMeasure || receive.supplyMeasure || '').toUpperCase();
       label = `${name}-${measure}`.replace(/-+$/, '');
+      dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
+    } else if (type === 'it') {
+      const inv = u.ItInventory || {};
+      const receive = u.ReceiveIt || {};
+      const name = (inv.itName || receive.itName || '').toUpperCase();
+      const brand = (inv.itBrand || receive.itBrand || '').toUpperCase();
+      const model = (inv.itModel || receive.itModel || '').toUpperCase();
+      label = `${name}-${brand}-${model}`.replace(/-+$/, '');
       dateReceived = receive.receivedAt ? new Date(receive.receivedAt).toLocaleDateString() : '';
     } else {
       const inv = u.GenItemInventory || {};

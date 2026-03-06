@@ -12,12 +12,14 @@ module.exports = {
   receiveInStockroomHandler,          // recieve in stockroom and it will route to the specific recieve functions depends on its payload.
   receiveApparelInRoomHandler,        // receive apparel function with its payload.
   receiveAdminSupplyInRoomHandler,    // receive admin supply function and its payload.
-  receiveGenItemInRoomHandler,        // receive general item function and its payload.
+  receiveGenItemInRoomHandler,
+  receiveItInRoomHandler,        // receive IT item function and its payload.
 
   releaseInStockroomHandler,          // release in stockroom and it will route to the specific recieve functions depends on its payload.
   releaseApparelInRoomHandler,        // release apparel function with its payload.
   releaseAdminSupplyInRoomHandler,
   releaseGenItemInRoomHandler,
+  releaseItInRoomHandler,
 
   // POST & GET --------------------------------------------------------------------------------
   generateApparelBatchForRoom,
@@ -35,10 +37,12 @@ module.exports = {
   getReceiveApparelsByRoomHandler,
   getReceiveAdminSupplyByRoomHandler,
   getReceiveGenItemByRoomHandler,
+  getReceiveItByRoomHandler,
 
   getApparelInventoryByRoomHandler,
   getAdminSupplyInventoryByRoomHandler,
   getGenItemInventoryByRoomHandler,
+  getItInventoryByRoomHandler,
 
   getApparelUnitsByRoomHandler,
   getAdminSupplyUnitsByRoomHandler,
@@ -47,6 +51,7 @@ module.exports = {
   getReleaseApparelsByRoomHandler,
   getReleasedBatchAdminSupplyByRoomHandler,
   getReleasedGenItemByRoomHandler,
+  getReleasedItByRoomHandler,
 
   // PUT -------------------------------------------------------------------------------------
   updateRoomHandler,                  // update a specific room.
@@ -57,7 +62,9 @@ module.exports = {
   updateApparelUnitByRoomHandler,
   updateAdminSupplyUnitByRoomHandler,
   updateGenItemUnitByRoomHandler,
-  getAllUnitsByRoomHandler
+  updateItUnitByRoomHandler,
+  getAllUnitsByRoomHandler,
+  getItUnitsByRoomHandler
 };
 
 // Room's CRUD Handler
@@ -443,6 +450,62 @@ async function receiveGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
 }
 
 // Get Received Handler
+
+async function receiveItInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
+  await ensureIsStockroomHandler(roomId);
+
+  const batch = await db.ReceiveIt.create({
+    roomId,
+    receivedFrom: payload.receivedFrom,
+    receivedBy: payload.receivedBy,
+    itName: payload.itName,
+    itSerialNumber: payload.itSerialNumber || null,
+    itModel: payload.itModel || null,
+    itBrand: payload.itBrand || null,
+    itSize: payload.itSize || null,
+    itQuantity: payload.itQuantity,
+  });
+
+  const [inv] = await db.ItInventory.findOrCreate({
+    where: {
+      roomId,
+      itName: payload.itName,
+      itSerialNumber: payload.itSerialNumber || null,
+      itModel: payload.itModel || null,
+      itBrand: payload.itBrand || null,
+      itSize: payload.itSize || null,
+    },
+    defaults: { totalQuantity: 0 }
+  });
+
+  inv.totalQuantity = (inv.totalQuantity || 0) + payload.itQuantity;
+  await inv.save();
+
+  let createdUnits = [];
+  if (db.It) {
+    const itUnits = Array(payload.itQuantity).fill().map(() => ({
+      receiveItId: batch.receiveItId,
+      itInventoryId: inv.itInventoryId ?? inv.id,
+      roomId: roomId,
+      status: 'good'
+    }));
+    createdUnits = await db.It.bulkCreate(itUnits);
+  }
+
+  const res = db.ReceiveIt.findByPk(batch.receiveItId, {
+    include: [{ model: db.It }]
+  });
+
+  try {
+    await accountService.logActivity(user.accountId, 'receive_it', ipAddress, browserInfo, `roomId:${roomId}`);
+  } catch (err) {
+    console.error('activity log failed (receiveIt)', err);
+  }
+
+  return res;
+}
+
+// Get Received Handler
 async function getReceiveApparelsByRoomHandler(roomId) {
   // await ensureIsStockroomHandler(roomId);
 
@@ -570,6 +633,18 @@ async function getReceiveGenItemByRoomHandler(roomId) {
 
   return batches;
 }
+// 
+async function getReceiveItByRoomHandler(roomId) {
+  const batches = await db.ReceiveIt.findAll({
+    where: { roomId: roomId },
+    include: [
+      { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
+      { model: db.It, required: false }
+    ],
+    order: [['receivedAt', 'DESC']]
+  });
+  return batches;
+}
 // async function getGenItemUnitsByRoomHandler(roomId) {
 
 //   // await ensureIsStockroomHandler(roomId);
@@ -610,6 +685,28 @@ async function getGenItemInventoryByRoomHandler(roomId) {
   });
 
   return inventory;
+}
+
+// IT
+async function getItUnitsByRoomHandler(roomId, query = {}) {
+  const options = {
+    where: { roomId: roomId },
+    order: [['itId', 'ASC']],
+    include: [{ model: db.ItInventory, required: false }]
+  };
+
+  const limit = parseInt(query.limit);
+  const page = parseInt(query.page);
+
+  if (!isNaN(limit) && !isNaN(page)) {
+    options.limit = limit;
+    options.offset = (page - 1) * limit;
+    const { count, rows } = await db.It.findAndCountAll(options);
+    return { rows, count };
+  }
+
+  const units = await db.It.findAll(options);
+  return units;
 }
 
 // Release Handler
@@ -919,6 +1016,95 @@ async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
   }
 }
 
+async function releaseItInRoomHandler(roomId, payload, user, ipAddress, browserInfo) {
+  await ensureRoomExistsHandler(roomId);
+  await ensureCanReleaseFromRoom(user, roomId);
+
+  const accId = user ? Number(user.accountId || user.AccountId || user.id) : null;
+  const sequelize = db.sequelize || null;
+  const t = sequelize ? await sequelize.transaction() : null;
+
+  try {
+    if (payload.unitId && !payload.itInventoryId) {
+      const unit = await db.It.findByPk(payload.unitId);
+      if (unit) {
+        payload.itInventoryId = unit.itInventoryId;
+        if (payload.releaseItemQuantity == null) payload.releaseItemQuantity = 1;
+      }
+    }
+
+    const qty = Number(payload.releaseItemQuantity || 1);
+    if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
+
+    const [inv] = await db.ItInventory.findOrCreate({
+      where: { roomId, itInventoryId: payload.itInventoryId },
+      defaults: { totalQuantity: 0 },
+      transaction: t
+    });
+
+    const available = inv.totalQuantity || 0;
+    if (available < qty) {
+      if (t) await t.rollback();
+      throw { status: 400, message: `Not enough stock to release (${available} available)` };
+    }
+
+    const batch = await db.ReleaseIt.create({
+      roomId,
+      itInventoryId: payload.itInventoryId,
+      releasedBy: payload.releasedBy,
+      claimedBy: payload.claimedBy,
+      releaseItemQuantity: qty,
+      accountId: accId,
+      notes: payload.notes || null
+    }, { transaction: t });
+
+    await updateInventory(inv, -qty, { transaction: t });
+
+    // Deduct individual unit rows
+    const unitsToDelete = [];
+    if (payload.unitId) {
+      const targetUnit = await db.It.findByPk(payload.unitId, { transaction: t });
+      if (targetUnit && Number(targetUnit.roomId) === Number(roomId)) unitsToDelete.push(targetUnit);
+    }
+
+    if (unitsToDelete.length < qty) {
+      const extraUnits = await db.It.findAll({
+        where: {
+          roomId,
+          itInventoryId: payload.itInventoryId,
+          itId: { [db.Sequelize.Op.notIn]: unitsToDelete.map(u => u.itId) }
+        },
+        order: [['itId', 'ASC']],
+        limit: qty - unitsToDelete.length,
+        transaction: t
+      });
+      unitsToDelete.push(...extraUnits);
+    }
+
+    const unitIds = unitsToDelete.map(u => u.itId);
+    if (unitIds.length > 0) {
+      await db.It.destroy({
+        where: { itId: { [db.Sequelize.Op.in]: unitIds } },
+        transaction: t
+      });
+    }
+
+    if (t) await t.commit();
+    const res = await db.ReleaseIt.findByPk(batch.releaseItId);
+
+    try {
+      if (accId) await accountService.logActivity(accId, 'release_it', ipAddress, browserInfo, `roomId:${roomId}`);
+    } catch (err) {
+      console.error('activity log failed (releaseIt)', err);
+    }
+
+    return res;
+  } catch (e) {
+    if (t) await t.rollback();
+    throw e;
+  }
+}
+
 // Get Released Apparels Handler
 async function getReleaseApparelsByRoomHandler(roomId) {
   // await ensureIsStockroomHandler(roomId);
@@ -959,6 +1145,28 @@ async function getReleasedGenItemByRoomHandler(roomId) {
       include: [
         { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
         { model: db.GenItemInventory, required: false }
+      ],
+      order: [['releasedAt', 'DESC']]
+    });
+  }
+  return [];
+}
+
+async function getItInventoryByRoomHandler(roomId) {
+  await ensureIsStockroomHandler(roomId);
+  const inventory = await db.ItInventory.findAll({
+    where: { roomId },
+    order: [['itName', 'ASC']]
+  });
+  return inventory;
+}
+async function getReleasedItByRoomHandler(roomId) {
+  if (db.ReleaseIt) {
+    return await db.ReleaseIt.findAll({
+      where: { roomId },
+      include: [
+        { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'], required: false },
+        { model: db.ItInventory, required: false }
       ],
       order: [['releasedAt', 'DESC']]
     });
@@ -1216,10 +1424,11 @@ async function updateGenItemUnitByRoomHandler(roomId, unitId, payload = {}, user
 async function getAllUnitsByRoomHandler(roomId, query = {}) {
   await ensureRoomExistsHandler(roomId);
 
-  const [apparelUnits, supplyUnits, genUnits] = await Promise.all([
+  const [apparelUnits, supplyUnits, genUnits, itUnits] = await Promise.all([
     getApparelUnitsByRoomHandler(roomId).catch(() => []),
     getAdminSupplyUnitsByRoomHandler(roomId).catch(() => []),
     getGenItemUnitsByRoomHandler(roomId).catch(() => []),
+    getItUnitsByRoomHandler(roomId).catch(() => []),
   ]);
 
   const normalized = [];
@@ -1239,6 +1448,11 @@ async function getAllUnitsByRoomHandler(roomId, query = {}) {
     normalized.push(Object.assign({ unitType: 'genitem', id: row.genItemId }, row));
   });
 
+  (itUnits || []).forEach(u => {
+    const row = (typeof u.get === 'function') ? u.get() : u;
+    normalized.push(Object.assign({ unitType: 'it', id: row.itId }, row));
+  });
+
   const limit = parseInt(query.limit);
   const page = parseInt(query.page);
 
@@ -1250,4 +1464,18 @@ async function getAllUnitsByRoomHandler(roomId, query = {}) {
   }
 
   return normalized;
+}
+
+async function updateItUnitByRoomHandler(roomId, unitId, payload, user) {
+  await ensureRoomExistsHandler(roomId);
+  const unit = await db.It.findByPk(unitId);
+  if (!unit || Number(unit.roomId) !== Number(roomId)) {
+    throw { status: 404, message: 'IT unit not found in this room' };
+  }
+
+  if (payload.status) unit.status = payload.status;
+  if (payload.description !== undefined) unit.description = payload.description;
+
+  await unit.save();
+  return unit;
 }

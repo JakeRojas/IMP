@@ -64,8 +64,21 @@ async function loadBatchRecord(stockroomType, id) {
     return null;
   }
 
-  // generalitem
-  if (stockroomType === 'it' || stockroomType === 'maintenance' || stockroomType === 'genitem' || stockroomType === 'general') {
+  // it
+  if (stockroomType === 'it') {
+    if (db.ItInventory) {
+      const inv = await db.ItInventory.findByPk(id);
+      if (inv) return inv;
+    }
+    if (db.ReceiveIt) {
+      const recv = await db.ReceiveIt.findByPk(id);
+      if (recv) return recv;
+    }
+    return null;
+  }
+
+  // generalitem / maintenance
+  if (stockroomType === 'maintenance' || stockroomType === 'genitem' || stockroomType === 'general') {
     if (db.GenItemInventory) {
       const inv = await db.GenItemInventory.findByPk(id);
       if (inv) return inv;
@@ -115,7 +128,15 @@ async function loadUnitRecord(stockroomType, id) {
     return null;
   }
 
-  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') {
+  if (stockroomType === 'it') {
+    if (db.It) {
+      const u = await db.It.findByPk(id);
+      if (u) return u;
+    }
+    return null;
+  }
+
+  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'maintenance') {
     if (db.GenItem) {
       const u = await db.GenItem.findByPk(id);
       if (u) return u;
@@ -135,13 +156,13 @@ function buildBatchPayloadObject(stockroomType, batch) {
   // Common fields we want in every QR
   const id = pickFirst(batch,
     // inventory primary keys in different patterns
-    'id', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId',
-    'receiveApparelId', 'receiveAdminSupplyId', 'receiveGenItemId'
+    'id', 'apparelInventoryId', 'adminSupplyInventoryId', 'genItemInventoryId', 'itInventoryId',
+    'receiveApparelId', 'receiveAdminSupplyId', 'receiveGenItemId', 'receiveItId'
   );
 
   const name = pickFirst(batch,
     'sku', 'code', 'itemCode', 'apparelSku', 'adminSupplyCode', 'genItemSku',
-    'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName', 'description'
+    'name', 'title', 'apparelName', 'supplyName', 'genItemName', 'itemName', 'itName', 'description'
   );
 
   // Status (inventory-level)
@@ -160,7 +181,7 @@ function buildBatchPayloadObject(stockroomType, batch) {
     stockroomType: stockroomType || null,
     inventoryId: id ?? null,
     name: name ?? null,
-    status: status ?? null,
+    status: status ?? batch.qrStatus ?? null,
     totalQuantity: (totalQuantity !== null && totalQuantity !== undefined) ? Number(totalQuantity) : null,
     roomId: roomId ?? null
   };
@@ -186,9 +207,19 @@ function buildUnitPayloadObject(stockroomType, unit) {
     };
   }
 
-  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') {
+  if (stockroomType === 'it') {
     return {
-      unitId: unit.genItemId ?? null,
+      unitId: unit.itId ?? unit.id ?? null,
+      batchId: unit.receiveItId ?? unit.itInventoryId ?? null,
+      status: unit.status ?? null,
+      roomId: unit.roomId ?? null,
+      createdAt: unit.createdAt ?? null
+    };
+  }
+
+  if (stockroomType === 'genitem' || stockroomType === 'general' || stockroomType === 'maintenance') {
+    return {
+      unitId: unit.genItemId ?? unit.id ?? null,
       batchId: unit.receiveGenItemId ?? unit.genItemInventoryId ?? null,
       status: unit.status ?? null,
       roomId: unit.roomId ?? null,
@@ -369,7 +400,12 @@ async function releaseUnit(stockroomType, unitId, opts = {}) {
     return roomService.releaseAdminSupplyInRoomHandler(roomId, payload, { accountId: opts.actorId });
   }
 
-  if (['genitem', 'general', 'it', 'maintenance', 'general-item'].includes(t)) {
+  if (t === 'it') {
+    payload.itInventoryId = unit.itInventoryId;
+    return roomService.releaseItInRoomHandler(roomId, payload, { accountId: opts.actorId });
+  }
+
+  if (['genitem', 'general', 'maintenance', 'general-item'].includes(t)) {
     payload.genItemInventoryId = unit.genItemInventoryId;
     const ut = (unit.genItemType || t || '').toLowerCase();
     payload.genItemType = ['it', 'maintenance'].includes(ut) ? ut : 'unknownType';
@@ -407,8 +443,12 @@ async function markInventoryQrGenerated(stockroomType, inventoryId) {
       await db.AdminSupplyInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
       return;
     }
-    if ((stockroomType === 'general' || stockroomType === 'it' || stockroomType === 'maintenance') && db.GenItemInventory) {
-      await db.GenItemInventory.update({ qrStatus: true }, { where: { id: inventoryId } });
+    if (stockroomType === 'it' && db.ItInventory) {
+      await db.ItInventory.update({ qrStatus: true }, { where: { itInventoryId: inventoryId } });
+      return;
+    }
+    if ((stockroomType === 'general' || stockroomType === 'maintenance') && db.GenItemInventory) {
+      await db.GenItemInventory.update({ qrStatus: true }, { where: { genItemInventoryId: inventoryId } });
       return;
     }
 

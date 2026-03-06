@@ -13,9 +13,7 @@ module.exports = (sequelize) => {
       allowNull: false, defaultValue: 'classroom'
     },
     stockroomType: {
-      type: DataTypes.ENUM(
-        'apparel', 'supply', 'general'
-      ),
+      type: DataTypes.STRING,
       allowNull: true
     },
     roomInCharge: { type: DataTypes.INTEGER, allowNull: false }

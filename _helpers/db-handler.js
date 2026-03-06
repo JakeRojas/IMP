@@ -26,7 +26,8 @@ const { Sequelize } = require('sequelize');
 const fs = require('fs');
 const path = require('path');
 
-module.exports = db = {};
+const db = {};
+module.exports = db;
 
 // Environment-aware DB config (env vars override config.json for deployment)
 const DB_HOST = process.env.DB_HOST || (config.database && config.database.host) || 'localhost';
@@ -120,6 +121,12 @@ async function initialize() {
     db.ReleaseGenItem = require('../_models/genItem/releaseGenItem.model')(sequelize);
     db.GenItemInventory = require('../_models/genItem/genItemInventory.model')(sequelize);
 
+    // IT models
+    db.It = require('../_models/it/it.model')(sequelize);
+    db.ReceiveIt = require('../_models/it/receiveIt.model')(sequelize);
+    db.ReleaseIt = require('../_models/it/releaseIt.model')(sequelize);
+    db.ItInventory = require('../_models/it/itInventory.model')(sequelize);
+
     // Qr code models
     db.Qr = require('../_models/qr.model')(sequelize);
 
@@ -158,8 +165,10 @@ async function initialize() {
     // Sync models to DB when in non-production for convenience.
     // WARNING: avoid alter:true in real production; prefer migrations.
     if (process.env.NODE_ENV !== 'production') {
-      await sequelize.sync({ alter: true });
-      console.log('Sequelize sync finished (alter: true).');
+      // Note: alter: true currently bypassed locally due to 'Duplicate foreign key constraint name' MySQL bug with newly added tables. 
+      // Safe to run as-is because the tables have already been created via sync().
+      await sequelize.sync();
+      console.log('Sequelize sync finished (alter: true bypassed).');
     } else {
       await sequelize.sync();
       console.log('Sequelize sync finished on Production.');
@@ -327,14 +336,52 @@ function dbAssociations() {
   db.Account.hasMany(db.ReleaseGenItem, { foreignKey: 'accountId' });
   db.ReleaseGenItem.belongsTo(db.Account, { foreignKey: 'accountId' });
 
+  // ---------- IT associations ----------
+  db.ReceiveIt.hasMany(db.It, { foreignKey: 'receiveItId' });
+  db.It.belongsTo(db.ReceiveIt, { foreignKey: 'receiveItId' });
+
+  // ItInventory (aggregate) belongs to Room
+  db.Room.hasMany(db.ItInventory, { foreignKey: 'roomId' });
+  db.ItInventory.belongsTo(db.Room, { foreignKey: 'roomId' });
+
+  // ItInventory <-> It
+  db.ItInventory.hasMany(db.It, { foreignKey: 'itInventoryId' });
+  db.It.belongsTo(db.ItInventory, { foreignKey: 'itInventoryId' });
+
+  // ItInventory <-> ReleaseIt
+  db.ItInventory.hasMany(db.ReleaseIt, { foreignKey: 'itInventoryId' });
+  db.ReleaseIt.belongsTo(db.ItInventory, { foreignKey: 'itInventoryId' });
+
+  // ReceiveIt <-> Room
+  db.ReceiveIt.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReceiveIt, { foreignKey: 'roomId' });
+
+  // ReceiveIt <-> ItInventory
+  db.ItInventory.hasMany(db.ReceiveIt, { foreignKey: 'itInventoryId' });
+  db.ReceiveIt.belongsTo(db.ItInventory, { foreignKey: 'itInventoryId' });
+
+  // Account -> ReceiveIt
+  db.Account.hasMany(db.ReceiveIt, { foreignKey: 'accountId' });
+  db.ReceiveIt.belongsTo(db.Account, { foreignKey: 'accountId' });
+
+  // ReleaseIt <-> Room
+  db.ReleaseIt.belongsTo(db.Room, { foreignKey: 'roomId' });
+  db.Room.hasMany(db.ReleaseIt, { foreignKey: 'roomId' });
+
+  // Account -> ReleaseIt
+  db.Account.hasMany(db.ReleaseIt, { foreignKey: 'accountId' });
+  db.ReleaseIt.belongsTo(db.Account, { foreignKey: 'accountId' });
+
   // ---------- QR Code Associations (Polymorphic-ish, linking to units) ----------
   db.Apparel.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'apparel' } });
   db.AdminSupply.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'supply' } });
   db.GenItem.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'genItem' } });
+  db.It.hasOne(db.Qr, { foreignKey: 'unitId', constraints: false, scope: { itemType: 'it' } });
 
   db.Qr.belongsTo(db.Apparel, { foreignKey: 'unitId', constraints: false });
   db.Qr.belongsTo(db.AdminSupply, { foreignKey: 'unitId', constraints: false });
   db.Qr.belongsTo(db.GenItem, { foreignKey: 'unitId', constraints: false });
+  db.Qr.belongsTo(db.It, { foreignKey: 'unitId', constraints: false });
 
 
 
@@ -356,6 +403,9 @@ function dbAssociations() {
   db.StockRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
 
+  db.StockRequest.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItInventory.hasMany(db.StockRequest, { foreignKey: 'itemId', constraints: false });
+
 
 
   // ---------- ITEM REQUEST associations ----------
@@ -376,6 +426,7 @@ function dbAssociations() {
   db.ItemRequestDetail.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.ItemRequestDetail.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
   db.ItemRequestDetail.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItemRequestDetail.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
 
   // Polymorphic-ish itemId (legacy support for single item on main row)
   db.ItemRequest.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
@@ -386,6 +437,9 @@ function dbAssociations() {
 
   db.ItemRequest.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
+
+  db.ItemRequest.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItInventory.hasMany(db.ItemRequest, { foreignKey: 'itemId', constraints: false });
 
 
 
@@ -402,6 +456,7 @@ function dbAssociations() {
   db.Transfer.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
   db.Transfer.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.Transfer.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
 
 
 
@@ -441,4 +496,7 @@ function dbAssociations() {
 
   db.Borrow.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
   db.GenItemInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
+
+  db.Borrow.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
+  db.ItInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 }

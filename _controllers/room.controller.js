@@ -15,10 +15,12 @@ router.post('/create-array', authorize(Role.SuperAdmin), createAsArraySchema, cr
 router.post('/:roomId/receive/apparel', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveApparelSchema, receiveApparel);
 router.post('/:roomId/receive/supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveAdminSupplySchema, receiveAdminSupply);
 router.post('/:roomId/receive/item', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveGenItemSchema, receiveGenItem);
+router.post('/:roomId/receive/it', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), receiveItSchema, receiveIt);
 
 router.post('/:roomId/release/apparel', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseApparel);
 router.post('/:roomId/release/supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseAdminSupply);
 router.post('/:roomId/release/item', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseGenItem);
+router.post('/:roomId/release/it', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseIt);
 router.post('/:roomId/release', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), releaseInStockroom);
 
 // GET & POST ------------------------------------------------------------------------------
@@ -53,6 +55,11 @@ router.get('/:roomId/supply-inventory', authorize([Role.SuperAdmin, Role.Admin, 
 router.get('/:roomId/release-supply', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedBatchAdminSupply);
 // General Items
 router.get('/:roomId/receive-items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveGenItem);
+// IT Items
+router.get('/:roomId/receive-it', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReceiveIt);
+router.get('/:roomId/it-inventory', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getItInventory);
+router.get('/:roomId/it', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getItUnits);
+router.get('/:roomId/release-it', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedIt);
 router.get('/:roomId/items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), getGenItemUnits);
 router.get('/:roomId/items-inventory', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getGenItemInventory);
 router.get('/:roomId/release-items', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getReleasedGenItems);
@@ -62,6 +69,7 @@ router.put('/:roomId', authorize(Role.SuperAdmin), updateRoomSchema, updateRoom)
 router.put('/:roomId/apparel/unit/:unitId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), updateApparelUnit);
 router.put('/:roomId/supply/unit/:unitId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), updateAdminSupplyUnit);
 router.put('/:roomId/genitem/unit/:unitId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), updateGenItemUnit);
+router.put('/:roomId/it/unit/:unitId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), updateItUnit);
 
 function resolveQrFilePath(result) {
   if (!result) return null;
@@ -85,7 +93,7 @@ function createRoomschema(req, res, next) {
     roomName: Joi.string().required().min(1).max(30),
     roomFloor: Joi.string().required().min(1).max(5),
     roomType: Joi.string().valid('stockroom', 'subStockroom', 'office', 'classroom', 'openarea').required(),
-    stockroomType: Joi.string().valid('apparel', 'supply', 'general').allow(null).optional(),
+    stockroomType: Joi.string().valid('apparel', 'supply', 'general', 'it', 'maintenance').allow(null).optional(),
     roomInCharge: Joi.number().integer().min(0)
   });
   validateRequest(req, next, schema);
@@ -95,7 +103,7 @@ function updateRoomSchema(req, res, next) {
     roomName: Joi.string().min(1).max(30).empty(),
     roomFloor: Joi.string().min(1).max(5).empty(),
     roomType: Joi.string().valid('stockroom', 'subStockroom', 'office', 'classroom', 'openarea').empty(''),
-    stockroomType: Joi.string().valid('apparel', 'supply', 'general').allow(null).empty(),
+    stockroomType: Joi.string().valid('apparel', 'supply', 'general', 'it', 'maintenance').allow(null).empty(),
     roomInCharge: Joi.number().integer().min(0).empty()
   });
   validateRequest(req, next, schema);
@@ -162,7 +170,34 @@ function receiveGenItemSchema(req, res, next) {
     genItemName: Joi.string().trim().min(1).max(200).required(),
     genItemSize: Joi.string().trim().max(50).allow('', null).optional(),
     genItemQuantity: Joi.number().integer().min(1).required(),
-    genItemType: Joi.string().lowercase().valid('it', 'maintenance', 'unknownType').required(),
+    genItemType: Joi.string().lowercase().valid('maintenance', 'unknownType').required(),
+
+    receivedFrom: Joi.string().trim().min(1).max(200).required(),
+    receivedBy: Joi.number().integer().min(1).required(),
+
+    notes: Joi.string().trim().allow('', null).optional()
+  });
+
+  const { error: paramsErr } = paramsSchema.validate(req.params);
+  if (paramsErr) return next(paramsErr);
+
+  validateRequest(req, next, bodySchema);
+}
+
+// Management part
+
+function receiveItSchema(req, res, next) {
+  const paramsSchema = Joi.object({
+    roomId: Joi.number().integer().min(1).required()
+  });
+
+  const bodySchema = Joi.object({
+    itName: Joi.string().trim().min(1).max(200).required(),
+    itSerialNumber: Joi.string().trim().max(200).allow('', null).optional(),
+    itModel: Joi.string().trim().max(200).allow('', null).optional(),
+    itBrand: Joi.string().trim().max(200).allow('', null).optional(),
+    itSize: Joi.string().trim().max(50).allow('', null).optional(),
+    itQuantity: Joi.number().integer().min(1).required(),
 
     receivedFrom: Joi.string().trim().min(1).max(200).required(),
     receivedBy: Joi.number().integer().min(1).required(),
@@ -234,6 +269,19 @@ async function receiveGenItem(req, res, next) {
     const browserInfo = req.headers['user-agent'] || '';
 
     const result = await roomService.receiveGenItemInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
+    res.status(201).json(result);
+  } catch (err) { next(err); }
+}
+
+// Release part
+
+async function receiveIt(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    const result = await roomService.receiveItInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
     res.status(201).json(result);
   } catch (err) { next(err); }
 }
@@ -321,6 +369,28 @@ async function releaseGenItem(req, res, next) {
     next(err);
   }
 }
+async function releaseIt(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+    const browserInfo = req.headers['user-agent'] || '';
+
+    if (req.body.releaseQuantity != null && req.body.releaseItemQuantity == null) {
+      req.body.releaseItemQuantity = req.body.releaseQuantity;
+    }
+    if (req.body.claimedBy == null) {
+      req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';
+    }
+    if (req.body.releasedBy == null) {
+      req.body.releasedBy = req.user?.accountId ? String(req.user.accountId) : '';
+    }
+
+    const result = await roomService.releaseItInRoomHandler(roomId, req.body, req.user, ipAddress, browserInfo);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Get Received part
 function getReceiveApparels(req, res, next) {
@@ -399,6 +469,13 @@ function getReceiveGenItem(req, res, next) {
     .then(batches => res.json(batches))
     .catch(next);
 }
+
+function getReceiveIt(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReceiveItByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
 function getGenItemUnits(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   const page = parseInt(req.query.page);
@@ -444,6 +521,18 @@ function getReleasedBatchAdminSupply(req, res, next) {
 function getReleasedGenItems(req, res, next) {
   const roomId = parseInt(req.params.roomId, 10);
   roomService.getReleasedGenItemByRoomHandler(roomId)
+    .then(batches => res.json(batches))
+    .catch(next);
+}
+function getItInventory(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getItInventoryByRoomHandler(roomId)
+    .then(inventory => res.json(inventory))
+    .catch(next);
+}
+function getReleasedIt(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  roomService.getReleasedItByRoomHandler(roomId)
     .then(batches => res.json(batches))
     .catch(next);
 }
@@ -629,6 +718,41 @@ async function updateGenItemUnit(req, res, next) {
     const updated = await roomService.updateGenItemUnitByRoomHandler(roomId, unitId, { description, status }, req.user);
     return res.json({ success: true, data: updated });
   } catch (err) { next(err); }
+}
+
+async function updateItUnit(req, res, next) {
+  try {
+    const roomId = parseInt(req.params.roomId, 10);
+    const unitId = parseInt(req.params.unitId, 10);
+    const { description, status } = req.body;
+    if (!Number.isFinite(roomId) || !Number.isFinite(unitId)) return res.status(400).json({ message: 'Invalid params' });
+
+    const updated = await roomService.updateItUnitByRoomHandler(roomId, unitId, { description, status }, req.user);
+    return res.json({ success: true, data: updated });
+  } catch (err) { next(err); }
+}
+
+function getItUnits(req, res, next) {
+  const roomId = parseInt(req.params.roomId, 10);
+  const page = parseInt(req.query.page);
+  const limit = parseInt(req.query.limit);
+
+  roomService.getItUnitsByRoomHandler(roomId, req.query)
+    .then(result => {
+      if (result && result.rows) {
+        return res.json({
+          data: result.rows,
+          meta: {
+            total: result.count,
+            page: page,
+            limit: limit,
+            totalPages: Math.ceil(result.count / limit)
+          }
+        });
+      }
+      res.json(result);
+    })
+    .catch(next);
 }
 
 function getAllUnits(req, res, next) {

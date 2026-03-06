@@ -31,6 +31,10 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
       const inv = await db.GenItemInventory.findByPk(itemId);
       if (inv) resolvedType = 'genItem';
     }
+    if (!resolvedType && db.ItInventory) {
+      const inv = await db.ItInventory.findByPk(itemId);
+      if (inv) resolvedType = 'it';
+    }
 
     // if not inventory, check unit tables (individual items/units)
     if (!resolvedType) {
@@ -45,6 +49,10 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
       if (!resolvedType && db.GenItem) {
         const unit = await db.GenItem.findByPk(itemId);
         if (unit) resolvedType = 'genItem';
+      }
+      if (!resolvedType && db.It) {
+        const unit = await db.It.findByPk(itemId);
+        if (unit) resolvedType = 'it';
       }
     }
 
@@ -61,6 +69,8 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
       resolvedType = 'apparel';
     } else if (sType === 'supply') {
       resolvedType = 'admin supply';
+    } else if (sType === 'it') {
+      resolvedType = 'it';
     } else {
       // General type - check details for specific sub-type
       const subType = (details && details.genItemType || '').toLowerCase();
@@ -287,6 +297,34 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
       found = { type: 'supply', inv };
     }
     // -- GENERAL / DEFAULT --
+    else if (sType === 'it') {
+      const itData = {
+        roomId: roomId,
+        itName: otherName,
+        itSerialNumber: details.itSerialNumber || null,
+        itModel: details.itModel || null,
+        itBrand: details.itBrand || null,
+        itSize: details.itSize || null
+      };
+
+      let inv = await db.ItInventory.findOne({
+        where: {
+          roomId,
+          itName: itData.itName,
+          itSerialNumber: itData.itSerialNumber || null,
+          itModel: itData.itModel || null,
+          itBrand: itData.itBrand || null,
+          itSize: itData.itSize || null
+        }
+      });
+      if (!inv) {
+        inv = await db.ItInventory.create({
+          ...itData,
+          totalQuantity: 0
+        });
+      }
+      found = { type: 'it', inv };
+    }
     else {
       // Generic logic -> GenItem
       // details: { type, size }
@@ -384,11 +422,18 @@ async function findInventoryAndType(id, preferredType) {
         return { type: 'supply', unit: u, inv: inv || null };
       }
     }
-    if ((pref === 'genitem' || pref === 'it' || pref === 'maintenance') && db.GenItem) {
+    if ((pref === 'genitem' || pref === 'maintenance') && db.GenItem) {
       const u = await db.GenItem.findByPk(id);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
         return { type: 'genitem', unit: u, inv: inv || null };
+      }
+    }
+    if (pref === 'it' && db.It) {
+      const u = await db.It.findByPk(id);
+      if (u) {
+        const inv = await resolveInventoryFromUnit({ type: 'it', unit: u }).catch(() => null);
+        return { type: 'it', unit: u, inv: inv || null };
       }
     }
   }
@@ -404,6 +449,10 @@ async function findInventoryAndType(id, preferredType) {
   if (db.GenItemInventory) {
     const inv = await db.GenItemInventory.findByPk(id);
     if (inv) return { type: 'genitem', inv };
+  }
+  if (db.ItInventory) {
+    const inv = await db.ItInventory.findByPk(id);
+    if (inv) return { type: 'it', inv };
   }
 
   if (db.Apparel) {
@@ -440,6 +489,9 @@ async function resolveInventoryFromUnit(found) {
     }
     if (found.type === 'genitem' && found.unit.genItemInventoryId) {
       return await db.GenItemInventory.findByPk(found.unit.genItemInventoryId);
+    }
+    if (found.type === 'it' && found.unit.itInventoryId) {
+      return await db.ItInventory.findByPk(found.unit.itInventoryId);
     }
   } catch (e) {
     return null;
@@ -537,6 +589,36 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     return batch;
   }
 
+  if (found.type === 'it') {
+    const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
+    if (!inv) throw { status: 404, message: 'IT inventory record not found' };
+
+    const batch = await db.ReceiveIt.create({
+      roomId: inv.roomId,
+      receivedFrom: 'Administration',
+      receivedBy: fulfillerAccountId,
+      itName: inv.itName,
+      itSerialNumber: inv.itSerialNumber,
+      itModel: inv.itModel,
+      itBrand: inv.itBrand,
+      itSize: inv.itSize,
+      itQuantity: qty
+    });
+
+    if (db.It && qty > 0) {
+      const unitsStatus = getUnitStatusForType('it');
+      const units = Array(qty).fill().map(() => ({
+        receiveItId: batch.receiveItId,
+        itInventoryId: inv.itInventoryId ?? inv.id,
+        roomId: inv.roomId,
+        status: unitsStatus
+      }));
+      await db.It.bulkCreate(units);
+    }
+
+    return batch;
+  }
+
   throw { status: 500, message: 'Unsupported inventory type' };
 }
 async function updateInventory(inv, qty) {
@@ -563,6 +645,7 @@ function getInventoryModel(itemType) {
   if (itemType === 'apparel') return db.ApparelInventory;
   if (itemType === 'supply') return db.AdminSupplyInventory;
   if (itemType === 'genItem') return db.GenItemInventory;
+  if (itemType === 'it') return db.ItInventory;
   return;
 }
 async function _loadRequestedItem(itemId, itemTypeRaw) {
@@ -607,6 +690,14 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
           return { kind: 'unit', type: 'genitem', unit, inventory: inv || null };
         }
       }
+    } else if (typeNorm === 'it') {
+      if (db.It) {
+        const unit = await db.It.findByPk(itemId);
+        if (unit) {
+          const inv = await resolveInventoryFromUnit({ type: 'it', unit }).catch(() => null);
+          return { kind: 'unit', type: 'it', unit, inventory: inv || null };
+        }
+      }
     }
   } catch (e) {
     throw e;
@@ -638,6 +729,15 @@ async function _tryLoadAnyUnit(itemId) {
     if (unit) {
       const inv = await resolveInventoryFromUnit({ type: 'genitem', unit }).catch(() => null);
       return { kind: 'unit', type: 'genitem', unit, inventory: inv || null };
+    }
+  }
+
+  // IT
+  if (db.It) {
+    const unit = await db.It.findByPk(itemId);
+    if (unit) {
+      const inv = await resolveInventoryFromUnit({ type: 'it', unit }).catch(() => null);
+      return { kind: 'unit', type: 'it', unit, inventory: inv || null };
     }
   }
 
