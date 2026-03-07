@@ -16,7 +16,7 @@ router.get('/:stockRequestId', authorize([Role.SuperAdmin, Role.Admin, Role.Stoc
 
 router.post('/:id/approve', authorize([Role.SuperAdmin, Role.Admin]), approveRequest);
 router.post('/:id/disapprove', authorize([Role.SuperAdmin, Role.Admin]), disapproveRequest);
-router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.StockroomAdmin]), fulfillRequest);
+router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), fulfillRequest);
 
 module.exports = router;
 

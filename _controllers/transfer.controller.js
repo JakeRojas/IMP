@@ -6,6 +6,7 @@ const transferService = require('_services/transfer.service');
 const validateRequest = require('_middlewares/validate-request');
 const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
+const db = require('_helpers/db-handler');
 
 router.post('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher]), createSchema, createTransfer);
 
@@ -14,6 +15,12 @@ router.get('/:id', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, 
 
 router.post('/:id/accept', authorize(), acceptTransfer);
 router.post('/:id/receive', authorize(), receiveTransfer);
+
+function _extractIpAndBrowser(req) {
+  const ipAddress = req.headers['x-forwarded-for'] || req.connection?.remoteAddress || req.ip || 'Unknown IP';
+  const browserInfo = req.headers['user-agent'] || 'Unknown Browser';
+  return { ipAddress, browserInfo };
+}
 
 module.exports = router;
 
@@ -33,18 +40,18 @@ function createSchema(req, res, next) {
 async function createTransfer(req, res) {
   try {
     const payload = req.body || {};
-    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-    const browserInfo = req.headers['user-agent'] || '';
-
     const createdBy = req.user && req.user.accountId;
     if (!createdBy) return res.status(401).json({ message: 'Unauthenticated' });
+
+    const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
 
     // ensure fromRoom exists
     const fromRoom = await db.Room.findByPk(payload.fromRoomId);
     if (!fromRoom) return res.status(400).json({ message: 'Invalid fromRoomId' });
 
-    // requester must be in charge of fromRoom
-    if (!isUserInCharge(fromRoom, createdBy)) {
+    // requester must be in charge of fromRoom (Admins can bypass)
+    const isAdmin = req.user.role === Role.SuperAdmin || req.user.role === Role.Admin;
+    if (!isAdmin && !isUserInCharge(fromRoom, createdBy)) {
       return res.status(403).json({ message: 'You are not authorized to transfer from the selected room' });
     }
 

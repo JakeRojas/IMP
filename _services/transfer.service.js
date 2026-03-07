@@ -31,6 +31,13 @@ async function createTransfer({ createdBy, fromRoomId, toRoomId, itemId, quantit
       throw { status: 403, message: 'Transfers are allowed only to rooms of type stockroom or substockroom' };
     }
 
+    // [USER REQUIREMENT] Ensure stockroom types match (e.g., Apparel to Apparel)
+    const typeFrom = String(fromRoom.stockroomType || '').toLowerCase();
+    const typeTo = String(toRoom.stockroomType || '').toLowerCase();
+    if (typeFrom !== typeTo) {
+      throw { status: 400, message: `Transfer mismatch: cannot transfer from ${typeFrom} stockroom to ${typeTo} stockroom` };
+    }
+
     // Helper: check an inventory table by PK and ensure its room-field matches fromRoomId
     const roomFields = ['roomId', 'locationRoomId', 'storedRoomId', 'room_id', 'stockRoomId'];
 
@@ -47,12 +54,30 @@ async function createTransfer({ createdBy, fromRoomId, toRoomId, itemId, quantit
       return null;
     }
 
-    // 1) Try inventory tables first
-    const inventoryModels = [
+    // 1) Try inventory tables first, prioritizing based on stockroomType to avoid ID collisions
+    const sType = String(fromRoom.stockroomType || '').toLowerCase();
+    const inventoryModels = [];
+
+    if (sType === 'apparel') {
+      inventoryModels.push({ model: 'ApparelInventory', type: 'apparel' });
+    } else if (sType === 'supply') {
+      inventoryModels.push({ model: 'AdminSupplyInventory', type: 'supply' });
+    } else if (sType === 'it') {
+      inventoryModels.push({ model: 'ItInventory', type: 'it' });
+    } else if (sType === 'maintenance' || sType === 'general' || sType === 'genitem') {
+      inventoryModels.push({ model: 'GenItemInventory', type: 'genItem' });
+    }
+
+    // Add remaining models as fallbacks
+    const allInvModels = [
       { model: 'ApparelInventory', type: 'apparel' },
       { model: 'AdminSupplyInventory', type: 'supply' },
+      { model: 'ItInventory', type: 'it' },
       { model: 'GenItemInventory', type: 'genItem' }
     ];
+    for (const m of allInvModels) {
+      if (!inventoryModels.find(x => x.model === m.model)) inventoryModels.push(m);
+    }
 
     let resolvedType = null;
     let itemRow = null;
@@ -64,11 +89,21 @@ async function createTransfer({ createdBy, fromRoomId, toRoomId, itemId, quantit
 
     // 2) If not found, try unit/item tables (individual units) and check room fields there
     if (!resolvedType) {
-      const unitModels = [
+      const unitModels = [];
+      if (sType === 'apparel') unitModels.push({ model: 'Apparel', type: 'apparel' });
+      else if (sType === 'supply') unitModels.push({ model: 'AdminSupply', type: 'supply' });
+      else if (sType === 'it') unitModels.push({ model: 'It', type: 'it' });
+      else if (sType === 'maintenance' || sType === 'general' || sType === 'genitem') unitModels.push({ model: 'GenItem', type: 'genitem' });
+
+      const allUnitModels = [
         { model: 'Apparel', type: 'apparel' },
         { model: 'AdminSupply', type: 'supply' },
-        { model: 'GenItem', type: 'genItem' }
+        { model: 'It', type: 'it' },
+        { model: 'GenItem', type: 'genitem' }
       ];
+      for (const u of allUnitModels) {
+        if (!unitModels.find(x => x.model === u.model)) unitModels.push(u);
+      }
 
       for (const um of unitModels) {
         const M = db[um.model];
@@ -259,28 +294,16 @@ async function acceptTransfer(transferId, accepterId, accepterRole, ipAddress, b
     // load toRoom to check roomInCharge
     let toRoom = null;
     if (tr.toRoomId) toRoom = await db.Room.findByPk(tr.toRoomId, { transaction: txn });
-    const roomInCharge = toRoom?.roomInCharge ?? null;
+    const roomInCharge = toRoom?.roomInCharge ?? toRoom?.room_in_charge ?? null;
 
-    // normalize role; admin or room in charge allowed
+    // [USER REQUIREMENT] Only superAdmin or the destination room-in-charge can accept
     const roleLower = String(accepterRole || '').toLowerCase();
-    const isAdmin = ADMIN_ROLES.includes(roleLower);
+    const isSuperAdmin = (roleLower === 'superadmin' || roleLower === 'super_admin');
 
-    if (!isAdmin) {
-      // try matching accepterId === roomInCharge, or resolve via Account/User tables
-      let accepterMatches = false;
-      if (roomInCharge && String(roomInCharge) === String(accepterId)) accepterMatches = true;
-
-      const acct = await db.Account.findByPk(accepterId, { transaction: txn }).catch(() => null);
-      if (acct && (String(acct.accountId) === String(roomInCharge) || String(acct.id) === String(roomInCharge))) accepterMatches = true;
-
-      if (!accepterMatches && db.User) {
-        const user = await db.User.findByPk(accepterId, { transaction: txn }).catch(() => null);
-        if (user && (String(user.userId ?? user.id) === String(roomInCharge))) accepterMatches = true;
-      }
-
-      if (!accepterMatches) {
+    if (!isSuperAdmin) {
+      if (!roomInCharge || Number(roomInCharge) !== Number(accepterId)) {
         await txn.rollback();
-        throw { status: 403, message: `Only room-in-charge or admin can accept this transfer (accepterId=${accepterId})` };
+        throw { status: 403, message: `Only the room-in-charge of the destination room or a SuperAdmin can accept this transfer.` };
       }
     }
 
@@ -321,9 +344,12 @@ async function receiveTransfer(transferId, receiverId, receiverRole, ipAddress, 
       throw { status: 400, message: 'Only accepted transfers can be received' };
     }
 
-    // Auth check: Only the one who accepted the transfer can receive it
-    if (String(tr.acceptedBy) !== String(receiverId)) {
-      throw { status: 403, message: 'Only the user who accepted this transfer can mark it as received' };
+    // [USER REQUIREMENT] Only the one who accepted the transfer can receive it (or a SuperAdmin)
+    const roleLower = String(receiverRole || '').toLowerCase();
+    const isSuperAdmin = (roleLower === 'superadmin' || roleLower === 'super_admin');
+
+    if (String(tr.acceptedBy) !== String(receiverId) && !isSuperAdmin) {
+      throw { status: 403, message: 'Only the user who accepted this transfer or a SuperAdmin can mark it as received' };
     }
 
     // Perform inventory movement

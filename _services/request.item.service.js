@@ -28,11 +28,28 @@ async function createItemRequest({ accountId, requesterRoomId, requestToRoomId, 
     if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be positive integer' };
 
     if (itemId) {
-      // Validate item exists (reusing logic if needed, but for bulk we might skip extensive room validation if trust is high)
-      // For now, assume front-end filtered correctly and we just need the type if missing.
       if (!resolvedType) {
-        const inv = await getInventoryModelForItemId(itemId);
-        if (inv) resolvedType = inv.key;
+        // Use requestToRoom.stockroomType to avoid ID collisions
+        const sType = String(requestToRoom.stockroomType || '').toLowerCase();
+        if (sType === 'apparel') {
+          const inv = await db.ApparelInventory.findByPk(itemId);
+          if (inv) resolvedType = 'apparel';
+        } else if (sType === 'supply') {
+          const inv = await db.AdminSupplyInventory.findByPk(itemId);
+          if (inv) resolvedType = 'supply';
+        } else if (sType === 'it') {
+          const inv = await db.ItInventory.findByPk(itemId);
+          if (inv) resolvedType = 'it';
+        } else if (['maintenance', 'general', 'genitem'].includes(sType)) {
+          const inv = await db.GenItemInventory.findByPk(itemId);
+          if (inv) resolvedType = 'genitem';
+        }
+
+        // Fallback to blind search if still not resolved
+        if (!resolvedType) {
+          const inv = await getInventoryModelForItemId(itemId);
+          if (inv) resolvedType = inv.key;
+        }
       }
     } else if (!it.otherItemName) {
       throw { status: 400, message: 'Each item must have itemId or otherItemName' };
@@ -124,7 +141,7 @@ async function listItemRequests({ query = {}, limit = 100, offset = 0 } = {}) {
     offset,
     include: [
       { model: db.Room, as: 'Room', attributes: ['roomId', 'roomName'] },
-      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName'] },
+      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName', 'roomInCharge'] },
       { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
     ]
   });
@@ -168,6 +185,13 @@ async function getItemRequestById(id) {
 async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo, updateData = {}) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be accepted' };
+
+  // [USER REQUIREMENT] Only SuperAdmin or the stockroom admin (roomInCharge) of the "requestToRoom" can accept
+  const isSuperAdmin = await _isSuperAdmin(acceptorAccountId);
+  const roomInCharge = req.requestToRoom?.roomInCharge;
+  if (!isSuperAdmin && (!roomInCharge || String(roomInCharge) !== String(acceptorAccountId))) {
+    throw { status: 403, message: 'Only the Room-in-Charge of the source stockroom or a SuperAdmin can accept this request' };
+  }
 
   const decisions = updateData.decisions || []; // Array of { id, status, reason }
 
@@ -223,6 +247,13 @@ async function acceptItemRequest(id, acceptorAccountId, ipAddress, browserInfo, 
 async function declineItemRequest(id, declinerAccountId, reason = null, ipAddress, browserInfo) {
   const req = await getItemRequestById(id);
   if (req.status !== 'pending') throw { status: 400, message: 'Only pending requests can be declined' };
+
+  // [USER REQUIREMENT] Only SuperAdmin or the stockroom admin (roomInCharge) of the "requestToRoom" can decline
+  const isSuperAdmin = await _isSuperAdmin(declinerAccountId);
+  const roomInCharge = req.requestToRoom?.roomInCharge;
+  if (!isSuperAdmin && (!roomInCharge || String(roomInCharge) !== String(declinerAccountId))) {
+    throw { status: 403, message: 'Only the Room-in-Charge of the source stockroom or a SuperAdmin can decline this request' };
+  }
   req.status = 'declined';
   if (reason) req.note = (req.note ? req.note + ' | ' : '') + `Declined: ${reason}`;
   await req.save();
@@ -332,9 +363,20 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
     const reqRow = await db.ItemRequest.findByPk(rid, {
       transaction: t,
       lock: t.LOCK.UPDATE,
-      include: [{ model: db.ItemRequestDetail, as: 'items' }]
+      include: [
+        { model: db.ItemRequestDetail, as: 'items' },
+        { model: db.Room, as: 'requestToRoom' }
+      ]
     });
     if (!reqRow) throw { status: 404, message: 'Item request not found' };
+
+    // [USER REQUIREMENT] Only SuperAdmin or the stockroom admin (roomInCharge) of the "requestToRoom" can release
+    const isSuperAdmin = user?.role === Role.SuperAdmin;
+    const roomInCharge = reqRow.requestToRoom?.roomInCharge;
+    const accountId = user?.accountId || user?.id;
+    if (!isSuperAdmin && (!roomInCharge || String(roomInCharge) !== String(accountId))) {
+      throw { status: 403, message: 'Only the Room-in-Charge of the source stockroom or a SuperAdmin can release this request' };
+    }
 
     if (reqRow.status !== 'accepted') throw { status: 400, message: `Cannot release request in status '${reqRow.status}'` };
 
@@ -490,6 +532,14 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
       include: [{ model: db.ItemRequestDetail, as: 'items' }]
     });
     if (!reqRow) throw { status: 404, message: 'Item request not found' };
+
+    // [USER REQUIREMENT] Only the original requester can fulfill
+    const isSuperAdmin = user?.role === Role.SuperAdmin;
+    const requesterId = reqRow.accountId;
+    const currentAccountId = user?.accountId || user?.id;
+    if (!isSuperAdmin && String(requesterId) !== String(currentAccountId)) {
+      throw { status: 403, message: 'Only the original requester can fulfill this request' };
+    }
 
     if (String(reqRow.status) !== 'released') {
       throw { status: 400, message: `Only released requests can be fulfilled. Current status: '${reqRow.status}'` };
@@ -775,6 +825,7 @@ async function getInventoryModelForItemId(id, transaction) {
   const candidates = [
     { key: 'apparel', model: db.ApparelInventory },
     { key: 'supply', model: db.AdminSupplyInventory },
+    { key: 'it', model: db.ItInventory },
     { key: 'genitem', model: db.GenItemInventory }
   ];
 
@@ -791,6 +842,7 @@ async function resolveInventoryFromUnit({ type, unit }) {
   if (!unit) return null;
   if (type === 'apparel' && unit.apparelInventoryId) return await db.ApparelInventory.findByPk(unit.apparelInventoryId);
   if (type === 'supply' && unit.adminSupplyInventoryId) return await db.AdminSupplyInventory.findByPk(unit.adminSupplyInventoryId);
+  if (type === 'it' && unit.itInventoryId) return await db.ItInventory.findByPk(unit.itInventoryId);
   if (type === 'genitem' && unit.genItemInventoryId) return await db.GenItemInventory.findByPk(unit.genItemInventoryId);
   return null;
 }
@@ -799,7 +851,8 @@ function getInventoryModel(itemType) {
   const t = String(itemType || '').toLowerCase();
   if (t === 'apparel') return db.ApparelInventory;
   if (t === 'supply' || t === 'admin supply' || t === 'admin-supply') return db.AdminSupplyInventory;
-  if (t === 'genitem' || t === 'genitem' || t === 'gen item' || t === 'it' || t === 'maintenance') return db.GenItemInventory;
+  if (t === 'it') return db.ItInventory;
+  if (t === 'genitem' || t === 'gen item' || t === 'maintenance' || t === 'general') return db.GenItemInventory;
   return null;
 }
 
@@ -837,7 +890,15 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
           return { kind: 'unit', type: 'supply', unit, inventory: inv || null };
         }
       }
-    } else if (typeNorm.includes('gen') || typeNorm === 'it' || typeNorm === 'maintenance') {
+    } else if (typeNorm === 'it') {
+      if (db.It) {
+        const unit = await db.It.findByPk(itemId);
+        if (unit) {
+          const inv = await resolveInventoryFromUnit({ type: 'it', unit }).catch(() => null);
+          return { kind: 'unit', type: 'it', unit, inventory: inv || null };
+        }
+      }
+    } else if (typeNorm.includes('gen') || typeNorm === 'maintenance') {
       if (db.GenItem) {
         const unit = await db.GenItem.findByPk(itemId);
         if (unit) {
@@ -854,6 +915,7 @@ async function _tryLoadAnyUnit(itemId) {
   const checks = [
     { model: db.Apparel, type: 'apparel' },
     { model: db.AdminSupply, type: 'supply' },
+    { model: db.It, type: 'it' },
     { model: db.GenItem, type: 'genitem' }
   ];
   for (const c of checks) {
@@ -865,4 +927,10 @@ async function _tryLoadAnyUnit(itemId) {
     }
   }
   return null;
+}
+
+async function _isSuperAdmin(accountId) {
+  if (!accountId) return false;
+  const acct = await db.Account.findByPk(accountId);
+  return acct && (acct.role === Role.SuperAdmin || acct.role === 'superAdmin');
 }

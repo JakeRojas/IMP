@@ -6,6 +6,7 @@ const itemRequestService = require('_services/request.item.service');
 const validateRequest = require('_middlewares/validate-request');
 const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
+const db = require('_helpers/db-handler');
 
 router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSchema, createRequest);
 
@@ -69,8 +70,9 @@ async function createRequest(req, res) {
     const requesterRoom = await db.Room.findByPk(payload.requesterRoomId);
     if (!requesterRoom) return res.status(400).json({ message: 'Invalid requesterRoomId' });
 
-    // user must be in charge of the requesterRoom
-    if (!isUserInCharge(requesterRoom, accountId)) {
+    // user must be in charge of the requesterRoom (Admins can bypass)
+    const isAdmin = req.user.role === Role.SuperAdmin || req.user.role === Role.Admin;
+    if (!isAdmin && !isUserInCharge(requesterRoom, accountId)) {
       return res.status(403).json({ message: 'You are not authorized as requester for the selected room' });
     }
 
