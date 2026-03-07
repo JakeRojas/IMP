@@ -7,8 +7,9 @@ const authorize = require('_middlewares/authorize');
 const Role = require('_helpers/role');
 const stockService = require('_services/request.stock.service');
 const roomService = require('_services/room.service');
+const db = require('_helpers/db-handler');
 
-router.post('/', authorize([Role.SuperAdmin, Role.StockroomAdmin]), createSchema, createStockRequestHandler);
+router.post('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin, Role.Teacher, Role.User]), createSchema, createStockRequestHandler);
 router.get('/', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), listRequests);
 
 router.get('/:stockRequestId', authorize([Role.SuperAdmin, Role.Admin, Role.StockroomAdmin]), getRequestById);
@@ -26,13 +27,13 @@ function _extractIpAndBrowser(req) {
 }
 
 function createSchema(req, res, next) {
-  // accountId and itemType removed from client payload
   const schema = Joi.object({
     requesterRoomId: Joi.number().integer().required(),
     itemId: Joi.number().integer().allow(null).optional(),
     otherItemName: Joi.string().max(255).allow('', null).optional(),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).allow('', null).optional(),
+    itemType: Joi.string().allow('', null).optional(),
     details: Joi.object().optional(),
   });
   validateRequest(req, next, schema);
@@ -57,9 +58,11 @@ async function createStockRequestHandler(req, res) {
     }
 
     const { ipAddress, browserInfo } = _extractIpAndBrowser(req);
+    payload.ipAddress = ipAddress;
+    payload.browserInfo = browserInfo;
 
-    // delegate to service (service will infer itemType from itemId)
-    const created = await stockService.createStockRequest(payload, ipAddress, browserInfo);
+    // delegate to service
+    const created = await stockService.createStockRequest(payload);
     return res.status(201).json({ success: true, data: created });
   } catch (err) {
     console.error('Error in createStockRequestHandler:', err && err.stack ? err.stack : err);

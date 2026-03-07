@@ -1307,46 +1307,63 @@ async function updateInventory(inv, qtyChange, opts = {}) {
 
 // original method
 async function getItemsByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
+  // First fetch the room to determine its stockroomType
+  const room = await db.Room.findByPk(roomId);
+  if (!room) throw { status: 404, message: 'Room not found' };
 
-  // load per-type inventory lists in parallel (fall back to empty array)
-  const [apparelInv, supplyInv, genInv] = await Promise.all([
-    getApparelInventoryByRoomHandler(roomId).catch(() => []),
-    getAdminSupplyInventoryByRoomHandler(roomId).catch(() => []),
-    getGenItemInventoryByRoomHandler(roomId).catch(() => [])
-  ]);
-
+  const sType = (room.stockroomType || '').toLowerCase();
   const merged = [];
 
-  (apparelInv || []).forEach(inv => {
-    merged.push({
-      itemType: 'apparel',
-      inventoryId: inv.apparelInventoryId ?? inv.id ?? null,
-      name: inv.apparelName ?? inv.name ?? `Apparel #${inv.apparelInventoryId || inv.id || ''}`,
-      totalQuantity: Number(inv.totalQuantity || inv.apparelQuantity || 0),
-      raw: inv
+  // Only query the inventory table that matches this room's stockroom type.
+  // Querying all tables caused cross-table PK collisions: e.g. an apparel inventory
+  // row with PK=3 would appear as a selectable item in an admin supply stockroom
+  // that also has an adminSupplyInventory with PK=3, causing the wrong itemType.
+  if (sType === 'apparel') {
+    const apparelInv = await getApparelInventoryByRoomHandler(roomId).catch(() => []);
+    (apparelInv || []).forEach(inv => {
+      merged.push({
+        itemType: 'apparel',
+        inventoryId: inv.apparelInventoryId ?? inv.id ?? null,
+        name: inv.apparelName ?? inv.name ?? `Apparel #${inv.apparelInventoryId || inv.id || ''}`,
+        totalQuantity: Number(inv.totalQuantity || inv.apparelQuantity || 0),
+        raw: inv
+      });
     });
-  });
-
-  (supplyInv || []).forEach(inv => {
-    merged.push({
-      itemType: 'supply',
-      inventoryId: inv.adminSupplyInventoryId ?? inv.id ?? null,
-      name: inv.supplyName ?? inv.name ?? `Supply #${inv.adminSupplyInventoryId || inv.id || ''}`,
-      totalQuantity: Number(inv.totalQuantity || inv.supplyQuantity || 0),
-      raw: inv
+  } else if (sType === 'supply') {
+    const supplyInv = await getAdminSupplyInventoryByRoomHandler(roomId).catch(() => []);
+    (supplyInv || []).forEach(inv => {
+      merged.push({
+        itemType: 'supply',
+        inventoryId: inv.adminSupplyInventoryId ?? inv.id ?? null,
+        name: inv.supplyName ?? inv.name ?? `Supply #${inv.adminSupplyInventoryId || inv.id || ''}`,
+        totalQuantity: Number(inv.totalQuantity || inv.supplyQuantity || 0),
+        raw: inv
+      });
     });
-  });
-
-  (genInv || []).forEach(inv => {
-    merged.push({
-      itemType: 'genItem',
-      inventoryId: inv.genItemInventoryId ?? inv.id ?? null,
-      name: inv.genItemName ?? inv.name ?? `Item #${inv.genItemInventoryId || inv.id || ''}`,
-      totalQuantity: Number(inv.totalQuantity || inv.genItemQuantity || 0),
-      raw: inv
+  } else if (sType === 'it') {
+    const itInv = await getItInventoryByRoomHandler(roomId).catch(() => []);
+    (itInv || []).forEach(inv => {
+      merged.push({
+        itemType: 'it',
+        inventoryId: inv.itInventoryId ?? inv.id ?? null,
+        name: inv.itName ?? inv.name ?? `IT #${inv.itInventoryId || inv.id || ''}`,
+        totalQuantity: Number(inv.totalQuantity || 0),
+        raw: inv
+      });
     });
-  });
+  } else {
+    // 'maintenance', 'general', or any other stockroomType → GenItem inventory
+    const genInv = await getGenItemInventoryByRoomHandler(roomId).catch(() => []);
+    (genInv || []).forEach(inv => {
+      merged.push({
+        itemType: 'genItem',
+        inventoryId: inv.genItemInventoryId ?? inv.id ?? null,
+        name: inv.genItemName ?? inv.name ?? `Item #${inv.genItemInventoryId || inv.id || ''}`,
+        totalQuantity: Number(inv.totalQuantity || inv.genItemQuantity || 0),
+        raw: inv
+      });
+    });
+  }
 
   // stable sort by name for consistent UI
   merged.sort((a, b) => (a.name || '').toString().localeCompare((b.name || '').toString()));

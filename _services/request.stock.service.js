@@ -10,7 +10,9 @@ module.exports = {
   fulfillStockRequest
 };
 
-async function createStockRequest({ accountId, requesterRoomId, itemId, otherItemName, quantity = 1, note = null, details = null, ipAddress, browserInfo }) {
+async function createStockRequest(params) {
+  const { accountId, requesterRoomId, itemId, otherItemName, quantity = 1, note = null, details = null, ipAddress, browserInfo, itemType } = params;
+
   if (!accountId) throw { status: 400, message: 'accountId is required' };
   if (!Number.isInteger(quantity) || quantity <= 0) throw { status: 400, message: 'quantity must be a positive integer' };
 
@@ -18,25 +20,47 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
   let resolvedType = null;
 
   if (itemId) {
-    // helper short-circuit checks (check inventories)
-    if (db.ApparelInventory) {
+    // [MODIFIED] Prioritize search based on explicit itemType or requester room's stockroomType
+    const room = await db.Room.findByPk(requesterRoomId);
+    const roomStockType = (room?.stockroomType || '').toLowerCase();
+    const preferredType = (itemType || roomStockType).toLowerCase();
+
+    // 1. Try to find in the preferred table first to avoid ID collisions
+    if (preferredType === 'apparel' && db.ApparelInventory) {
       const inv = await db.ApparelInventory.findByPk(itemId);
       if (inv) resolvedType = 'apparel';
-    }
-    if (!resolvedType && db.AdminSupplyInventory) {
+    } else if ((preferredType === 'supply' || preferredType === 'admin supply') && db.AdminSupplyInventory) {
       const inv = await db.AdminSupplyInventory.findByPk(itemId);
       if (inv) resolvedType = 'supply';
-    }
-    if (!resolvedType && db.GenItemInventory) {
+    } else if (preferredType === 'it' && db.ItInventory) {
+      const inv = await db.ItInventory.findByPk(itemId);
+      if (inv) resolvedType = 'it';
+    } else if ((preferredType === 'genitem' || preferredType === 'maintenance' || preferredType === 'general') && db.GenItemInventory) {
       const inv = await db.GenItemInventory.findByPk(itemId);
       if (inv) resolvedType = 'genItem';
     }
-    if (!resolvedType && db.ItInventory) {
-      const inv = await db.ItInventory.findByPk(itemId);
-      if (inv) resolvedType = 'it';
+
+    // 2. Fallback blind search if not found in preferred or no preference (preserves legacy behavior but safer)
+    if (!resolvedType) {
+      if (db.ApparelInventory) {
+        const inv = await db.ApparelInventory.findByPk(itemId);
+        if (inv) resolvedType = 'apparel';
+      }
+      if (!resolvedType && db.AdminSupplyInventory) {
+        const inv = await db.AdminSupplyInventory.findByPk(itemId);
+        if (inv) resolvedType = 'supply';
+      }
+      if (!resolvedType && db.GenItemInventory) {
+        const inv = await db.GenItemInventory.findByPk(itemId);
+        if (inv) resolvedType = 'genItem';
+      }
+      if (!resolvedType && db.ItInventory) {
+        const inv = await db.ItInventory.findByPk(itemId);
+        if (inv) resolvedType = 'it';
+      }
     }
 
-    // if not inventory, check unit tables (individual items/units)
+    // 3. Check unit tables if still not found
     if (!resolvedType) {
       if (db.Apparel) {
         const unit = await db.Apparel.findByPk(itemId);
@@ -61,6 +85,7 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
     }
   } else if (otherItemName) {
     // [MODIFIED] If otherItemName is provided, infer resolvedType from requester room's stockroomType and details
+    if (!requesterRoomId) throw { status: 400, message: 'requesterRoomId is required for "Other" items' };
     const room = await db.Room.findByPk(requesterRoomId);
     if (!room) throw { status: 400, message: 'Invalid requesterRoomId' };
 
@@ -70,10 +95,10 @@ async function createStockRequest({ accountId, requesterRoomId, itemId, otherIte
     } else if (sType === 'supply') {
       resolvedType = 'admin supply';
     } else if (sType === 'it') {
-      resolvedType = 'it';
+      resolvedType = 'IT';
     } else {
       // General type - check details for specific sub-type
-      const subType = (details && details.genItemType || '').toLowerCase();
+      const subType = (details && (details.genItemType || details.type) || '').toLowerCase();
       if (subType === 'it') resolvedType = 'IT';
       else if (subType === 'maintenance') resolvedType = 'Maintenance';
       else resolvedType = 'General Item';
@@ -227,8 +252,15 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
   if (!req) throw { status: 404, message: 'StockRequest not found' };
   if (req.status !== 'approved') throw { status: 400, message: 'Only approved requests can be fulfilled' };
 
+  // [NEW] Restrict fulfillment to the original requester only
+  if (Number(req.accountId) !== Number(fulfillerAccountId)) {
+    throw { status: 403, message: 'Only the original requester can fulfill (confirm receipt) for this request.' };
+  }
+
   let found = null;
-  if (req.itemType === 'other' || (!req.itemId && req.otherItemName)) {
+  const isOther = (!req.itemId && req.otherItemName) || req.itemType === 'other';
+
+  if (isOther) {
     const otherName = req.otherItemName || 'Unspecified Item';
     const roomId = req.requesterRoomId;
 
@@ -395,34 +427,41 @@ async function fulfillStockRequest(stockRequestId, fulfillerAccountId, ipAddress
   }
 }
 
+function getNormalizedType(t) {
+  const s = String(t || '').toLowerCase();
+  if (s === 'apparel') return 'apparel';
+  if (s === 'supply' || s === 'admin supply') return 'supply';
+  if (s === 'it') return 'it';
+  if (s === 'genitem' || s === 'maintenance' || s === 'general item' || s === 'general') return 'genitem';
+  return s;
+}
+
 /* ---------- Helpers (kept local for drop-in) ---------- */
 async function findInventoryAndType(id, preferredType) {
   if (!id) return null;
 
-  const normalizeType = t => (typeof t === 'string' ? String(t).toLowerCase() : t);
-
   if (preferredType) {
-    const pref = normalizeType(preferredType);
-    const model = getInventoryModel(pref === 'genitem' ? 'genItem' : pref);
+    const normPref = getNormalizedType(preferredType);
+    const model = getInventoryModel(normPref === 'genitem' ? 'genItem' : normPref);
     if (model) {
       const inv = await model.findByPk(id);
-      if (inv) return { type: pref, inv };
+      if (inv) return { type: normPref, inv };
     }
-    if (pref === 'apparel' && db.Apparel) {
+    if (normPref === 'apparel' && db.Apparel) {
       const u = await db.Apparel.findByPk(id);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'apparel', unit: u }).catch(() => null);
         return { type: 'apparel', unit: u, inv: inv || null };
       }
     }
-    if ((pref === 'supply' || pref === 'admin-supply') && db.AdminSupply) {
+    if (normPref === 'supply' && db.AdminSupply) {
       const u = await db.AdminSupply.findByPk(id);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'supply', unit: u }).catch(() => null);
         return { type: 'supply', unit: u, inv: inv || null };
       }
     }
-    if ((pref === 'genitem' || pref === 'maintenance') && db.GenItem) {
+    if (normPref === 'genitem' && db.GenItem) {
       const u = await db.GenItem.findByPk(id);
       if (u) {
         const inv = await resolveInventoryFromUnit({ type: 'genitem', unit: u }).catch(() => null);
@@ -503,7 +542,8 @@ function getUnitStatusForType(type) {
   return 'good';
 }
 async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
-  if (found.type === 'apparel') {
+  const normType = getNormalizedType(found.type);
+  if (normType === 'apparel') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'Apparel inventory record not found' };
 
@@ -519,7 +559,7 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
       apparelQuantity: qty
     });
 
-    const unitStatus = getUnitStatusForType(found.type);
+    const unitStatus = getUnitStatusForType(normType);
 
     if (db.Apparel && qty > 0) {
       const apparelUnits = Array(qty).fill().map(() => ({
@@ -534,7 +574,7 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     return batch;
   }
 
-  if (found.type === 'supply') {
+  if (normType === 'supply') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'AdminSupply inventory record not found' };
 
@@ -561,7 +601,7 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     return batch;
   }
 
-  if (found.type === 'genitem') {
+  if (normType === 'genitem') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'GenItem inventory record not found' };
 
@@ -589,7 +629,7 @@ async function createReceiveAndUnits(found, qty, fulfillerAccountId) {
     return batch;
   }
 
-  if (found.type === 'it') {
+  if (normType === 'it') {
     const inv = found.inv || (found.unit ? await resolveInventoryFromUnit(found) : null);
     if (!inv) throw { status: 404, message: 'IT inventory record not found' };
 
@@ -642,10 +682,11 @@ async function updateInventory(inv, qty) {
   throw { status: 500, message: 'Inventory does not have known quantity field' };
 }
 function getInventoryModel(itemType) {
-  if (itemType === 'apparel') return db.ApparelInventory;
-  if (itemType === 'supply') return db.AdminSupplyInventory;
-  if (itemType === 'genItem') return db.GenItemInventory;
-  if (itemType === 'it') return db.ItInventory;
+  const t = String(itemType || '').toLowerCase();
+  if (t === 'apparel') return db.ApparelInventory;
+  if (t === 'supply' || t === 'admin supply') return db.AdminSupplyInventory;
+  if (t === 'genitem' || t === 'maintenance' || t === 'general item' || t === 'general') return db.GenItemInventory;
+  if (t === 'it') return db.ItInventory;
   return;
 }
 async function _loadRequestedItem(itemId, itemTypeRaw) {
@@ -664,9 +705,10 @@ async function _loadRequestedItem(itemId, itemTypeRaw) {
 
   return await _tryLoadAnyUnit(itemId);
 }
-async function _tryLoadUnitByType(itemId, typeNorm) {
+async function _tryLoadUnitByType(itemId, itemTypeRaw) {
   try {
-    if (typeNorm.includes('apparel')) {
+    const norm = getNormalizedType(itemTypeRaw);
+    if (norm === 'apparel') {
       if (db.Apparel) {
         const unit = await db.Apparel.findByPk(itemId);
         if (unit) {
@@ -674,7 +716,7 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
           return { kind: 'unit', type: 'apparel', unit, inventory: inv || null };
         }
       }
-    } else if (typeNorm.includes('supply') || typeNorm === 'supply') {
+    } else if (norm === 'supply') {
       if (db.AdminSupply) {
         const unit = await db.AdminSupply.findByPk(itemId);
         if (unit) {
@@ -682,7 +724,7 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
           return { kind: 'unit', type: 'supply', unit, inventory: inv || null };
         }
       }
-    } else if (typeNorm.includes('gen') || typeNorm === 'genitem' || typeNorm === 'gen-item') {
+    } else if (norm === 'genitem') {
       if (db.GenItem) {
         const unit = await db.GenItem.findByPk(itemId);
         if (unit) {
@@ -690,7 +732,7 @@ async function _tryLoadUnitByType(itemId, typeNorm) {
           return { kind: 'unit', type: 'genitem', unit, inventory: inv || null };
         }
       }
-    } else if (typeNorm === 'it') {
+    } else if (norm === 'it') {
       if (db.It) {
         const unit = await db.It.findByPk(itemId);
         if (unit) {
