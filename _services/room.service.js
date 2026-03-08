@@ -3,6 +3,37 @@ const Role = require('_helpers/role');
 const qrService = require('_services/qr.service');
 const accountService = require('_services/account.service');
 
+async function _attachBorrowedQuantity(inventoryRows, itemType) {
+  if (!inventoryRows || inventoryRows.length === 0) return inventoryRows;
+
+  const ids = inventoryRows.map(i => i.apparelInventoryId || i.adminSupplyInventoryId || i.genItemInventoryId || i.itInventoryId || i.id);
+
+  const borrows = await db.Borrow.findAll({
+    where: {
+      itemId: { [db.Sequelize.Op.in]: ids },
+      itemType: itemType,
+      status: ['acquired', 'in_return']
+    },
+    attributes: [
+      'itemId',
+      [db.Sequelize.fn('SUM', db.Sequelize.col('quantity')), 'totalBorrowed']
+    ],
+    group: ['itemId']
+  });
+
+  const map = {};
+  borrows.forEach(b => {
+    map[b.itemId] = Number(b.getDataValue('totalBorrowed') || 0);
+  });
+
+  return inventoryRows.map(i => {
+    const json = i.get ? i.get({ plain: true }) : i;
+    const id = json.apparelInventoryId || json.adminSupplyInventoryId || json.genItemInventoryId || json.itInventoryId || json.id;
+    json.borrowedQuantity = map[id] || 0;
+    return json;
+  });
+}
+
 module.exports = {
   // POST -------------------------------------------------------------------------------------
   createRoomHandler,                  // create new room.
@@ -552,15 +583,12 @@ async function getApparelUnitsByRoomHandler(roomId, query = {}) {
   return units;
 }
 async function getApparelInventoryByRoomHandler(roomId) {
-
   await ensureIsStockroomHandler(roomId);
-
   const inventory = await db.ApparelInventory.findAll({
     where: { roomId: roomId },
     order: [['apparelName', 'ASC'], ['apparelLevel', 'ASC']]
   });
-
-  return inventory;
+  return await _attachBorrowedQuantity(inventory, 'apparel');
 }
 
 async function getReceiveAdminSupplyByRoomHandler(roomId) {
@@ -608,15 +636,12 @@ async function getAdminSupplyUnitsByRoomHandler(roomId, query = {}) {
   return units;
 }
 async function getAdminSupplyInventoryByRoomHandler(roomId) {
-
   await ensureIsStockroomHandler(roomId);
-
   const inventory = await db.AdminSupplyInventory.findAll({
     where: { roomId: roomId },
     order: [['supplyName', 'ASC'], ['supplyMeasure', 'ASC']]
   });
-
-  return inventory;
+  return await _attachBorrowedQuantity(inventory, 'supply');
 }
 
 async function getReceiveGenItemByRoomHandler(roomId) {
@@ -676,15 +701,22 @@ async function getGenItemUnitsByRoomHandler(roomId, query = {}) {
   return units;
 }
 async function getGenItemInventoryByRoomHandler(roomId) {
-
-  await ensureIsStockroomHandler(roomId);
-
+  await ensureRoomExistsHandler(roomId);
   const inventory = await db.GenItemInventory.findAll({
     where: { roomId: roomId },
     order: [['genItemName', 'ASC'], ['genItemType', 'ASC']]
   });
+  return await _attachBorrowedQuantity(inventory, 'genItem');
+}
 
-  return inventory;
+// IT
+async function getItInventoryByRoomHandler(roomId) {
+  await ensureRoomExistsHandler(roomId);
+  const inventory = await db.ItInventory.findAll({
+    where: { roomId: roomId },
+    order: [['itName', 'ASC'], ['itBrand', 'ASC']]
+  });
+  return await _attachBorrowedQuantity(inventory, 'it');
 }
 
 // IT
@@ -1152,14 +1184,6 @@ async function getReleasedGenItemByRoomHandler(roomId) {
   return [];
 }
 
-async function getItInventoryByRoomHandler(roomId) {
-  await ensureIsStockroomHandler(roomId);
-  const inventory = await db.ItInventory.findAll({
-    where: { roomId },
-    order: [['itName', 'ASC']]
-  });
-  return inventory;
-}
 async function getReleasedItByRoomHandler(roomId) {
   if (db.ReleaseIt) {
     return await db.ReleaseIt.findAll({
@@ -1307,65 +1331,63 @@ async function updateInventory(inv, qtyChange, opts = {}) {
 
 // original method
 async function getItemsByRoomHandler(roomId) {
-  // First fetch the room to determine its stockroomType
+  // Fetch the room record to ensure it exists
   const room = await db.Room.findByPk(roomId);
   if (!room) throw { status: 404, message: 'Room not found' };
 
-  const sType = (room.stockroomType || '').toLowerCase();
+  // Fetch from ALL inventory tables. This solves the issue where a room might be 
+  // misconfigured (e.g. an IT room marked as 'general') or multi-purpose.
+  // Each service method already filters by roomId internally.
+  const [apparelInv, supplyInv, itInv, genInv] = await Promise.all([
+    getApparelInventoryByRoomHandler(roomId).catch(err => { console.error('Apparel error:', err); return []; }),
+    getAdminSupplyInventoryByRoomHandler(roomId).catch(err => { console.error('Supply error:', err); return []; }),
+    getItInventoryByRoomHandler(roomId).catch(err => { console.error('IT error:', err); return []; }),
+    getGenItemInventoryByRoomHandler(roomId).catch(err => { console.error('GenItem error:', err); return []; })
+  ]);
+
   const merged = [];
 
-  // Only query the inventory table that matches this room's stockroom type.
-  // Querying all tables caused cross-table PK collisions: e.g. an apparel inventory
-  // row with PK=3 would appear as a selectable item in an admin supply stockroom
-  // that also has an adminSupplyInventory with PK=3, causing the wrong itemType.
-  if (sType === 'apparel') {
-    const apparelInv = await getApparelInventoryByRoomHandler(roomId).catch(() => []);
-    (apparelInv || []).forEach(inv => {
-      merged.push({
-        itemType: 'apparel',
-        inventoryId: inv.apparelInventoryId ?? inv.id ?? null,
-        name: inv.apparelName ?? inv.name ?? `Apparel #${inv.apparelInventoryId || inv.id || ''}`,
-        totalQuantity: Number(inv.totalQuantity || inv.apparelQuantity || 0),
-        raw: inv
-      });
+  (apparelInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'apparel',
+      inventoryId: inv.apparelInventoryId || inv.id,
+      name: inv.apparelName || inv.name || `Apparel #${inv.apparelInventoryId || inv.id}`,
+      totalQuantity: Number(inv.totalQuantity || 0),
+      raw: inv
     });
-  } else if (sType === 'supply') {
-    const supplyInv = await getAdminSupplyInventoryByRoomHandler(roomId).catch(() => []);
-    (supplyInv || []).forEach(inv => {
-      merged.push({
-        itemType: 'supply',
-        inventoryId: inv.adminSupplyInventoryId ?? inv.id ?? null,
-        name: inv.supplyName ?? inv.name ?? `Supply #${inv.adminSupplyInventoryId || inv.id || ''}`,
-        totalQuantity: Number(inv.totalQuantity || inv.supplyQuantity || 0),
-        raw: inv
-      });
-    });
-  } else if (sType === 'it') {
-    const itInv = await getItInventoryByRoomHandler(roomId).catch(() => []);
-    (itInv || []).forEach(inv => {
-      merged.push({
-        itemType: 'it',
-        inventoryId: inv.itInventoryId ?? inv.id ?? null,
-        name: inv.itName ?? inv.name ?? `IT #${inv.itInventoryId || inv.id || ''}`,
-        totalQuantity: Number(inv.totalQuantity || 0),
-        raw: inv
-      });
-    });
-  } else {
-    // 'maintenance', 'general', or any other stockroomType → GenItem inventory
-    const genInv = await getGenItemInventoryByRoomHandler(roomId).catch(() => []);
-    (genInv || []).forEach(inv => {
-      merged.push({
-        itemType: 'genItem',
-        inventoryId: inv.genItemInventoryId ?? inv.id ?? null,
-        name: inv.genItemName ?? inv.name ?? `Item #${inv.genItemInventoryId || inv.id || ''}`,
-        totalQuantity: Number(inv.totalQuantity || inv.genItemQuantity || 0),
-        raw: inv
-      });
-    });
-  }
+  });
 
-  // stable sort by name for consistent UI
+  (supplyInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'supply',
+      inventoryId: inv.adminSupplyInventoryId || inv.id,
+      name: inv.supplyName || inv.name || `Supply #${inv.adminSupplyInventoryId || inv.id}`,
+      totalQuantity: Number(inv.totalQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (itInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'it',
+      inventoryId: inv.itInventoryId || inv.id,
+      name: inv.itName || inv.name || `IT #${inv.itInventoryId || inv.id}`,
+      totalQuantity: Number(inv.totalQuantity || 0),
+      raw: inv
+    });
+  });
+
+  (genInv || []).forEach(inv => {
+    merged.push({
+      itemType: 'genItem',
+      inventoryId: inv.genItemInventoryId || inv.id,
+      name: inv.genItemName || inv.name || `Item #${inv.genItemInventoryId || inv.id}`,
+      totalQuantity: Number(inv.totalQuantity || 0),
+      raw: inv
+    });
+  });
+
+  // Sort alphabetically for consistent UI
   merged.sort((a, b) => (a.name || '').toString().localeCompare((b.name || '').toString()));
 
   return merged;

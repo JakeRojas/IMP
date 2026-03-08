@@ -488,15 +488,15 @@ function dbAssociations() {
   db.Borrow.belongsTo(db.Room, { foreignKey: 'roomId', as: 'room' });
 
   // polymorphic item joins (no FK constraints)
-  db.Borrow.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false });
+  db.Borrow.belongsTo(db.ApparelInventory, { foreignKey: 'itemId', constraints: false, as: 'apparel' });
   db.ApparelInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 
-  db.Borrow.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false });
+  db.Borrow.belongsTo(db.AdminSupplyInventory, { foreignKey: 'itemId', constraints: false, as: 'adminSupply' });
   db.AdminSupplyInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 
-  db.Borrow.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false });
+  db.Borrow.belongsTo(db.GenItemInventory, { foreignKey: 'itemId', constraints: false, as: 'generalItem' });
   db.GenItemInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 
-  db.Borrow.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false });
+  db.Borrow.belongsTo(db.ItInventory, { foreignKey: 'itemId', constraints: false, as: 'it' });
   db.ItInventory.hasMany(db.Borrow, { foreignKey: 'itemId', constraints: false });
 }

@@ -15,6 +15,7 @@ module.exports = {
 };
 
 async function createBorrow(payload, ipAddress, browserInfo) {
+  console.log('[DEBUG] createBorrow called with payload:', JSON.stringify(payload));
   const { requesterId, roomId, quantity = 1 } = payload;
   if (!requesterId || !roomId) throw { status: 400, message: 'Missing required fields' };
   const q = parseInt(quantity, 10);
@@ -24,6 +25,7 @@ async function createBorrow(payload, ipAddress, browserInfo) {
     requesterId,
     roomId,
     itemId: payload.itemId || null,
+    itemType: payload.itemType || null,
     quantity: q,
     note: payload.note || null,
     status: 'waiting_for_approval'
@@ -46,10 +48,15 @@ async function listBorrows({ where = {}, limit = 200, offset = 0 } = {}) {
     include: [
       { model: db.Account, as: 'requester', attributes: ['accountId', 'firstName', 'lastName'], required: false },
       { model: db.Room, as: 'room', attributes: ['roomId', 'roomName', 'roomInCharge'], required: false },
+      { model: db.ApparelInventory, as: 'apparel', required: false },
+      { model: db.AdminSupplyInventory, as: 'adminSupply', required: false },
+      { model: db.GenItemInventory, as: 'generalItem', required: false },
+      { model: db.ItInventory, as: 'it', required: false },
     ]
   });
 
-  return { rows, count };
+  const normalized = rows.map(r => _normalizeBorrow(r));
+  return { rows: normalized, count };
 }
 async function getById(id) {
   if (!id) throw { status: 400, message: 'id required' };
@@ -58,16 +65,17 @@ async function getById(id) {
 
   const r = await db.Borrow.findByPk(n, {
     include: [
-      { model: db.Account, as: 'requester', foreignKey: 'requesterId' },
-      { model: db.Room, as: 'room', foreignKey: 'roomId' },
-      { model: db.ApparelInventory, foreignKey: 'itemId', as: 'apparel', constraints: false },
-      { model: db.AdminSupplyInventory, foreignKey: 'itemId', as: 'adminSupply', constraints: false },
-      { model: db.GenItemInventory, foreignKey: 'itemId', as: 'generalItem', constraints: false },
+      { model: db.Account, as: 'requester' },
+      { model: db.Room, as: 'room' },
+      { model: db.ApparelInventory, as: 'apparel' },
+      { model: db.AdminSupplyInventory, as: 'adminSupply' },
+      { model: db.GenItemInventory, as: 'generalItem' },
+      { model: db.ItInventory, as: 'it' },
     ]
   });
 
   if (!r) throw { status: 404, message: 'Borrow not found' };
-  return r;
+  return _normalizeBorrow(r);
 }
 
 async function _getCallerId(user) {
@@ -75,24 +83,34 @@ async function _getCallerId(user) {
   const id = user?.accountId ?? user?.id ?? user?.userId ?? null;
   return id == null ? null : String(id);
 }
-async function getInventoryModelForItemId(db, id, transaction) {
+async function getInventoryModelForItemId(db, id, t, typeHint = null) {
   if (!id) return null;
 
-  // Try each model; return the first that contains a row with this PK.
-  const models = [
-    { key: 'apparel', model: db.ApparelInventory },
-    { key: 'supply', model: db.AdminSupplyInventory },
-    { key: 'genitem', model: db.GenItemInventory }
-  ];
+  const models = [];
+  if (typeHint === 'apparel') models.push({ key: 'apparel', model: db.ApparelInventory });
+  else if (typeHint === 'supply') models.push({ key: 'supply', model: db.AdminSupplyInventory });
+  else if (typeHint === 'genitem' || typeHint === 'genItem') models.push({ key: 'genitem', model: db.GenItemInventory });
+  else if (typeHint === 'it') models.push({ key: 'it', model: db.ItInventory });
+  else {
+    // search all if no hint
+    models.push({ key: 'apparel', model: db.ApparelInventory });
+    models.push({ key: 'supply', model: db.AdminSupplyInventory });
+    models.push({ key: 'genitem', model: db.GenItemInventory });
+    models.push({ key: 'it', model: db.ItInventory });
+  }
 
   for (const m of models) {
     if (!m.model) continue;
-    // use transaction and lock if provided
-    const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};
-    const row = await m.model.findByPk(id, opts);
-    if (row) {
-      return { key: m.key, model: m.model, row };
-    }
+    const opts = t ? { transaction: t, lock: t.LOCK.UPDATE } : {};
+
+    // We search by the specific primary key field if we can, otherwise by findByPk
+    const pk = m.model.primaryKeyAttribute || 'id';
+    const row = await m.model.findOne({
+      where: { [pk]: id },
+      ...opts
+    });
+
+    if (row) return { key: m.key, model: m.model, row };
   }
   return null;
 }
@@ -280,7 +298,7 @@ async function acquireBorrow(borrowId, user, ipAddress, browserInfo) {
     const itemId = borrow.itemId;
     if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
 
-    const invInfo = await getInventoryModelForItemId(db, itemId, t);
+    const invInfo = await getInventoryModelForItemId(db, itemId, t, borrow.itemType);
     if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
 
     const inv = invInfo.row;
@@ -417,7 +435,7 @@ async function acceptReturn(borrowId, user, ipAddress, browserInfo) {
     const itemId = borrow.itemId;
     if (!itemId) throw { status: 400, message: 'Borrow has no itemId' };
 
-    const invInfo = await getInventoryModelForItemId(db, itemId, t);
+    const invInfo = await getInventoryModelForItemId(db, itemId, t, borrow.itemType);
     if (!invInfo) throw { status: 400, message: 'Inventory item not found in any inventory table' };
 
     const inv = invInfo.row;
@@ -442,4 +460,33 @@ async function acceptReturn(borrowId, user, ipAddress, browserInfo) {
   }
 
   return result;
+}
+
+function _normalizeBorrow(b) {
+  if (!b) return b;
+  const json = b.toJSON ? b.toJSON() : b;
+
+  // Polymorphic pick: use itemType to pick the correct joined model
+  const type = (json.itemType || '').toLowerCase();
+  let item = null;
+  if (type === 'apparel') item = json.apparel;
+  else if (type === 'supply') item = json.adminSupply;
+  else if (type === 'genitem' || type === 'genItem') item = json.generalItem;
+  else if (type === 'it') item = json.it;
+
+  // Fallback for legacy records without itemType
+  if (!item) {
+    item = json.apparel || json.adminSupply || json.generalItem || json.it || null;
+  }
+
+  if (item) {
+    json.item = item;
+    // Prioritize specific fields over generic 'name'
+    json.itemName = item.itName || item.supplyName || item.apparelName || item.genItemName || item.name || item.itemName || 'Unknown Item';
+  } else {
+    // If no eager-loaded item, fallback to a descriptive placeholder
+    json.itemName = json.itemType ? `${json.itemType.toUpperCase()} Item #${json.itemId}` : 'Unknown Item';
+  }
+
+  return json;
 }

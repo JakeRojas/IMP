@@ -26,6 +26,7 @@ function createSchema(req, res, next) {
   const schema = Joi.object({
     roomId: Joi.number().integer().required(),
     itemId: Joi.number().integer().optional().allow(null),
+    itemType: Joi.string().valid('apparel', 'supply', 'genItem', 'it').optional().allow(null),
     quantity: Joi.number().integer().min(1).required(),
     note: Joi.string().max(500).optional().allow(null)
   });
@@ -50,6 +51,7 @@ async function listBorrows(req, res, next) {
     if (req.query.status) where.status = req.query.status;
     if (req.query.requesterId) where.requesterId = req.query.requesterId;
     if (req.query.roomId) where.roomId = req.query.roomId;
+    if (req.query.itemType) where.itemType = req.query.itemType;
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;

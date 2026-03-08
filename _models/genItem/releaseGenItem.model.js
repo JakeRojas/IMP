@@ -15,7 +15,7 @@ module.exports = (sequelize) => {
         releaseItemQuantity: { type: DataTypes.INTEGER, allowNull: false },
         genItemType: {
             type: DataTypes.ENUM(
-                'it', 'maintenance', 'unknownType'
+                'maintenance', 'unknownType'
             ),
             allowNull: false
         },

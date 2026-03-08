@@ -170,7 +170,7 @@ function receiveGenItemSchema(req, res, next) {
     genItemName: Joi.string().trim().min(1).max(200).required(),
     genItemSize: Joi.string().trim().max(50).allow('', null).optional(),
     genItemQuantity: Joi.number().integer().min(1).required(),
-    genItemType: Joi.string().lowercase().valid('maintenance', 'it', 'unknownType').required(),
+    genItemType: Joi.string().lowercase().valid('maintenance', 'unknownType').required(),
 
     receivedFrom: Joi.string().trim().min(1).max(200).required(),
     receivedBy: Joi.number().integer().min(1).required(),
