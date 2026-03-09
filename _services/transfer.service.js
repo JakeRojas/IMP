@@ -380,6 +380,9 @@ async function receiveTransfer(transferId, receiverId, receiverRole, ipAddress, 
     const typeNorm = String(tr.itemType || '').toLowerCase();
     await createReceiveBatchAndUnits(typeNorm, destInv, Number(tr.quantity), tr, receiverId, txn);
 
+    // Delete units from source room (deduct from receiving room unit list)
+    await deleteUnitsFromSource(typeNorm, tr.itemId, tr.fromRoomId, Number(tr.quantity), txn);
+
     // Update transfer status
     await tr.update({
       status: 'received',
@@ -494,7 +497,7 @@ async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId
         receiveAdminSupplyId: batch.receiveAdminSupplyId,
         adminSupplyInventoryId: destInv.adminSupplyInventoryId ?? destInv.id,
         roomId: destInv.roomId,
-        status: 'in_stock'
+        status: 'good'
       }));
       await db.AdminSupply.bulkCreate(units, { transaction: txn });
     }
@@ -516,10 +519,37 @@ async function createReceiveBatchAndUnits(typeNorm, destInv, qty, tr, accepterId
     if (db.GenItem) {
       const units = Array(qty).fill().map(() => ({
         receiveGenItemId: batch.receiveGenItemId,
+        genItemInventoryId: destInv.genItemInventoryId ?? destInv.id,
         roomId: destInv.roomId,
-        status: 'in_stock'
+        status: 'good'
       }));
       await db.GenItem.bulkCreate(units, { transaction: txn });
+    }
+    return;
+  }
+
+  // IT items
+  if (typeNorm === 'it') {
+    const batch = await db.ReceiveIt.create({
+      roomId: destInv.roomId,
+      receivedFrom: `Transfer #${tr.transferId}`,
+      receivedBy: accepterId || null,
+      itName: destInv.itName,
+      itSerialNumber: destInv.itSerialNumber || null,
+      itModel: destInv.itModel || null,
+      itBrand: destInv.itBrand || null,
+      itSize: destInv.itSize || null,
+      itQuantity: qty
+    }, { transaction: txn });
+
+    if (db.It) {
+      const units = Array(qty).fill().map(() => ({
+        receiveItId: batch.receiveItId,
+        itInventoryId: destInv.itInventoryId ?? destInv.id,
+        roomId: destInv.roomId,
+        status: 'good'
+      }));
+      await db.It.bulkCreate(units, { transaction: txn });
     }
     return;
   }
@@ -586,6 +616,7 @@ function inventoryModelFor(itemType) {
   if (itemType === 'apparel') return db.ApparelInventory;
   if (itemType === 'supply') return db.AdminSupplyInventory;
   if (itemType === 'genItem') return db.GenItemInventory;
+  if (itemType === 'it') return db.ItInventory;
   return null;
 }
 async function findOrCreateMatchingInventory(model, exampleInv, roomId, opts = {}) {
@@ -615,6 +646,19 @@ async function findOrCreateMatchingInventory(model, exampleInv, roomId, opts = {
     const [inv] = await db.GenItemInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction });
     return inv;
   }
+  // IT
+  if (model === db.ItInventory) {
+    const where = {
+      roomId,
+      itName: exampleInv.itName,
+      itSerialNumber: exampleInv.itSerialNumber || null,
+      itModel: exampleInv.itModel || null,
+      itBrand: exampleInv.itBrand || null,
+      itSize: exampleInv.itSize || null
+    };
+    const [inv] = await db.ItInventory.findOrCreate({ where, defaults: Object.assign({ totalQuantity: 0 }, where), transaction });
+    return inv;
+  }
 
   const [fallback] = await model.findOrCreate({ where: { roomId }, defaults: { totalQuantity: 0, roomId }, transaction });
   return fallback;
@@ -630,7 +674,8 @@ async function getById(id) {
       { model: db.Account, as: 'receiver', attributes: ['firstName', 'lastName'], required: false },
       { model: db.ApparelInventory, required: false },
       { model: db.AdminSupplyInventory, required: false },
-      { model: db.GenItemInventory, required: false }
+      { model: db.GenItemInventory, required: false },
+      { model: db.ItInventory, required: false }
     ]
   });
 }
@@ -678,4 +723,68 @@ async function listTransfers({ where = {}, limit = 200, offset = 0 } = {}) {
     include
   });
   return { rows, count };
+}
+
+async function deleteUnitsFromSource(typeNorm, itemId, fromRoomId, qty, txn) {
+  if (!qty || qty <= 0) return;
+
+  // apparel
+  if (typeNorm === 'apparel') {
+    if (db.Apparel) {
+      await db.Apparel.destroy({
+        where: {
+          apparelInventoryId: itemId,
+          roomId: fromRoomId
+        },
+        limit: qty,
+        transaction: txn
+      });
+    }
+    return;
+  }
+
+  // admin supply
+  if (typeNorm.includes('supply')) {
+    if (db.AdminSupply) {
+      await db.AdminSupply.destroy({
+        where: {
+          adminSupplyInventoryId: itemId,
+          roomId: fromRoomId
+        },
+        limit: qty,
+        transaction: txn
+      });
+    }
+    return;
+  }
+
+  // gen items
+  if (typeNorm.includes('gen')) {
+    if (db.GenItem) {
+      await db.GenItem.destroy({
+        where: {
+          genItemInventoryId: itemId,
+          roomId: fromRoomId
+        },
+        limit: qty,
+        transaction: txn
+      });
+    }
+    return;
+  }
+
+  // IT items
+  if (typeNorm === 'it') {
+    if (db.It) {
+      await db.It.destroy({
+        where: {
+          itInventoryId: itemId,
+          roomId: fromRoomId
+        },
+        limit: qty,
+        transaction: txn
+      });
+    }
+    return;
+  }
 }
