@@ -360,7 +360,23 @@ async function scanItem(qrPayloadText) {
         .filter(Boolean).map(x => String(x).toLowerCase());
       for (const t of tryOrder) {
         const u = await loadUnitRecord(t, Number(parsed.unitId));
-        if (u) { parsed._detectedItemType = parsed._detectedItemType || t; return { payload: parsed, unit: u }; }
+        if (u) {
+          let match = true;
+          if (parsed.roomId && Number(u.roomId) !== Number(parsed.roomId)) match = false;
+
+          if (match && parsed.batchId) {
+            const bId = Number(parsed.batchId);
+            if (t === 'apparel' && Number(u.receiveApparelId || u.apparelInventoryId) !== bId) match = false;
+            if ((t === 'supply' || t === 'admin-supply') && Number(u.receiveAdminSupplyId || u.adminSupplyInventoryId) !== bId) match = false;
+            if (t === 'it' && Number(u.receiveItId || u.itInventoryId) !== bId) match = false;
+            if (['genitem', 'general', 'maintenance'].includes(t) && Number(u.receiveGenItemId || u.genItemInventoryId) !== bId) match = false;
+          }
+
+          if (match) {
+            parsed._detectedItemType = parsed._detectedItemType || t;
+            return { payload: parsed, unit: u };
+          }
+        }
       }
     }
 

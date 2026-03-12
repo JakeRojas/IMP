@@ -141,7 +141,7 @@ async function listItemRequests({ query = {}, limit = 100, offset = 0 } = {}) {
     offset,
     include: [
       { model: db.Room, as: 'Room', attributes: ['roomId', 'roomName'] },
-      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName', 'roomInCharge'] },
+      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName', 'roomInCharge', 'stockroomType'] },
       { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] }
     ]
   });
@@ -152,7 +152,7 @@ async function getItemRequestById(id) {
   const r = await db.ItemRequest.findByPk(id, {
     include: [
       { model: db.Room, as: 'Room', attributes: ['roomId', 'roomName'] },
-      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName'] },
+      { model: db.Room, as: 'requestToRoom', attributes: ['roomId', 'roomName', 'roomInCharge', 'stockroomType'] },
       { model: db.Account, attributes: ['accountId', 'firstName', 'lastName'] },
       { model: db.ItemRequestDetail, as: 'items' }
     ]
@@ -380,6 +380,21 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
 
     if (reqRow.status !== 'accepted') throw { status: 400, message: `Cannot release request in status '${reqRow.status}'` };
 
+    // Get requester name for Release records - fetch separately to ensure data integrity
+    let requesterName = String(reqRow.accountId);
+    try {
+      const requester = await db.Account.findByPk(reqRow.accountId, {
+        attributes: ['accountId', 'firstName', 'lastName'],
+        transaction: t
+      });
+      if (requester) {
+        requesterName = `${requester.firstName || ''} ${requester.lastName || ''}`.trim() || String(reqRow.accountId);
+      }
+    } catch (e) {
+      console.error('Failed to load requester account details:', e);
+      // Continue with accountId as fallback
+    }
+
     const items = reqRow.items || [];
     if (items.length === 0) {
       // Support legacy single-item requests if no details found
@@ -392,9 +407,10 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
     }
 
     const releasedItemsInfo = [];
+    const releasesCreated = [];
     for (const item of items) {
       if (item.itemId) {
-        const invInfo = await getInventoryModelForItemId(item.itemId, t);
+        const invInfo = await getInventoryModelForItemId(item.itemId, t, item.itemType);
         if (!invInfo) {
           throw { status: 400, message: `Inventory item ${item.itemId} not found for item ${item.otherItemName || ''}` };
         }
@@ -406,9 +422,21 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
           throw { status: 400, message: `Insufficient stock for item ${item.otherItemName || item.itemId} (have ${available}, need ${qty})` };
         }
 
-        // decrease inventory
-        inv.totalQuantity = Math.max(0, available - qty);
-        await inv.save({ transaction: t });
+        // Create Release record using createReleaseForType helper
+        try {
+          const releaseRecord = await createReleaseForType(
+            { itemType: item.itemType || invInfo.key },
+            inv,
+            qty,
+            requesterName,
+            accountId,
+            { transaction: t }
+          );
+          releasesCreated.push(releaseRecord);
+        } catch (releaseErr) {
+          console.error(`Failed to create release record for item ${item.itemId}:`, releaseErr);
+          throw { status: 500, message: `Failed to create release record: ${releaseErr?.message || 'Unknown error'}` };
+        }
         releasedItemsInfo.push({ itemId: item.itemId, type: invInfo.key, qty });
       }
 
@@ -424,7 +452,7 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
     reqRow.releasedAt = new Date();
     await reqRow.save({ transaction: t });
 
-    return { reqRow, releasedItemsInfo };
+    return { reqRow, releasedItemsInfo, releasesCreated };
   });
 
   try {
@@ -433,7 +461,7 @@ async function releaseItemRequest(requestId, user, ipAddress = '', browserInfo =
       'item_request_release',
       ipAddress,
       browserInfo,
-      `requestId:${result.reqRow.itemRequestId}, itemsRel:${result.releasedItemsInfo.length}`
+      `requestId:${result.reqRow.itemRequestId}, itemsRel:${result.releasedItemsInfo.length}, releasesCreated:${result.releasesCreated.length}`
     );
   } catch (err) { console.error('activity log failed (releaseItemRequest)', err); }
 
@@ -562,7 +590,7 @@ async function fulfillItemRequest(requestId, user, ipAddress = '', browserInfo =
     for (const item of items) {
       if (!item.itemId) continue; // Skip 'other' items as they aren't in inventory
 
-      const invInfo = await getInventoryModelForItemId(item.itemId, t);
+      const invInfo = await getInventoryModelForItemId(item.itemId, t, item.itemType);
       if (!invInfo) continue; // Should we throw? For now skip to be safe.
 
       const inv = invInfo.row;
@@ -732,96 +760,204 @@ async function resolveInventory(req, opts = {}) {
   return null;
 }
 async function createReleaseForType(req, inv, qty, requesterName, releaserAccountId, opts = {}) {
+  if (!req || !req.itemType || !inv) {
+    throw { status: 400, message: 'Invalid parameters for release creation' };
+  }
+
   const tx = opts.transaction ? { transaction: opts.transaction } : {};
   const releaserLabel = releaserAccountId ? String(releaserAccountId) : 'Stockroom';
+  const itemTypeNorm = String(req.itemType || '').toLowerCase();
 
-  if (req.itemType === 'apparel') {
+  // Helper to get primary key value from inventory object
+  const getPkValue = (inventory, type) => {
+    if (type === 'apparel') return inventory.apparelInventoryId || inventory.id;
+    if (type === 'supply') return inventory.adminSupplyInventoryId || inventory.id;
+    if (type === 'genitem') return inventory.genItemInventoryId || inventory.id;
+    if (type === 'it') return inventory.itInventoryId || inventory.id;
+    return inventory.id;
+  };
+
+  if (itemTypeNorm === 'apparel') {
+    if (!db.ReleaseApparel) {
+      throw { status: 500, message: 'ReleaseApparel model not available' };
+    }
+    const pkValue = getPkValue(inv, 'apparel');
+    if (!pkValue) {
+      throw { status: 400, message: 'Cannot determine apparelInventoryId from inventory object' };
+    }
     const release = await db.ReleaseApparel.create({
       roomId: inv.roomId,
-      apparelInventoryId: inv.apparelInventoryId ?? inv.id,
+      apparelInventoryId: pkValue,
       releasedBy: releaserLabel,
       claimedBy: requesterName,
-      releaseApparelQuantity: qty
+      releaseApparelQuantity: qty,
+      accountId: releaserAccountId
     }, tx);
 
     // deduct inventory aggregate
-    inv.totalQuantity = (inv.totalQuantity || 0) - qty;
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) - qty);
     await inv.save(tx);
 
     // mark per-unit Apparel rows as released (best-effort)
     if (db.Apparel && qty > 0) {
-      const units = await db.Apparel.findAll({
-        where: { apparelInventoryId: inv.apparelInventoryId ?? inv.id, status: 'good' }, // 'good' is your in-stock apparel enum
-        limit: qty,
-        order: [['apparelId', 'ASC']],
-        ...tx
-      });
-      await Promise.all(units.map(u => { u.status = 'released'; return u.save(tx); }));
+      try {
+        const units = await db.Apparel.findAll({
+          where: { apparelInventoryId: pkValue, status: 'good' },
+          limit: qty,
+          order: [['apparelId', 'ASC']],
+          ...tx
+        });
+        const unitIds = units.map(u => u.apparelId);
+        if (unitIds.length > 0) {
+          await db.Apparel.destroy({
+            where: { apparelId: { [db.Sequelize.Op.in]: unitIds } },
+            ...tx
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to remove per-unit Apparel rows:', e);
+      }
     }
 
     return release;
   }
 
-  if (req.itemType === 'supply') {
-    let release = null;
-    if (db.ReleaseAdminSupply) {
-      release = await db.ReleaseAdminSupply.create({
-        roomId: inv.roomId,
-        adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id,
-        releasedBy: releaserLabel,
-        claimedBy: requesterName,
-        releaseAdminSupplyQuantity: qty
-      }, tx);
-    } else {
-      release = { note: 'AdminSupply released (no ReleaseAdminSupply model)', inventoryId: inv.adminSupplyInventoryId ?? inv.id, qty };
+  if (itemTypeNorm === 'supply') {
+    if (!db.ReleaseAdminSupply) {
+      throw { status: 500, message: 'ReleaseAdminSupply model not available' };
     }
+    const pkValue = getPkValue(inv, 'supply');
+    if (!pkValue) {
+      console.error('Release creation failed: pkValue is null. Inventory Object:', JSON.stringify(inv, null, 2), 'Type:', itemTypeNorm);
+      throw { status: 400, message: `Cannot determine adminSupplyInventoryId from inventory object (type: ${itemTypeNorm})` };
+    }
+    const release = await db.ReleaseAdminSupply.create({
+      roomId: inv.roomId,
+      adminSupplyInventoryId: pkValue,
+      releasedBy: releaserLabel,
+      claimedBy: requesterName,
+      releaseAdminSupplyQuantity: qty,
+      accountId: releaserAccountId
+    }, tx);
 
-    inv.totalQuantity = (inv.totalQuantity || 0) - qty;
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) - qty);
     await inv.save(tx);
 
     if (db.AdminSupply && qty > 0) {
-      const units = await db.AdminSupply.findAll({
-        where: { adminSupplyInventoryId: inv.adminSupplyInventoryId ?? inv.id, status: 'good' },
-        limit: qty,
-        order: [['adminSupplyId', 'ASC']],
-        ...tx
-      });
-      await Promise.all(units.map(u => { u.status = 'released'; return u.save(tx); }));
+      try {
+        const units = await db.AdminSupply.findAll({
+          where: { adminSupplyInventoryId: pkValue, status: 'good' },
+          limit: qty,
+          order: [['adminSupplyId', 'ASC']],
+          ...tx
+        });
+        const unitIds = units.map(u => u.adminSupplyId);
+        if (unitIds.length > 0) {
+          await db.AdminSupply.destroy({
+            where: { adminSupplyId: { [db.Sequelize.Op.in]: unitIds } },
+            ...tx
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to remove per-unit AdminSupply rows:', e);
+      }
     }
 
     return release;
   }
 
-  if (req.itemType === 'genItem') {
+  if (itemTypeNorm === 'genitem') {
+    if (!db.ReleaseGenItem) {
+      throw { status: 500, message: 'ReleaseGenItem model not available' };
+    }
+    const pkValue = getPkValue(inv, 'genitem');
+    if (!pkValue) {
+      throw { status: 400, message: 'Cannot determine genItemInventoryId from inventory object' };
+    }
     const release = await db.ReleaseGenItem.create({
       roomId: inv.roomId,
-      genItemInventoryId: inv.genItemInventoryId ?? inv.id,
+      genItemInventoryId: pkValue,
       releasedBy: releaserLabel,
       claimedBy: requesterName,
       releaseItemQuantity: qty,
-      genItemType: inv.genItemType
+      genItemType: inv.genItemType || 'unknownType',
+      accountId: releaserAccountId
     }, tx);
 
-    inv.totalQuantity = (inv.totalQuantity || 0) - qty;
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) - qty);
     await inv.save(tx);
 
     if (db.GenItem && qty > 0) {
-      const units = await db.GenItem.findAll({
-        where: { genItemInventoryId: inv.genItemInventoryId ?? inv.id, status: 'good' },
-        limit: qty,
-        order: [['genItemId', 'ASC']],
-        ...tx
-      });
-      await Promise.all(units.map(u => { u.status = 'released'; return u.save(tx); }));
+      try {
+        const units = await db.GenItem.findAll({
+          where: { genItemInventoryId: pkValue, status: 'good' },
+          limit: qty,
+          order: [['genItemId', 'ASC']],
+          ...tx
+        });
+        const unitIds = units.map(u => u.genItemId);
+        if (unitIds.length > 0) {
+          await db.GenItem.destroy({
+            where: { genItemId: { [db.Sequelize.Op.in]: unitIds } },
+            ...tx
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to remove per-unit GenItem rows:', e);
+      }
     }
 
     return release;
   }
 
-  throw { status: 500, message: 'Unsupported itemType for release' };
+  if (itemTypeNorm === 'it') {
+    if (!db.ReleaseIt) {
+      throw { status: 500, message: 'ReleaseIt model not available' };
+    }
+    const pkValue = getPkValue(inv, 'it');
+    if (!pkValue) {
+      throw { status: 400, message: 'Cannot determine itInventoryId from inventory object' };
+    }
+    const release = await db.ReleaseIt.create({
+      roomId: inv.roomId,
+      itInventoryId: pkValue,
+      releasedBy: releaserLabel,
+      claimedBy: requesterName,
+      releaseItemQuantity: qty,
+      accountId: releaserAccountId
+    }, tx);
+
+    inv.totalQuantity = Math.max(0, (inv.totalQuantity || 0) - qty);
+    await inv.save(tx);
+
+    if (db.It && qty > 0) {
+      try {
+        const units = await db.It.findAll({
+          where: { itInventoryId: pkValue, status: 'good' },
+          limit: qty,
+          order: [['itId', 'ASC']],
+          ...tx
+        });
+        const unitIds = units.map(u => u.itId);
+        if (unitIds.length > 0) {
+          await db.It.destroy({
+            where: { itId: { [db.Sequelize.Op.in]: unitIds } },
+            ...tx
+          });
+        }
+      } catch (e) {
+        console.warn('Failed to remove per-unit It rows:', e);
+      }
+    }
+
+    return release;
+  }
+
+  throw { status: 400, message: `Unsupported or invalid itemType: '${req.itemType}'` };
 }
-async function getInventoryModelForItemId(id, transaction) {
+async function getInventoryModelForItemId(id, transaction, suggestedType = null) {
   if (!id) return null;
+
   const candidates = [
     { key: 'apparel', model: db.ApparelInventory },
     { key: 'supply', model: db.AdminSupplyInventory },
@@ -829,6 +965,23 @@ async function getInventoryModelForItemId(id, transaction) {
     { key: 'genitem', model: db.GenItemInventory }
   ];
 
+  // 1. Try suggested type first to avoid ID collisions
+  if (suggestedType) {
+    const s = String(suggestedType).toLowerCase();
+    const found = candidates.find(c =>
+      c.key === s ||
+      (s === 'admin-supply' && c.key === 'supply') ||
+      (s === 'admin supply' && c.key === 'supply') ||
+      (s === 'genitem' && (c.key === 'genitem' || c.key === 'maintenance'))
+    );
+    if (found && found.model) {
+      const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};
+      const r = await found.model.findByPk(id, opts);
+      if (r) return { key: found.key, model: found.model, row: r };
+    }
+  }
+
+  // 2. Blind search fallback
   for (const c of candidates) {
     if (!c.model) continue;
     const opts = transaction ? { transaction, lock: transaction.LOCK.UPDATE } : {};

@@ -566,7 +566,8 @@ async function getReceiveApparelsByRoomHandler(roomId) {
 async function getApparelUnitsByRoomHandler(roomId, query = {}) {
   const options = {
     where: { roomId: roomId },
-    order: [['apparelId', 'ASC']]
+    order: [['apparelId', 'ASC']],
+    include: [{ model: db.ApparelInventory, required: false }]
   };
 
   const limit = parseInt(query.limit);
@@ -619,7 +620,8 @@ async function getReceiveAdminSupplyByRoomHandler(roomId) {
 async function getAdminSupplyUnitsByRoomHandler(roomId, query = {}) {
   const options = {
     where: { roomId: roomId },
-    order: [['adminSupplyId', 'ASC']]
+    order: [['adminSupplyId', 'ASC']],
+    include: [{ model: db.AdminSupplyInventory, required: false }]
   };
 
   const limit = parseInt(query.limit);
@@ -684,7 +686,8 @@ async function getReceiveItByRoomHandler(roomId) {
 async function getGenItemUnitsByRoomHandler(roomId, query = {}) {
   const options = {
     where: { roomId: roomId },
-    order: [['genItemId', 'ASC']]
+    order: [['genItemId', 'ASC']],
+    include: [{ model: db.GenItemInventory, required: false }]
   };
 
   const limit = parseInt(query.limit);
@@ -970,7 +973,7 @@ async function releaseGenItemInRoomHandler(roomId, payload, user, ipAddress, bro
       }
     }
 
-    const qty = Number(payload.releaseItemQuantity || 1);
+    const qty = payload.releaseItemQuantity != null ? Number(payload.releaseItemQuantity) : 1;
     if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
     const [inv] = await db.GenItemInventory.findOrCreate({
@@ -1065,7 +1068,7 @@ async function releaseItInRoomHandler(roomId, payload, user, ipAddress, browserI
       }
     }
 
-    const qty = Number(payload.releaseItemQuantity || 1);
+    const qty = payload.releaseItemQuantity != null ? Number(payload.releaseItemQuantity) : 1;
     if (!Number.isInteger(qty) || qty <= 0) throw { status: 400, message: 'Invalid release quantity' };
 
     const [inv] = await db.ItInventory.findOrCreate({

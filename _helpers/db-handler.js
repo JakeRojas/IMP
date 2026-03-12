@@ -41,145 +41,152 @@ let sequelize; // declared in module scope so it's available after initializatio
 initialize();
 
 async function initialize() {
-  try {
-    const connOptions = {
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-    };
+  let currentHost = DB_HOST;
+  let currentPort = DB_PORT;
+  let currentUser = DB_USER;
+  let currentPassword = DB_PASSWORD;
+  let currentDbName = DB_NAME;
+  let currentSsl = null;
 
-    let sslConfig = null;
-    if (process.env.DB_CA_PATH) {
-      try {
-        const caPath = path.resolve(process.env.DB_CA_PATH);
-        if (fs.existsSync(caPath)) {
-          sslConfig = { ca: fs.readFileSync(caPath) };
-          console.log(`Using CA certificate from: ${caPath}`);
-        } else {
-          console.warn(`CA certificate file not found at: ${caPath}`);
-          // Fallback to simple SSL if required but path is wrong? 
-          sslConfig = { rejectUnauthorized: false };
-        }
-      } catch (err) {
-        console.error('Error reading CA certificate:', err);
-        sslConfig = { rejectUnauthorized: false };
+  // Initial SSL preparation
+  if (process.env.DB_CA_PATH) {
+    try {
+      const caPath = path.resolve(process.env.DB_CA_PATH);
+      if (fs.existsSync(caPath)) {
+        currentSsl = { ca: fs.readFileSync(caPath) };
+        console.log(`Using CA certificate from: ${caPath}`);
+      } else {
+        console.warn(`CA certificate file not found at: ${caPath}`);
+        currentSsl = { rejectUnauthorized: false };
       }
-    } else if (process.env.DB_SSL === 'REQUIRED' || process.env.DB_SSL === 'true') {
-      sslConfig = { rejectUnauthorized: false };
+    } catch (err) {
+      console.error('Error reading CA certificate:', err);
+      currentSsl = { rejectUnauthorized: false };
     }
-
-    if (sslConfig) {
-      connOptions.ssl = sslConfig;
-    }
-
-    console.log(`Attempting MySQL connection to ${DB_HOST}:${DB_PORT} as ${DB_USER}`);
-
-    const connection = await mysql.createConnection(connOptions);
-
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;`);
-    await connection.end();
-
-    const sequelizeOptions = {
-      host: DB_HOST,
-      dialect: 'mysql',
-      port: DB_PORT,
-      logging: false,
-    };
-
-    if (sslConfig) {
-      sequelizeOptions.dialectOptions = { ssl: sslConfig };
-    }
-
-    sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, sequelizeOptions);
-
-    db.sequelize = sequelize;
-    db.Sequelize = Sequelize;
-
-    // Initialize models and add them to the exported `db` object
-    db.Room = require('../_models/room.model')(sequelize);
-    db.Account = require('../_models/account.model')(sequelize);
-    db.ActivityLog = require('../_models/activitylog.model')(sequelize);
-    db.RefreshToken = require('../_models/refresh-token.model')(sequelize);
-    db.RoomAccess = require('../_models/room-access.model')(sequelize);
-
-    // Apparel models
-    db.Apparel = require('../_models/apparel/apparel.model')(sequelize);
-    db.ReceiveApparel = require('../_models/apparel/receiveApparel.model')(sequelize);
-    db.ReleaseApparel = require('../_models/apparel/releaseApparel.model')(sequelize);
-    db.ApparelInventory = require('../_models/apparel/apparelInventory.model')(sequelize);
-
-    // Admin Supply models
-    db.AdminSupply = require('../_models/adminSupply/adminSupply.model')(sequelize);
-    db.ReceiveAdminSupply = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
-    db.ReleaseAdminSupply = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
-    db.AdminSupplyInventory = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
-
-    // Item models
-    db.GenItem = require('../_models/genItem/genItem.model')(sequelize);
-    db.ReceiveGenItem = require('../_models/genItem/receiveGenItem.model')(sequelize);
-    db.ReleaseGenItem = require('../_models/genItem/releaseGenItem.model')(sequelize);
-    db.GenItemInventory = require('../_models/genItem/genItemInventory.model')(sequelize);
-
-    // IT models
-    db.It = require('../_models/it/it.model')(sequelize);
-    db.ReceiveIt = require('../_models/it/receiveIt.model')(sequelize);
-    db.ReleaseIt = require('../_models/it/releaseIt.model')(sequelize);
-    db.ItInventory = require('../_models/it/itInventory.model')(sequelize);
-
-    // Qr code models
-    db.Qr = require('../_models/qr.model')(sequelize);
-
-    // Request models
-    db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
-    db.ItemRequest = require('../_models/request/item.request.model')(sequelize);
-    db.ItemRequestDetail = require('../_models/request/item.request.detail.model')(sequelize);
-
-    // Transfer models
-    db.Transfer = require('../_models/transfer.model')(sequelize);
-    db.Borrow = require('../_models/borrow.model')(sequelize);
-
-    // If any models define associations, call them now
-    Object.keys(db).forEach((modelName) => {
-      if (db[modelName] && typeof db[modelName].associate === 'function') {
-        db[modelName].associate(db);
-      }
-    });
-
-    dbAssociations();
-
-    // =====================================================================
-    // DANGER ZONE: TEMPORARY SCRIPT TO WIPE BOTH LOCAL AND LIVE DATABASES!
-    // Uncomment this block below when you need to completely erase all data, 
-    // run the app once, then comment it out again afterwards for safety.
-    // =====================================================================
-
-    /* console.log("Starting full database wipe...");
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
-    await sequelize.sync({ force: true });
-    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
-    console.log("DATABASE WIPED AND RESET SUCCESSFULLY."); */
-
-    // =====================================================================
-
-    // Sync models to DB when in non-production for convenience.
-    // WARNING: avoid alter:true in real production; prefer migrations.
-    if (process.env.NODE_ENV !== 'production') {
-      // Note: alter: true currently bypassed locally due to 'Duplicate foreign key constraint name' MySQL bug with newly added tables. 
-      // Safe to run as-is because the tables have already been created via sync().
-      await sequelize.sync();
-      console.log('Sequelize sync finished (alter: true bypassed).');
-    } else {
-      await sequelize.sync();
-      console.log('Sequelize sync finished on Production.');
-    }
-
-    console.log('Database initialized successfully.');
-  } catch (err) {
-    console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
-    // Fail fast so deploy logs show the error. Change to retry logic if desired.
-    process.exit(1);
+  } else if (process.env.DB_SSL === 'REQUIRED' || process.env.DB_SSL === 'true') {
+    currentSsl = { rejectUnauthorized: false };
   }
+
+  try {
+    await attemptConnection(currentHost, currentPort, currentUser, currentPassword, currentDbName, currentSsl);
+  } catch (err) {
+    const isNetworkError = err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT' || err.code === 'ECONNREFUSED';
+
+    if (isNetworkError && currentHost !== 'localhost') {
+      console.warn(`\n[OFFLINE MODE] Primary database at ${currentHost} is unreachable (Error: ${err.code}).`);
+      console.warn(`Attempting fallback to local MySQL on localhost:3306...`);
+
+      // Fallback settings
+      currentHost = 'localhost';
+      currentPort = 3306;
+      currentUser = 'root';
+      currentPassword = 'root';
+      currentDbName = 'imp_db'; // Using the local database name discovered
+      currentSsl = null; // No SSL needed for local usually
+
+      try {
+        await attemptConnection(currentHost, currentPort, currentUser, currentPassword, currentDbName, currentSsl);
+        console.log(`\n[SUCCESS] Connected to local fallback database: ${currentDbName}`);
+      } catch (fallbackErr) {
+        console.error('\n[CRITICAL] Both primary and local fallback database connections failed.');
+        console.error('Local Fallback Error:', fallbackErr.message);
+        process.exit(1);
+      }
+    } else {
+      console.error('Database initialization FAILED:', err && err.stack ? err.stack : err);
+      process.exit(1);
+    }
+  }
+}
+
+async function attemptConnection(host, port, user, password, database, ssl) {
+  const connOptions = { host, port, user, password };
+  if (ssl) connOptions.ssl = ssl;
+
+  console.log(`Attempting MySQL connection to ${host}:${port} as ${user}...`);
+  const connection = await mysql.createConnection(connOptions);
+
+  await connection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
+  await connection.end();
+
+  const sequelizeOptions = {
+    host: host,
+    dialect: 'mysql',
+    port: port,
+    logging: false,
+  };
+
+  if (ssl) {
+    sequelizeOptions.dialectOptions = { ssl: ssl };
+  }
+
+  sequelize = new Sequelize(database, user, password, sequelizeOptions);
+
+  db.sequelize = sequelize;
+  db.Sequelize = Sequelize;
+
+  // Initialize models and add them to the exported `db` object
+  db.Room = require('../_models/room.model')(sequelize);
+  db.Account = require('../_models/account.model')(sequelize);
+  db.ActivityLog = require('../_models/activitylog.model')(sequelize);
+  db.RefreshToken = require('../_models/refresh-token.model')(sequelize);
+  db.RoomAccess = require('../_models/room-access.model')(sequelize);
+
+  // Apparel models
+  db.Apparel = require('../_models/apparel/apparel.model')(sequelize);
+  db.ReceiveApparel = require('../_models/apparel/receiveApparel.model')(sequelize);
+  db.ReleaseApparel = require('../_models/apparel/releaseApparel.model')(sequelize);
+  db.ApparelInventory = require('../_models/apparel/apparelInventory.model')(sequelize);
+
+  // Admin Supply models
+  db.AdminSupply = require('../_models/adminSupply/adminSupply.model')(sequelize);
+  db.ReceiveAdminSupply = require('../_models/adminSupply/receiveAdminSupply.model')(sequelize);
+  db.ReleaseAdminSupply = require('../_models/adminSupply/releaseAdminSupply.model')(sequelize);
+  db.AdminSupplyInventory = require('../_models/adminSupply/adminSupplyInventory.model')(sequelize);
+
+  // Item models
+  db.GenItem = require('../_models/genItem/genItem.model')(sequelize);
+  db.ReceiveGenItem = require('../_models/genItem/receiveGenItem.model')(sequelize);
+  db.ReleaseGenItem = require('../_models/genItem/releaseGenItem.model')(sequelize);
+  db.GenItemInventory = require('../_models/genItem/genItemInventory.model')(sequelize);
+
+  // IT models
+  db.It = require('../_models/it/it.model')(sequelize);
+  db.ReceiveIt = require('../_models/it/receiveIt.model')(sequelize);
+  db.ReleaseIt = require('../_models/it/releaseIt.model')(sequelize);
+  db.ItInventory = require('../_models/it/itInventory.model')(sequelize);
+
+  // Qr code models
+  db.Qr = require('../_models/qr.model')(sequelize);
+
+  // Request models
+  db.StockRequest = require('../_models/request/stock.request.model')(sequelize);
+  db.ItemRequest = require('../_models/request/item.request.model')(sequelize);
+  db.ItemRequestDetail = require('../_models/request/item.request.detail.model')(sequelize);
+
+  // Transfer models
+  db.Transfer = require('../_models/transfer.model')(sequelize);
+  db.Borrow = require('../_models/borrow.model')(sequelize);
+
+  // If any models define associations, call them now
+  Object.keys(db).forEach((modelName) => {
+    if (db[modelName] && typeof db[modelName].associate === 'function') {
+      db[modelName].associate(db);
+    }
+  });
+
+  dbAssociations();
+
+  // Sync models to DB
+  if (process.env.NODE_ENV !== 'production') {
+    await sequelize.sync();
+    console.log('Sequelize sync finished.');
+  } else {
+    await sequelize.sync();
+    console.log('Sequelize sync finished on Production.');
+  }
+
+  console.log('Database initialized successfully.');
 }
 
 function dbAssociations() {

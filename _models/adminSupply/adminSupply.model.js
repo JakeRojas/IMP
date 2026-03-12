@@ -8,7 +8,7 @@ module.exports = (sequelize) => {
         receiveAdminSupplyId: { type: DataTypes.INTEGER, allowNull: false },
         // status:                 { type: DataTypes.STRING,   allowNull: false, defaultValue: 'in_stock' },
         status: {
-            type: DataTypes.ENUM('good', 'working', 'damage'),
+            type: DataTypes.ENUM('good', 'working', 'damage', 'released'),
             allowNull: false,
             defaultValue: 'good'
         },

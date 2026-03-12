@@ -10,7 +10,7 @@ module.exports = (sequelize) => {
         roomId: { type: DataTypes.INTEGER, allowNull: false },
         receiveItId: { type: DataTypes.INTEGER, allowNull: false },
         status: {
-            type: DataTypes.ENUM('good', 'working', 'damage'),
+            type: DataTypes.ENUM('good', 'working', 'damage', 'released'),
             allowNull: false,
             defaultValue: 'good'
         },

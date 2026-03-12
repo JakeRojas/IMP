@@ -13,9 +13,10 @@ router.post('/', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), createSc
 router.get('/', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), listRequests);
 router.get('/:id', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Teacher, Role.User]), getRequestById);
 
-router.post('/:id/accept', authorize([Role.SuperAdmin, Role.StockroomAdmin]), acceptRequest);
-router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin]), declineRequest);
-router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin]), releaseRequest);
+// Accept/Decline: Allow authenticated users; service layer will verify room-in-charge or SuperAdmin
+router.post('/:id/accept', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Admin, Role.User, Role.Teacher]), acceptRequest);
+router.post('/:id/decline', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Admin, Role.User, Role.Teacher]), declineRequest);
+router.post('/:id/release', authorize([Role.SuperAdmin, Role.StockroomAdmin, Role.Admin, Role.User, Role.Teacher]), releaseRequest);
 
 router.post('/:id/fulfill', authorize([Role.SuperAdmin, Role.Teacher, Role.User]), fulfillRequest);
 

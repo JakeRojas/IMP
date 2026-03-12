@@ -355,6 +355,9 @@ async function releaseGenItem(req, res, next) {
     if (req.body.releaseQuantity != null && req.body.releaseItemQuantity == null) {
       req.body.releaseItemQuantity = req.body.releaseQuantity;
     }
+    if (req.body.releaseGenItemQuantity != null && req.body.releaseItemQuantity == null) {
+      req.body.releaseItemQuantity = req.body.releaseGenItemQuantity;
+    }
 
     if (req.body.claimedBy == null) {
       req.body.claimedBy = req.user?.accountId ? String(req.user.accountId) : '';

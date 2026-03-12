@@ -41,7 +41,51 @@ async function getBatchQr(req, res, next) {
     const pngPath = out && (out.absolutePath || out.path || out.filepath);
     if (!pngPath || !fs.existsSync(pngPath)) return res.status(404).json({ message: 'QR not found' });
 
-    res.sendFile(pngPath);
+    let inv = null;
+    if (stockroomType === 'apparel') inv = await db.ApparelInventory.findByPk(inventoryId);
+    else if (stockroomType === 'supply') inv = await db.AdminSupplyInventory.findByPk(inventoryId);
+    else if (stockroomType === 'it') inv = await db.ItInventory.findByPk(inventoryId);
+    else if (['genitem', 'maintenance', 'general'].includes(stockroomType)) inv = await db.GenItemInventory.findOne({ where: { genItemInventoryId: inventoryId } });
+
+    let label = '';
+    if (inv) {
+      if (stockroomType === 'apparel') {
+        const name = (inv.apparelName || '').toUpperCase();
+        const level = (inv.apparelLevel || '').toUpperCase();
+        const size = (inv.apparelSize || '').toUpperCase();
+        label = `${name}-${level}-${size}`.replace(/-+$/, '');
+      } else if (stockroomType === 'supply') {
+        const name = (inv.supplyName || '').toUpperCase();
+        const measure = (inv.supplyMeasure || '').toUpperCase();
+        label = `${name}-${measure}`.replace(/-+$/, '');
+      } else if (stockroomType === 'it') {
+        const name = (inv.itName || '').toUpperCase();
+        const brand = (inv.itBrand || '').toUpperCase();
+        const model = (inv.itModel || '').toUpperCase();
+        label = `${name}-${brand}-${model}`.replace(/-+$/, '');
+      } else {
+        const name = (inv.genItemName || '').toUpperCase();
+        const size = (inv.genItemSize || '').toUpperCase();
+        const type = (inv.genItemType || '').toUpperCase();
+        label = `${name}-${size}-${type}`.replace(/-+$/, '');
+      }
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="qrcode-${stockroomType}-batch-${inventoryId}.pdf"`);
+
+    const doc = new PDFDocument({ autoFirstPage: false, size: 'LETTER', margin: 0 });
+    doc.pipe(res);
+    doc.addPage({ size: 'LETTER', margin: 0 });
+
+    const POINTS_PER_INCH = 72;
+    const MARGIN = 0.5 * POINTS_PER_INCH;
+    const QR_SIDE = 1 * POINTS_PER_INCH;
+
+    doc.image(pngPath, MARGIN, MARGIN, { width: QR_SIDE, height: QR_SIDE });
+    doc.fontSize(7).font('Helvetica-Bold').text(label, MARGIN, MARGIN + QR_SIDE + 2, { width: QR_SIDE, align: 'center' });
+    doc.end();
+
   } catch (err) {
     next(err);
   }
@@ -53,10 +97,22 @@ async function qrGeneratorUnit(req, res, next) {
     const unitId = parseInt(req.params.unitId, 10);
     if (!stockroomType || Number.isNaN(unitId)) return res.status(400).json({ message: 'Invalid params' });
 
-    const { filename, absolutePath } = await qrService.generateUnitQR({ stockroomType, unitId });
-    const buffer = await fs.promises.readFile(absolutePath);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.type('png').send(buffer);
+    let units = [];
+    if (stockroomType === 'apparel') units = await db.Apparel.findAll({ where: { apparelId: unitId } });
+    else if (stockroomType === 'supply') units = await db.AdminSupply.findAll({ where: { adminSupplyId: unitId } });
+    else if (stockroomType === 'it') units = await db.It.findAll({ where: { itId: unitId } });
+    else if (['genitem', 'maintenance', 'general'].includes(stockroomType)) units = await db.GenItem.findAll({ where: { genItemId: unitId } });
+
+    if (!units || !units.length) {
+      // fallback to just downloading PNG if not found in table for whatever reason
+      const { filename, absolutePath } = await qrService.generateUnitQR({ stockroomType, unitId });
+      const buffer = await fs.promises.readFile(absolutePath);
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.type('png').send(buffer);
+    }
+
+    const filename = `qrcode-${stockroomType}-unit-${unitId}.pdf`;
+    return await generatePdfForUnits(units, stockroomType, res, filename);
   } catch (err) { next(err); }
 }
 async function scanItem(req, res, next) {
@@ -123,6 +179,11 @@ async function generateAllPdf(req, res, next) {
         const name = (inv.supplyName || '').toUpperCase();
         const measure = (inv.supplyMeasure || '').toUpperCase();
         label = `${name}-${measure}`.replace(/-+$/, '');
+      } else if (stockroomType === 'it') {
+        const name = (inv.itName || '').toUpperCase();
+        const brand = (inv.itBrand || '').toUpperCase();
+        const model = (inv.itModel || '').toUpperCase();
+        label = `${name}-${brand}-${model}`.replace(/-+$/, '');
       } else {
         const name = (inv.genItemName || '').toUpperCase();
         const size = (inv.genItemSize || '').toUpperCase();
@@ -370,7 +431,7 @@ async function generateSelectedUnitsPdf(req, res, next) {
       units = await db.AdminSupply.findAll({ where: { adminSupplyId: unitIds } });
     } else if (stockroomType === 'it') {
       units = await db.It.findAll({ where: { itId: unitIds } });
-    } else if (['genitem', 'maintenance'].includes(stockroomType)) {
+    } else if (['genitem', 'maintenance', 'general'].includes(stockroomType)) {
       units = await db.GenItem.findAll({ where: { genItemId: unitIds } });
     } else if (stockroomType === 'general' || stockroomType === 'all') {
       const [u1, u2, u3] = await Promise.all([
@@ -406,7 +467,7 @@ async function generatePdfForUnits(units, stockroomType, res, downloadFilename) 
     detailedUnits = await db.AdminSupply.findAll({ where: { adminSupplyId: unitIds }, include: [db.AdminSupplyInventory, db.ReceiveAdminSupply] });
   } else if (stockroomType === 'it') {
     detailedUnits = await db.It.findAll({ where: { itId: unitIds }, include: [db.ItInventory, db.ReceiveIt] });
-  } else if (['genitem', 'maintenance'].includes(stockroomType)) {
+  } else if (['genitem', 'maintenance', 'general'].includes(stockroomType)) {
     detailedUnits = await db.GenItem.findAll({ where: { genItemId: unitIds }, include: [db.GenItemInventory, db.ReceiveGenItem] });
   } else {
     // Falls back to original units if type unknown
