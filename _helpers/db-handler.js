@@ -176,6 +176,13 @@ async function attemptConnection(host, port, user, password, database, ssl) {
   });
 
   dbAssociations();
+  
+
+  /* console.log("Starting full database wipe...");
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 0');
+    await sequelize.sync({ force: true });
+    await sequelize.query('SET FOREIGN_KEY_CHECKS = 1');
+    console.log("DATABASE WIPED AND RESET SUCCESSFULLY."); */
 
   // Sync models to DB
   if (process.env.NODE_ENV !== 'production') {
